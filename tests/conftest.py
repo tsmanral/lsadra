@@ -8,4 +8,4 @@ guards themselves (they are exercised in dedicated subprocess tests).
 
 import os
 
-os.environ.setdefault("SENTINEL_DEV_MODE", "true")
+os.environ.setdefault("LSADRA_DEV_MODE", "true")

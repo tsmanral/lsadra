@@ -18,7 +18,7 @@
 set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────
-SENTINEL_SERVER="${SENTINEL_SERVER:-https://your-sentinel-server.example.com}"
+LSADRA_SERVER="${LSADRA_SERVER:-https://your-sentinel-server.example.com}"
 INSTALL_DIR="/opt/lsadra-agent"
 CONFIG_DIR="/etc/lsadra-agent"
 CONFIG_FILE="${CONFIG_DIR}/config.yml"
@@ -30,7 +30,7 @@ TOKEN=""
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --token)  TOKEN="$2"; shift 2 ;;
-        --server) SENTINEL_SERVER="$2"; shift 2 ;;
+        --server) LSADRA_SERVER="$2"; shift 2 ;;
         *)        echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -42,7 +42,7 @@ if [[ -z "$TOKEN" ]]; then
 fi
 
 echo "==> LSADRA Agent Installer"
-echo "    Server: ${SENTINEL_SERVER}"
+echo "    Server: ${LSADRA_SERVER}"
 
 # ── 1. Create install directory ───────────────────────────────────────────
 echo "==> Creating ${INSTALL_DIR} ..."
@@ -53,7 +53,7 @@ mkdir -p "${CONFIG_DIR}"
 echo "==> Downloading agent ..."
 # In production this would pull a release artifact.  For the lab, we copy
 # the Python script directly from the server or the local repo.
-AGENT_URL="${SENTINEL_SERVER}/agent/linux_agent.py"
+AGENT_URL="${LSADRA_SERVER}/agent/linux_agent.py"
 curl -fsSL "${AGENT_URL}" -o "${INSTALL_DIR}/linux_agent.py" || {
     echo "Warning: Could not download agent from ${AGENT_URL}."
     echo "         Copy lsadra/endpoint_agent/linux_agent.py manually."
@@ -64,7 +64,7 @@ echo "==> Registering device with token ..."
 HOSTNAME_VAL=$(hostname 2>/dev/null || cat /etc/hostname 2>/dev/null || echo "linux-device")
 OS_TYPE="linux"
 
-RESPONSE=$(curl -sfS -X POST "${SENTINEL_SERVER}/api/devices/register" \
+RESPONSE=$(curl -sfS -X POST "${LSADRA_SERVER}/api/devices/register" \
     -H "Content-Type: application/json" \
     -d "{\"token\": \"${TOKEN}\", \"hostname\": \"${HOSTNAME_VAL}\", \"os_type\": \"${OS_TYPE}\"}" \
 ) || {
@@ -84,7 +84,7 @@ echo "    Collector:  ${COLLECTOR_URL}"
 echo "==> Writing config to ${CONFIG_FILE} ..."
 cat > "${CONFIG_FILE}" <<EOF
 # LSADRA Agent Configuration (auto-generated)
-server_url: "${SENTINEL_SERVER}"
+server_url: "${LSADRA_SERVER}"
 collector_endpoint: "${COLLECTOR_URL}"
 device_id: "${DEVICE_ID}"
 api_key: "${API_KEY}"
@@ -137,4 +137,4 @@ systemctl start "${SERVICE_NAME}"
 echo "==> Installation complete.  Status:"
 systemctl status "${SERVICE_NAME}" --no-pager || true
 echo ""
-echo "Done!  The agent is tailing ${LOG_PATHS} and sending events to ${SENTINEL_SERVER}."
+echo "Done!  The agent is tailing ${LOG_PATHS} and sending events to ${LSADRA_SERVER}."

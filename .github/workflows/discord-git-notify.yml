@@ -1,0 +1,51 @@
+name: discord-git-notify
+
+# Posts a mention to #lsadra_git_pr_notify on the high-signal events. Routine
+# pushes / branch events are handled by the native GitHub->Discord repo webhook
+# (this workflow only covers PR-opened + release-published to avoid duplicates).
+#
+# Config lives outside the public source:
+#   secrets.DISCORD_GIT_WEBHOOK  — the Discord channel webhook URL
+#   vars.DISCORD_MENTION_ID      — Discord user id to @mention
+on:
+  pull_request:
+    types: [opened]
+  release:
+    types: [published]
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    # Skip silently if the webhook secret isn't configured (e.g. forks).
+    if: ${{ github.event_name == 'release' || github.event.pull_request.head.repo.full_name == github.repository }}
+    steps:
+      - name: Notify Discord
+        env:
+          WEBHOOK: ${{ secrets.DISCORD_GIT_WEBHOOK }}
+          MENTION_ID: ${{ vars.DISCORD_MENTION_ID }}
+          EVENT: ${{ github.event_name }}
+          # Untrusted fields passed via env (never inlined into the script).
+          PR_NUM: ${{ github.event.number }}
+          PR_TITLE: ${{ github.event.pull_request.title }}
+          PR_URL: ${{ github.event.pull_request.html_url }}
+          PR_USER: ${{ github.event.pull_request.user.login }}
+          REL_TAG: ${{ github.event.release.tag_name }}
+          REL_NAME: ${{ github.event.release.name }}
+          REL_URL: ${{ github.event.release.html_url }}
+        run: |
+          set -euo pipefail
+          if [ -z "${WEBHOOK:-}" ]; then
+            echo "DISCORD_GIT_WEBHOOK not set — skipping."; exit 0
+          fi
+          MENTION="<@${MENTION_ID}>"
+          if [ "$EVENT" = "pull_request" ]; then
+            MSG="${MENTION} 📥 **PR #${PR_NUM} opened** — ${PR_TITLE}"$'\n'"by \`${PR_USER}\`  ·  ${PR_URL}"
+          else
+            MSG="${MENTION} 🚀 **Release ${REL_TAG} published** — ${REL_NAME}"$'\n'"${REL_URL}"
+          fi
+          # jq --arg safely JSON-encodes untrusted content; allowed_mentions makes the ping fire.
+          jq -nc --arg c "$MSG" '{content:$c, allowed_mentions:{parse:["users"]}}' \
+            | curl -sS -X POST -H "Content-Type: application/json" -d @- "$WEBHOOK"
