@@ -11,13 +11,13 @@ services:
     ports:
       - "${API_PORT:-8000}:8000"
     environment:
-      - SENTINEL_API_HOST=0.0.0.0
-      - SENTINEL_API_PORT=8000
-      - SENTINEL_REQUIRE_TLS=${SENTINEL_REQUIRE_TLS:-false}
-      - SENTINEL_JWT_SECRET=${SENTINEL_JWT_SECRET:-changeme-in-production}
-      - SENTINEL_ABUSEIPDB_API_KEY=${SENTINEL_ABUSEIPDB_API_KEY:-}
-      - SENTINEL_MIN_BASELINE_EVENTS=${SENTINEL_MIN_BASELINE_EVENTS:-200}
-      - SENTINEL_RETENTION_DAYS=${SENTINEL_RETENTION_DAYS:-30}
+      - LSADRA_API_HOST=0.0.0.0
+      - LSADRA_API_PORT=8000
+      - LSADRA_REQUIRE_TLS=${LSADRA_REQUIRE_TLS:-false}
+      - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
+      - LSADRA_ABUSEIPDB_API_KEY=${LSADRA_ABUSEIPDB_API_KEY:-}
+      - LSADRA_MIN_BASELINE_EVENTS=${LSADRA_MIN_BASELINE_EVENTS:-200}
+      - LSADRA_RETENTION_DAYS=${LSADRA_RETENTION_DAYS:-30}
     volumes:
       - sentinel-data:/app/data
       - sentinel-logs:/app/logs
@@ -42,7 +42,7 @@ services:
     ports:
       - "${DASH_PORT:-8501}:8501"
     environment:
-      - SENTINEL_JWT_SECRET=${SENTINEL_JWT_SECRET:-changeme-in-production}
+      - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
     volumes:
       - sentinel-data:/app/data
     depends_on:

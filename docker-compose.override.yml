@@ -10,7 +10,7 @@ services:
       - .:/app
       - sentinel-data:/app/data
     environment:
-      - SENTINEL_REQUIRE_TLS=false
+      - LSADRA_REQUIRE_TLS=false
       - PYTHONDONTWRITEBYTECODE=1
 
   dashboard:

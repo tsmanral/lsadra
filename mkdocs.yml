@@ -1,0 +1,20 @@
+# MkDocs Material config. Publication is gated on the name decision
+# (ADR 0002 / gate D1).  Local preview:  pip install mkdocs-material && mkdocs serve
+site_name: LSADRA
+site_description: Local Security Anomaly Detection & Risk Assessment
+theme:
+  name: material
+docs_dir: docs
+nav:
+  - Home: README.md
+  - Architecture:
+      - Overview: architecture/README.md
+      - ADR index: architecture/adr/README.md
+      - "0001 · Polyglot split": architecture/adr/0001-rust-collector-split.md
+      - "0002 · Product name": architecture/adr/0002-product-name.md
+      - "0003 · Apple-less strategy": architecture/adr/0003-apple-less-strategy.md
+      - "0004 · Intel two-tier": architecture/adr/0004-intel-two-tier-licensing.md
+  - Threat models: threat-models/README.md
+  - Contracts: contracts/README.md
+  - Security: security/README.md
+  - Contributing: contributing/README.md

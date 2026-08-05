@@ -139,12 +139,12 @@ class TestXForwardedProtoSpoof:
         assert call_next.awaited is False
 
     def test_config_default_trusted_proxy_ips_is_empty(self):
-        """Guard the source default: unset SENTINEL_TRUSTED_PROXY_IPS -> empty
+        """Guard the source default: unset LSADRA_TRUSTED_PROXY_IPS -> empty
         frozenset (fail-closed). Only meaningful when the env var is unset."""
         import os
 
-        if os.getenv("SENTINEL_TRUSTED_PROXY_IPS"):
-            pytest.skip("SENTINEL_TRUSTED_PROXY_IPS is set in this environment")
+        if os.getenv("LSADRA_TRUSTED_PROXY_IPS"):
+            pytest.skip("LSADRA_TRUSTED_PROXY_IPS is set in this environment")
         assert config.TRUSTED_PROXY_IPS == frozenset()
 
     def test_genuine_https_from_untrusted_client_passes(self, monkeypatch):
