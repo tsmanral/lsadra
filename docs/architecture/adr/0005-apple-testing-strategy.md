@@ -1,9 +1,9 @@
 # 0005. Apple testing strategy — Apple-less local dev, Apple-covered CI
 
-- **Status:** Proposed
-- **Date:** 2026-08-05
-- **Deciders:** project lead (pending)
-- **Amends:** [ADR 0003 — Apple-less development strategy](0003-apple-less-strategy.md)
+- **Status:** Accepted
+- **Date:** 2026-08-06
+- **Deciders:** project lead
+- **Supersedes in part:** [ADR 0003 — Apple-less development strategy](0003-apple-less-strategy.md)
 
 ## Context
 
@@ -143,11 +143,12 @@ substitute)
   turns macOS minutes into billed time at roughly ten times the Linux rate, which
   would break the zero-cost constraint. That dependency should be explicit.
 
-## Decision requested
+## Status of the underlying decision
 
-**D4 needs re-signing.** ADR 0003's "Apple-less" wording is too broad to describe
-the position above. If this ADR is accepted, ADR 0003 should be marked
-*Superseded in part by 0005*, and MASTER_PLAN §4 should carry the amended framing.
+**Accepted 2026-08-06.** The project lead signed the amended D4 position:
+Apple-less local development, Apple-covered CI and testing. ADR 0003 is
+superseded in part by this record — its local-development stance stands, its
+implied "no Apple testing" reading does not.
 
 ## Notes on evidence
 
