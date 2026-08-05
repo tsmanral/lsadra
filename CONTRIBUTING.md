@@ -8,6 +8,7 @@ Thank you for your interest in contributing to LSADRA (Local Security Anomaly De
 - [Getting Started](#getting-started)
 - [Development Setup](#development-setup)
 - [How to Contribute](#how-to-contribute)
+- [Sign-off (DCO)](#sign-off-dco)
 - [Pull Request Process](#pull-request-process)
 - [AI-Assisted Development](#ai-assisted-development)
 - [Coding Standards](#coding-standards)
@@ -97,14 +98,48 @@ Please make sure the smoke test passes before opening a PR.
 - **Larger changes**: open an issue first describing what you want to build so we can align on the approach before you invest time
 - **Not sure where to start?** Check the [issue tracker](../../issues) for open items
 
+## Sign-off (DCO)
+
+This project uses the [Developer Certificate of Origin](https://developercertificate.org/) — **there is no CLA**. You keep the copyright to your contribution; you are simply certifying that you have the right to submit it under the project's AGPL-3.0 license.
+
+Sign off every commit by adding `-s`:
+
+```bash
+git commit -s -m "feat(detection): add DNS tunneling rule"
+```
+
+That appends a line to your commit message:
+
+```
+Signed-off-by: Your Name <your.email@example.com>
+```
+
+The name and email must match your git `user.name` and `user.email`. Set them once with:
+
+```bash
+git config user.name "Your Name"
+git config user.email "your.email@example.com"
+```
+
+**CI checks this on every PR.** An unsigned commit fails the DCO check, and maintainers will not merge a PR with a failing sign-off. If you forget:
+
+```bash
+git commit --amend -s --no-edit                 # last commit only
+git rebase --signoff main                       # every commit on your branch
+git push --force-with-lease                     # then update the PR
+```
+
 ## Pull Request Process
 
 1. Keep PRs focused — one logical change per PR
 2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`)
-3. Run the smoke test and any tests relevant to your change
-4. Update documentation (README, ARCHITECTURE.md) if your change affects setup or architecture
-5. Open the PR against `main` with a clear description of **what** changed and **why**
-6. A maintainer will review your PR — please be responsive to feedback
+3. **Sign off every commit** (`git commit -s`) — see [Sign-off (DCO)](#sign-off-dco). CI checks this on every PR.
+4. Run the smoke test and any tests relevant to your change
+5. Update documentation if your change affects setup or architecture. Changes to user-facing behavior, environment variables, endpoints, or project structure must update `README.md` **in the same PR**
+6. Open the PR against `main` with a clear description of **what** changed and **why**
+7. A maintainer will review your PR — please be responsive to feedback
+
+Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. `main` is protected — all work lands through pull requests, maintainer changes included.
 
 ## AI-Assisted Development
 
