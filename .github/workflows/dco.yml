@@ -1,8 +1,21 @@
 name: DCO
 
 # Developer Certificate of Origin: every commit in a PR must carry a
-# `Signed-off-by:` trailer (git commit -s). Enable this as a REQUIRED status
-# check in branch protection once existing history is sign-off-clean.
+# `Signed-off-by:` trailer (git commit -s). This is a REQUIRED status check in
+# branch protection as of 2026-08-06.
+#
+# GitHub-GENERATED merge commits are skipped — and only those. Clicking "Update
+# branch", or letting auto-merge update it, injects a merge commit committed by
+# `GitHub <noreply@github.com>` with no sign-off, which fails this check
+# permanently through no fault of the contributor: the commit is not theirs to
+# fix. With branch protection now strict, that update is the normal path to
+# merge, so this is on the critical path for every PR.
+#
+# Contributor-authored merge commits are still checked, deliberately. A merge is
+# only content-free when it is clean; resolving a conflict puts authored code in
+# the merge commit and nowhere else, so blanket `--no-merges` would let that
+# content bypass sign-off entirely. The committer-identity test is narrow enough
+# to close the bug without opening that hole.
 on:
   pull_request:
 
@@ -22,6 +35,22 @@ jobs:
           head="${{ github.event.pull_request.head.sha }}"
           missing=0
           for c in $(git rev-list "$base..$head"); do
+            # Skip a merge commit only when it is provably content-free: more
+            # than one parent AND an empty combined diff. `diff-tree --cc` shows
+            # exactly the content a merge introduces that came from neither
+            # parent, so an empty result means the merge resolved nothing and
+            # carries no authored code. Anything a conflict resolution added
+            # shows up here and is checked like any other commit.
+            #
+            # This is deliberately a content test, not an identity test. An
+            # earlier version skipped merges committed by `noreply@github.com`,
+            # which is forgeable — any contributor can set that as their
+            # committer email locally and smuggle a resolution through.
+            parents=$(git rev-list --parents -n1 "$c" | wc -w)
+            if [ "$parents" -gt 2 ] && [ -z "$(git diff-tree --cc --no-commit-id "$c")" ]; then
+              echo "skipping content-free merge commit $c"
+              continue
+            fi
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               echo "::error::commit $c is missing a Signed-off-by line (use: git commit -s)"
               missing=1
