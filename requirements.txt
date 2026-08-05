@@ -15,7 +15,7 @@ plotly>=5.14.0
 
 # ML & Deep Learning
 torch --index-url https://download.pytorch.org/whl/cpu
-shap>=0.42.0
+shap>=0.52.0
 joblib>=1.3.0
 
 # Explainability & Visualization
