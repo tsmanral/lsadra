@@ -35,13 +35,20 @@ jobs:
           head="${{ github.event.pull_request.head.sha }}"
           missing=0
           for c in $(git rev-list "$base..$head"); do
-            # Skip only GitHub's own branch-update merge commits: more than one
-            # parent AND committed by GitHub itself. Everything else, including a
-            # contributor's own merge commit, still requires a sign-off.
+            # Skip a merge commit only when it is provably content-free: more
+            # than one parent AND an empty combined diff. `diff-tree --cc` shows
+            # exactly the content a merge introduces that came from neither
+            # parent, so an empty result means the merge resolved nothing and
+            # carries no authored code. Anything a conflict resolution added
+            # shows up here and is checked like any other commit.
+            #
+            # This is deliberately a content test, not an identity test. An
+            # earlier version skipped merges committed by `noreply@github.com`,
+            # which is forgeable — any contributor can set that as their
+            # committer email locally and smuggle a resolution through.
             parents=$(git rev-list --parents -n1 "$c" | wc -w)
-            committer=$(git log -1 --format=%ce "$c")
-            if [ "$parents" -gt 2 ] && [ "$committer" = "noreply@github.com" ]; then
-              echo "skipping GitHub-generated merge commit $c"
+            if [ "$parents" -gt 2 ] && [ -z "$(git diff-tree --cc --no-commit-id "$c")" ]; then
+              echo "skipping content-free merge commit $c"
               continue
             fi
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
