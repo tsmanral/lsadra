@@ -16,7 +16,7 @@ jobs:
   lint:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -38,7 +38,7 @@ jobs:
       # Windows runners default to cp1252; force UTF-8 so the smoke test prints emoji.
       PYTHONUTF8: "1"
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
@@ -59,4 +59,12 @@ jobs:
             python -m pytest tests/security/ -q
           else
             echo "tests/security/ not present on this ref — lands with the §6 remediation PR."
+          fi
+      - name: Demo corpus contract gate
+        shell: bash
+        run: |
+          if [ -f tests/test_demo_corpus.py ]; then
+            python -m pytest tests/test_demo_corpus.py -q
+          else
+            echo "tests/test_demo_corpus.py not present on this ref."
           fi

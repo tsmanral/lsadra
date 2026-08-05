@@ -101,7 +101,7 @@ async def root():
 
 @app.get("/api/health", tags=["health"])
 async def api_health():
-    return {"status": "ok", "service": "lsadra-api", "version": "3.0.0"}
+    return {"status": "ok", "service": "lsadra-api", "version": "5.0.0"}
 
 
 # ── Auth endpoints ───────────────────────────────────────────────────────
