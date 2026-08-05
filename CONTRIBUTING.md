@@ -121,7 +121,7 @@ git config user.name "Your Name"
 git config user.email "your.email@example.com"
 ```
 
-**CI checks this on every PR.** An unsigned commit fails the DCO check, and maintainers will not merge a PR with a failing sign-off. If you forget:
+**This is enforced, not advisory.** The DCO check is a *required status check* on `main`, so a PR containing an unsigned commit cannot be merged until it is fixed. If you forget:
 
 ```bash
 git commit --amend -s --no-edit                 # last commit only
@@ -133,7 +133,7 @@ git push --force-with-lease                     # then update the PR
 
 1. Keep PRs focused — one logical change per PR
 2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`)
-3. **Sign off every commit** (`git commit -s`) — see [Sign-off (DCO)](#sign-off-dco). CI checks this on every PR.
+3. **Sign off every commit** (`git commit -s`) — see [Sign-off (DCO)](#sign-off-dco). This is a required check; an unsigned commit blocks the merge.
 4. Run the smoke test and any tests relevant to your change
 5. Update documentation if your change affects setup or architecture. Changes to user-facing behavior, environment variables, endpoints, or project structure must update `README.md` **in the same PR**
 6. Open the PR against `main` with a clear description of **what** changed and **why**
