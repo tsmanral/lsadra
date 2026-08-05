@@ -31,7 +31,7 @@ httpx>=0.24.0
 requests>=2.31.0
 
 # Logging
-loguru>=0.7.0
+loguru>=0.7.3
 
 # File watching (agent)
 watchdog>=3.0.0
@@ -43,7 +43,7 @@ pyyaml>=6.0
 apscheduler>=3.10.0
 
 # PDF reports
-fpdf2>=2.7.0
+fpdf2>=2.8.7
 
 # Image export for Plotly charts in reports
 kaleido>=0.2.1
