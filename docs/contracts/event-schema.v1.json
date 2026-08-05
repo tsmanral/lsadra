@@ -1,0 +1,58 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://example.invalid/lsadra/contracts/event-schema.v1.json",
+  "title": "LSADRA Normalized Event",
+  "description": "v1 (DRAFT) — the normalized event emitted by collectors and ingested by the core. Attacker-controlled input: every string field must be treated as untrusted and bounded.",
+  "type": "object",
+  "required": ["schema_version", "timestamp", "event_type"],
+  "additionalProperties": false,
+  "properties": {
+    "schema_version": {
+      "type": "string",
+      "const": "1",
+      "description": "Contract version this event conforms to."
+    },
+    "timestamp": {
+      "type": "string",
+      "format": "date-time",
+      "description": "Event time, RFC 3339 / ISO 8601."
+    },
+    "device_id": {
+      "type": "string",
+      "maxLength": 128,
+      "description": "Registered device identifier (assigned at registration)."
+    },
+    "user_id": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "host": {
+      "type": "string",
+      "maxLength": 255
+    },
+    "effective_username": {
+      "type": "string",
+      "maxLength": 128
+    },
+    "source_ip": {
+      "type": ["string", "null"],
+      "maxLength": 45,
+      "description": "IPv4/IPv6 of the actor, if known."
+    },
+    "event_type": {
+      "type": "string",
+      "maxLength": 64,
+      "description": "Normalized event class, e.g. auth_failure, port_scan."
+    },
+    "raw_message": {
+      "type": "string",
+      "maxLength": 4096,
+      "description": "Original log line, bounded. Untrusted input."
+    },
+    "attributes": {
+      "type": "object",
+      "description": "Source-specific key/values.",
+      "additionalProperties": true
+    }
+  }
+}

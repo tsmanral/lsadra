@@ -106,7 +106,7 @@ def render():
         if REQUIRE_TLS:
             st.success("🔒 TLS enforcement is **enabled**.")
         else:
-            st.warning("⚠️ TLS enforcement is **disabled**. Set `SENTINEL_REQUIRE_TLS=true` for production.")
+            st.warning("⚠️ TLS enforcement is **disabled**. Set `LSADRA_REQUIRE_TLS=true` for production.")
 
     # ── Tab 3: Testing ───────────────────────────────────────────────────
     with tab3:

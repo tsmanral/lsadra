@@ -387,7 +387,7 @@ const Admin = () => {
           </div>
           <div className="bg-[rgba(200,200,0,0.08)] border border-[#cccc00] p-4 text-[#cccc00] flex items-center gap-3 font-mono text-xs rounded">
             <AlertTriangle size={14}/>
-            <span>TLS enforcement is disabled. Set <code>SENTINEL_REQUIRE_TLS=true</code> for production deployment.</span>
+            <span>TLS enforcement is disabled. Set <code>LSADRA_REQUIRE_TLS=true</code> for production deployment.</span>
           </div>
           <div className="bg-[rgba(5,255,161,0.05)] border border-[rgba(5,255,161,0.2)] p-4 font-mono text-xs text-[#05FFA1] rounded">
             Backend: FastAPI · DB: SQLite (LSADRA V4) · ML: Ensemble + Autoencoder (2 models active)

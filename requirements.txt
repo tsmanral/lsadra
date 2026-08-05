@@ -53,3 +53,5 @@ geopy>=2.3.0
 
 # Testing
 pytest>=7.0.0
+# Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
+jsonschema>=4.0.0
