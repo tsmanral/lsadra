@@ -1,8 +1,16 @@
 name: DCO
 
 # Developer Certificate of Origin: every commit in a PR must carry a
-# `Signed-off-by:` trailer (git commit -s). Enable this as a REQUIRED status
-# check in branch protection once existing history is sign-off-clean.
+# `Signed-off-by:` trailer (git commit -s). This is a REQUIRED status check in
+# branch protection as of 2026-08-06.
+#
+# Merge commits are skipped (--no-merges). They introduce no authored content —
+# everything in them already comes from the two parents, and each parent is
+# checked on its own. Including them means that clicking "Update branch" (or
+# letting auto-merge update it) injects a GitHub-authored merge commit with no
+# sign-off, which fails the check permanently through no fault of the
+# contributor. With the branch protection now set to strict, that update is the
+# normal path, so this stopped being a corner case.
 on:
   pull_request:
 
@@ -21,7 +29,7 @@ jobs:
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
           missing=0
-          for c in $(git rev-list "$base..$head"); do
+          for c in $(git rev-list --no-merges "$base..$head"); do
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               echo "::error::commit $c is missing a Signed-off-by line (use: git commit -s)"
               missing=1
