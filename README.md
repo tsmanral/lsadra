@@ -140,7 +140,7 @@ Contributions are welcome! Read the [Contributing Guide](CONTRIBUTING.md) for th
    python tests/test_v4_smoke.py     # expect 27/27
    python -m pytest tests/security/  # expect 0 failures
    ```
-3. Sign off your commits (`git commit -s`) — this project uses the [DCO](https://developercertificate.org/), enforced in CI.
+3. Sign off your commits (`git commit -s`) — this project uses the [DCO](https://developercertificate.org/) rather than a CLA, and it is enforced: the DCO check is a required status check, so an unsigned commit blocks the merge. See [CONTRIBUTING.md](CONTRIBUTING.md#sign-off-dco).
 4. Open a **pull request** against `main` with a clear description.
 
 `main` is protected and the only long-lived branch — **everything lands through a pull request**, including maintainer work. Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. Bug reports and feature ideas are welcome in [Issues](https://github.com/tsmanral/lsadra/issues).
