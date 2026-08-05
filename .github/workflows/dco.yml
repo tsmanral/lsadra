@@ -4,13 +4,18 @@ name: DCO
 # `Signed-off-by:` trailer (git commit -s). This is a REQUIRED status check in
 # branch protection as of 2026-08-06.
 #
-# Merge commits are skipped (--no-merges). They introduce no authored content —
-# everything in them already comes from the two parents, and each parent is
-# checked on its own. Including them means that clicking "Update branch" (or
-# letting auto-merge update it) injects a GitHub-authored merge commit with no
-# sign-off, which fails the check permanently through no fault of the
-# contributor. With the branch protection now set to strict, that update is the
-# normal path, so this stopped being a corner case.
+# GitHub-GENERATED merge commits are skipped — and only those. Clicking "Update
+# branch", or letting auto-merge update it, injects a merge commit committed by
+# `GitHub <noreply@github.com>` with no sign-off, which fails this check
+# permanently through no fault of the contributor: the commit is not theirs to
+# fix. With branch protection now strict, that update is the normal path to
+# merge, so this is on the critical path for every PR.
+#
+# Contributor-authored merge commits are still checked, deliberately. A merge is
+# only content-free when it is clean; resolving a conflict puts authored code in
+# the merge commit and nowhere else, so blanket `--no-merges` would let that
+# content bypass sign-off entirely. The committer-identity test is narrow enough
+# to close the bug without opening that hole.
 on:
   pull_request:
 
@@ -29,7 +34,16 @@ jobs:
           base="${{ github.event.pull_request.base.sha }}"
           head="${{ github.event.pull_request.head.sha }}"
           missing=0
-          for c in $(git rev-list --no-merges "$base..$head"); do
+          for c in $(git rev-list "$base..$head"); do
+            # Skip only GitHub's own branch-update merge commits: more than one
+            # parent AND committed by GitHub itself. Everything else, including a
+            # contributor's own merge commit, still requires a sign-off.
+            parents=$(git rev-list --parents -n1 "$c" | wc -w)
+            committer=$(git log -1 --format=%ce "$c")
+            if [ "$parents" -gt 2 ] && [ "$committer" = "noreply@github.com" ]; then
+              echo "skipping GitHub-generated merge commit $c"
+              continue
+            fi
             if ! git log -1 --format=%B "$c" | grep -qiE '^Signed-off-by: .+ <.+@.+>'; then
               echo "::error::commit $c is missing a Signed-off-by line (use: git commit -s)"
               missing=1
