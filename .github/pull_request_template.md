@@ -22,3 +22,4 @@ python -m pytest tests/security/    # expect 0 failures
 - [ ] Tests added/updated; gates green
 - [ ] No secrets, credentials, or real log excerpts in code, tests, or docs
 - [ ] Docs / `.env.example` updated if config or behavior changed
+- [ ] **README/docs impact considered** — if this PR changes user-facing behavior, environment variables, endpoints, or project structure, `README.md` (and any affected doc) is updated *in this PR*. Tick with "n/a" if none apply.

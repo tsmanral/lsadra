@@ -13,6 +13,8 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-API-009688.svg?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-Dashboard-61DAFB.svg?style=flat-square&logo=react&logoColor=black)](frontend/)
 [![Tests](https://img.shields.io/badge/smoke_tests-27%2F27_passing-brightgreen.svg?style=flat-square)](tests/test_v4_smoke.py)
+[![Security Tests](https://img.shields.io/badge/security_regressions-44_passing-brightgreen.svg?style=flat-square)](tests/security/)
+[![CI](https://img.shields.io/github/actions/workflow/status/tsmanral/lsadra/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/tsmanral/lsadra/actions/workflows/ci.yml)
 [![GitHub Stars](https://img.shields.io/github/stars/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra/stargazers)
 
 </div>
@@ -32,7 +34,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, 
 
 ## Quick Start
 
-> Requires **Python 3.12** (scikit-learn is not yet compatible with 3.14 — check versions with `py -0` on Windows).
+> Requires **Python 3.12 or newer**. CI pins 3.12; the test suite also runs clean on 3.14. Check installed versions with `py -0` on Windows.
 
 ```bash
 # 1. Clone and set up
@@ -102,13 +104,26 @@ A deeper technical walkthrough lives in [ARCHITECTURE.md](ARCHITECTURE.md), and 
 
 Background jobs (APScheduler) handle cross-source correlation, lateral-movement scans, metrics pre-aggregation, geo-resolution, threat-intel caching, drift detection, and data retention — no external queue or cron required.
 
+**Today** the stack is Python end to end: a FastAPI core (ingestion, detection, storage, orchestration), a React + Vite SOC dashboard, and a thin Python endpoint agent.
+
+**Planned:** the endpoint agent is being replaced by **Rust collectors** — small static binaries (target: <15 MB RSS) that read the OS log source, batch, and ship over HTTPS with disk spooling across outages. The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code — see [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning.
+
 ## Project Structure
 
 ```
-lsadra/        Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
 frontend/           React (Vite + TypeScript) SOC dashboard
 tests/              Test suite + end-to-end smoke tests
+  security/         Security regression suite — one file per remediated finding
+demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
+  corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API)
+docs/               Documentation tree
+  architecture/adr/ Architecture Decision Records
+  contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
+  threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
+.github/workflows/  CI matrix, DCO, release, security scanning, Discord notifications
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -120,12 +135,27 @@ server.py           FastAPI entry point
 Contributions are welcome! Read the [Contributing Guide](CONTRIBUTING.md) for the development setup, coding standards, and pull-request process. The short version:
 
 1. **Fork** the repo and create a feature branch from `main` (`git checkout -b feature/my-improvement`).
-2. Make your change and run the smoke tests (`python tests/test_v4_smoke.py`).
-3. Open a **pull request** against `main` with a clear description.
+2. Make your change and run both gates:
+   ```bash
+   python tests/test_v4_smoke.py     # expect 27/27
+   python -m pytest tests/security/  # expect 0 failures
+   ```
+3. Sign off your commits (`git commit -s`) — this project uses the [DCO](https://developercertificate.org/), enforced in CI.
+4. Open a **pull request** against `main` with a clear description.
 
-`main` is the only long-lived branch — all work lands through short-lived feature branches and PRs. Bug reports and feature ideas are welcome in [Issues](https://github.com/tsmanral/lsadra/issues).
+`main` is protected and the only long-lived branch — **everything lands through a pull request**, including maintainer work. Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. Bug reports and feature ideas are welcome in [Issues](https://github.com/tsmanral/lsadra/issues).
 
-This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md). To report a vulnerability privately, see the [Security Policy](SECURITY.md) — never open a public issue for security findings.
+Changes to user-facing behavior, environment variables, endpoints, or project structure must update this README **in the same PR** — the PR template has a checkbox for it.
+
+This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.md).
+
+## Security
+
+LSADRA treats logs as **attacker-controlled input** — they reach parsers, the detection pipeline, and (later) an LLM and a RAG index. The threat model is written down in [`docs/threat-models/`](docs/threat-models/).
+
+- **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
+- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
 
 ## License
 
@@ -140,7 +170,25 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 [![Repo Size](https://img.shields.io/github/repo-size/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra)
 [![Container Image](https://img.shields.io/badge/GHCR-lsadra-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/tsmanral/lsadra/pkgs/container/lsadra)
 
-Active development — the roadmap runs from hardened core (security remediation, async ingestion) through Rust collector agents, a Tauri desktop UI, local-LLM narratives, and a mobile companion. Follow [Releases](https://github.com/tsmanral/lsadra/releases) for progress.
+**Current release: v5.0.0.** Active development. This section is kept current — if it disagrees with the code, the code is right and the README is a bug.
+
+**Where the project is now**
+
+- **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). Two items remain deferred by design: WebSocket handshake authentication (lands with the async core) and signed agent distribution (lands with release engineering).
+- **CI on every PR:** pytest across Ubuntu, Windows, and macOS, plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
+- **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
+- **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
+- **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges).
+
+**What's next (M1 — async core)**
+
+- Async ingestion on aiosqlite + WAL with worker queues, retention lifecycle, and DuckDB analytics
+- A **benchmark harness** — the throughput target has to be measured, not asserted
+- Authenticated `/ws/alerts` WebSocket handshake
+- Prompt-injection defense: logs are attacker-controlled input, and they reach the LLM and RAG index
+- Freezing event schema v1 as the collector contract
+
+Follow [Releases](https://github.com/tsmanral/lsadra/releases) for progress, or the [ADRs](docs/architecture/adr/) for the reasoning behind the larger calls.
 
 ## Author
 
