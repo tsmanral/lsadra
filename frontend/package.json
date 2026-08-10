@@ -21,7 +21,7 @@
     "react-plotly.js": "^2.6.0",
     "react-router-dom": "^7.14.1",
     "recharts": "^3.8.1",
-    "tailwindcss": "^4.2.2",
+    "tailwindcss": "^4.3.3",
     "zustand": "^5.0.12"
   },
   "devDependencies": {
