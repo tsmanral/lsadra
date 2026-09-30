@@ -2,8 +2,10 @@
 LSADRA V3 — FastAPI server (primary V3 entrypoint).
 """
 
+import asyncio
 import logging
-from contextlib import asynccontextmanager
+from collections import deque
+from contextlib import asynccontextmanager, suppress
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
@@ -19,7 +21,7 @@ from lsadra.auth import (
     require_role,
     verify_password,
 )
-from lsadra.config import CORS_ALLOWED_ORIGINS, REQUIRE_TLS
+from lsadra.config import BENCH_SKIP_DETECTION, CORS_ALLOWED_ORIGINS, DEV_MODE, REQUIRE_TLS
 from lsadra.ingestion.api_ingestion import router as events_router
 from lsadra.onboarding.device_registration import router as devices_router
 from lsadra.storage.database import (
@@ -41,13 +43,38 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 logger = logging.getLogger(__name__)
 
 
+# ── Event-loop lag sampler (dev mode only; benchmarks/run_ingest_bench.py) ──
+# Sleeps LOOP_LAG_INTERVAL_S and records how late the loop woke up. Any sync
+# work on the loop (DB calls, inline detection) shows up as lag. Measurement
+# only — it changes no request handling.
+LOOP_LAG_INTERVAL_S = 0.1
+_LOOP_LAG_SAMPLES: "deque[float]" = deque(maxlen=3000)  # ~5 min at 100 ms
+_loop_lag_seq = 0  # total samples ever taken; lets a reader slice the tail
+
+
+async def _sample_loop_lag() -> None:
+    global _loop_lag_seq
+    loop = asyncio.get_running_loop()
+    while True:
+        start = loop.time()
+        await asyncio.sleep(LOOP_LAG_INTERVAL_S)
+        lag_ms = max(0.0, (loop.time() - start - LOOP_LAG_INTERVAL_S) * 1000.0)
+        _LOOP_LAG_SAMPLES.append(round(lag_ms, 3))
+        _loop_lag_seq += 1
+
+
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI."""
     logger.info("Initializing LSADRA V3 Backend...")
     init_db()
     Path("data/models").mkdir(parents=True, exist_ok=True)
+    sampler = asyncio.create_task(_sample_loop_lag()) if DEV_MODE else None
     yield
+    if sampler is not None:
+        sampler.cancel()
+        with suppress(asyncio.CancelledError):
+            await sampler
     logger.info("Shutting down LSADRA V3 Backend...")
 
 
@@ -101,7 +128,16 @@ async def root():
 
 @app.get("/api/health", tags=["health"])
 async def api_health():
-    return {"status": "ok", "service": "lsadra-api", "version": "5.0.0"}
+    body: Dict[str, Any] = {"status": "ok", "service": "lsadra-api", "version": "5.0.0"}
+    if DEV_MODE:
+        # Benchmark telemetry — never exposed outside dev mode.
+        body["benchmark"] = {
+            "loop_lag_interval_ms": LOOP_LAG_INTERVAL_S * 1000.0,
+            "loop_lag_seq": _loop_lag_seq,
+            "loop_lag_ms": list(_LOOP_LAG_SAMPLES),
+            "detection_skipped": BENCH_SKIP_DETECTION,
+        }
+    return body
 
 
 # ── Auth endpoints ───────────────────────────────────────────────────────

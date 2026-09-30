@@ -40,6 +40,20 @@ MODEL_DIR = DATA_DIR / "models"
 # for LOCAL DEVELOPMENT ONLY. Never set true in production. (§6 #4/#6)
 DEV_MODE: bool = os.getenv("LSADRA_DEV_MODE", "false").lower() == "true"
 
+# Benchmark-only switch (benchmarks/run_ingest_bench.py): skip online detection
+# on the ingestion request path so DB cost and ML cost can be measured apart.
+# Dev mode only — a production core that silently stops detecting is a security
+# failure, so setting it outside dev mode refuses to boot rather than being
+# ignored or honoured.
+BENCH_SKIP_DETECTION: bool = (
+    os.getenv("LSADRA_BENCH_SKIP_DETECTION", "false").lower() == "true"
+)
+if BENCH_SKIP_DETECTION and not DEV_MODE:
+    raise RuntimeError(
+        "LSADRA_BENCH_SKIP_DETECTION=true is a benchmark switch and requires "
+        "LSADRA_DEV_MODE=true. Refusing to start a core with detection disabled."
+    )
+
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------
