@@ -73,6 +73,7 @@ class _SSHParserAdapter(BaseParser):
             "success":     "accepted" in str(v3.get("event_type", "")).lower(),
             "raw":         v3.get("raw_message", raw_line)[:2048],
             "device_id":   device_id,
+            "host":        v3.get("host", ""),  # syslog hostname, not the device ID
             "extra":       v3.get("attributes", {}),
         }
 

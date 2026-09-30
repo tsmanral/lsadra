@@ -14,6 +14,7 @@ nav:
       - "0002 · Product name": architecture/adr/0002-product-name.md
       - "0003 · Apple-less strategy": architecture/adr/0003-apple-less-strategy.md
       - "0004 · Intel two-tier": architecture/adr/0004-intel-two-tier-licensing.md
+      - "0006 · Event schema v1 freeze": architecture/adr/0006-event-schema-v1-freeze.md
   - Threat models: threat-models/README.md
   - Contracts: contracts/README.md
   - Security: security/README.md

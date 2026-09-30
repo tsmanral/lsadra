@@ -71,14 +71,30 @@ This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an 
 
 ## Ingesting Logs
 
-Any log line from any source, through one endpoint:
+Both ingestion endpoints authenticate the device with `X-Device-Id` / `X-Api-Key` (issued at device registration) and accept up to 100 items per request.
+
+**Structured events** — collectors that already normalize send events that conform to the frozen [event schema v1](docs/contracts/event-schema.v1.json):
+
+```bash
+curl -X POST http://localhost:8000/api/events/batch \
+  -H "Content-Type: application/json" \
+  -H "X-Device-Id: <device-id>" -H "X-Api-Key: <api-key>" \
+  -d '{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", "event_type": "auth_failure",
+                   "host": "demo-host-01", "effective_username": "alice.demo", "source_ip": "192.0.2.45"}]}'
+```
+
+`schema_version` (`"1"`), `timestamp` (RFC 3339 with offset) and `event_type` are required. Device and user identity come from the credentials, so `device_id`/`user_id` in an event — or any unknown field — are rejected. A contract violation returns `422` naming the field (e.g. `["body", "events", 0, "source_ip"]`) and nothing from that batch is stored. Full rules and the compatibility policy: [docs/contracts](docs/contracts/README.md).
+
+**Raw lines** — any log line from any supported source, parsed server-side:
 
 ```bash
 curl -X POST http://localhost:8000/api/events/raw \
   -H "Content-Type: application/json" \
   -H "X-Device-Id: <device-id>" -H "X-Api-Key: <api-key>" \
-  -d '{"lines": [{"raw_line": "Jan  5 12:34:56 server sudo[999]: root : COMMAND=/bin/bash", "source_hint": "syslog"}]}'
+  -d '{"lines": [{"raw_line": "Jan  5 12:34:56 demo-host-01 sudo[999]: root : COMMAND=/bin/bash", "source_hint": "syslog"}]}'
 ```
+
+`source_hint` is optional and must be one of `ssh`, `syslog`, `windows`, `network`, `endpoint`; omit it to auto-detect. Lines no parser recognizes are counted in `parse_errors` rather than rejected.
 
 Per-source ingestion health is available at `GET /api/events/stats`.
 
@@ -180,6 +196,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges).
+- **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
 
 **What's next (M1 — async core)**
 
@@ -187,7 +204,6 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - A **benchmark harness** — the throughput target has to be measured, not asserted
 - Authenticated `/ws/alerts` WebSocket handshake
 - Prompt-injection defense: logs are attacker-controlled input, and they reach the LLM and RAG index
-- Freezing event schema v1 as the collector contract
 
 Follow [Releases](https://github.com/tsmanral/lsadra/releases) for progress, or the [ADRs](docs/architecture/adr/) for the reasoning behind the larger calls.
 

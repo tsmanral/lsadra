@@ -132,13 +132,15 @@ def time_shift(events: List[Dict[str, Any]], anchor: Optional[datetime] = None) 
 
 def to_ingest_payload(event: Dict[str, Any]) -> Dict[str, Any]:
     """
-    Map a corpus event onto the ``/api/events/batch`` NormalizedEvent shape.
+    Map a corpus event onto the ``/api/events/batch`` event (contract v1).
 
-    ``schema_version`` is a contract field, not an ingestion field; the
-    ground-truth label rides along inside ``attributes`` so the seeded database
-    stays self-describing for evaluation and the M1 benchmark harness.
+    Corpus events already conform to ``docs/contracts/event-schema.v1.json``;
+    ``schema_version`` is sent through (the core requires it). The ground-truth
+    label rides along inside ``attributes`` so the seeded database stays
+    self-describing for evaluation and the M1 benchmark harness.
     """
     return {
+        "schema_version": event["schema_version"],
         "timestamp": event["timestamp"],
         "host": event.get("host", ""),
         "effective_username": event.get("effective_username", ""),

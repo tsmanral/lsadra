@@ -108,11 +108,19 @@ RATE_LIMIT_MAX_KEYS: int = int(os.getenv("LSADRA_RATE_LIMIT_MAX_KEYS", "10000"))
 
 # ---------------------------------------------------------------------------
 # Input Validation Caps
+# These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
+# the source of truth; tests/test_contracts.py fails if the two drift.
+# /api/events/raw lines share MAX_RAW_MESSAGE_LENGTH.
 # ---------------------------------------------------------------------------
 MAX_USERNAME_LENGTH: int = 128
 MAX_HOSTNAME_LENGTH: int = 255
 MAX_RAW_MESSAGE_LENGTH: int = 4096
 MAX_EVENTS_PER_BATCH: int = 100
+MAX_EVENT_TYPE_LENGTH: int = 64
+MAX_SOURCE_IP_LENGTH: int = 45
+MAX_ATTRIBUTE_KEYS: int = 32
+MAX_ATTRIBUTE_VALUE_LENGTH: int = 1024
+MAX_ATTRIBUTES_BYTES: int = 8192
 
 # ---------------------------------------------------------------------------
 # Detection — Baselining
@@ -185,9 +193,6 @@ DATA_RETENTION_DAYS: int = RETENTION_DAYS  # alias
 # V4 Configuration Keys
 # [V4 ENHANCEMENT — gap: multi-source ingestion, dynamic severity, FP tuning]
 # ---------------------------------------------------------------------------
-
-# Ingestion parser chain: maximum bytes stored per raw log line
-MAX_RAW_LINE_LENGTH: int = int(os.getenv("LSADRA_V4_MAX_RAW_LINE", "2048"))
 
 # Ingestion health monitoring: minutes of silence before a source is flagged
 INGESTION_SILENCE_THRESHOLD_MINUTES: int = int(

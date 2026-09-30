@@ -9,19 +9,29 @@ FastAPI router that accepts:
 """
 
 import hmac
+import ipaddress
+import json
 import logging
+import re
 import time
-from datetime import datetime
-from typing import Any, Dict, List, Optional
+from datetime import datetime, timezone
+from typing import Any, Callable, Coroutine, Dict, List, Literal, Optional
 
 import bcrypt
-from fastapi import APIRouter, Depends, Header, HTTPException, Request
-from pydantic import BaseModel, Field, constr
+from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
+from fastapi.exceptions import RequestValidationError
+from fastapi.routing import APIRoute
+from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from lsadra.config import (
+    MAX_ATTRIBUTE_KEYS,
+    MAX_ATTRIBUTE_VALUE_LENGTH,
+    MAX_ATTRIBUTES_BYTES,
+    MAX_EVENT_TYPE_LENGTH,
     MAX_EVENTS_PER_BATCH,
     MAX_HOSTNAME_LENGTH,
     MAX_RAW_MESSAGE_LENGTH,
+    MAX_SOURCE_IP_LENGTH,
     MAX_USERNAME_LENGTH,
     RATE_LIMIT_EVENTS_PER_MIN,
     RATE_LIMIT_MAX_KEYS,
@@ -35,25 +45,156 @@ from lsadra.storage.database import (
 
 logger = logging.getLogger(__name__)
 
-router = APIRouter(tags=["ingestion"])
+
+class _ContractRoute(APIRoute):
+    """
+    Ingestion route whose 422s never echo the rejected input.
+
+    FastAPI's default 422 body includes each error's ``input``, serialized by a
+    recursive encoder: a deeply nested rejected value turns the 422 into a 500
+    (RecursionError), and large values would be reflected back verbatim. Errors
+    keep ``type``, ``loc`` and ``msg`` — enough to name the offending field.
+    """
+
+    def get_route_handler(self) -> Callable[[Request], Coroutine[Any, Any, Response]]:
+        handler = super().get_route_handler()
+
+        async def contract_handler(request: Request) -> Response:
+            try:
+                return await handler(request)
+            except RequestValidationError as exc:
+                errors = [
+                    {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": str(e.get("msg", ""))}
+                    for e in exc.errors()
+                ]
+                raise RequestValidationError(errors) from None
+
+        return contract_handler
+
+
+router = APIRouter(tags=["ingestion"], route_class=_ContractRoute)
 
 # ── Pydantic models ───────────────────────────────────────────────────────
+# Event contract v1 (frozen): docs/contracts/event-schema.v1.json is the source
+# of truth; NormalizedEvent mirrors it and tests/test_contracts.py fails if the
+# two drift. Every violation is a 422 naming the offending field — the batch
+# is rejected whole before anything is written.
+
+SCHEMA_VERSION = "1"
+
+# RFC 3339 date-time with a mandatory offset. Seconds 00-59 (no leap second:
+# Python datetimes cannot represent :60). Identical to the schema's `pattern`.
+RFC3339_PATTERN = (
+    r"^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[Tt]"
+    r"([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\.[0-9]+)?"
+    r"([Zz]|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$"
+)
+_RFC3339_RE = re.compile(RFC3339_PATTERN)
+
+# Parser hints accepted by POST /api/events/raw (IngestionManager._HINT_MAP).
+SourceHint = Literal["ssh", "syslog", "windows", "network", "endpoint"]
+
+
+def _compact_json(value: Any) -> str:
+    """Serialize *value* the way the contract measures sizes (compact JSON)."""
+    return json.dumps(value, separators=(",", ":"), ensure_ascii=False)
+
+
+def _source_ip_schema(schema: Dict[str, Any]) -> None:
+    """Publish the ipv4|ipv6 formats that `_check_source_ip` enforces."""
+    schema["anyOf"] = [
+        {"type": "string", "maxLength": MAX_SOURCE_IP_LENGTH, "format": "ipv4"},
+        {"type": "string", "maxLength": MAX_SOURCE_IP_LENGTH, "format": "ipv6"},
+        {"type": "null"},
+    ]
 
 
 class NormalizedEvent(BaseModel):
-    """Schema for a single event sent by an endpoint agent."""
+    """
+    One event sent by an endpoint agent — event contract v1.
 
-    timestamp: datetime
-    host: constr(max_length=MAX_HOSTNAME_LENGTH) = ""  # type: ignore[valid-type]
-    effective_username: constr(max_length=MAX_USERNAME_LENGTH) = ""  # type: ignore[valid-type]
-    source_ip: Optional[str] = None
-    event_type: str = Field(..., max_length=64)
-    raw_message: constr(max_length=MAX_RAW_MESSAGE_LENGTH) = ""  # type: ignore[valid-type]
-    attributes: Dict[str, Any] = Field(default_factory=dict)
+    ``device_id`` and ``user_id`` are deliberately absent: they are
+    server-assigned from the authenticated device (schema ``readOnly``), and
+    ``extra="forbid"`` rejects an event that tries to supply them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    schema_version: Literal["1"]
+    timestamp: AwareDatetime = Field(json_schema_extra={"pattern": RFC3339_PATTERN})
+    host: str = Field(default="", max_length=MAX_HOSTNAME_LENGTH)
+    effective_username: str = Field(default="", max_length=MAX_USERNAME_LENGTH)
+    source_ip: Optional[str] = Field(
+        default=None, max_length=MAX_SOURCE_IP_LENGTH, json_schema_extra=_source_ip_schema
+    )
+    event_type: str = Field(..., max_length=MAX_EVENT_TYPE_LENGTH)
+    raw_message: str = Field(default="", max_length=MAX_RAW_MESSAGE_LENGTH)
+    attributes: Dict[str, Any] = Field(
+        default_factory=dict,
+        max_length=MAX_ATTRIBUTE_KEYS,
+        json_schema_extra={
+            "additionalProperties": {"maxLength": MAX_ATTRIBUTE_VALUE_LENGTH},
+            "x-lsadra-maxValueLength": MAX_ATTRIBUTE_VALUE_LENGTH,
+            "x-lsadra-maxSerializedBytes": MAX_ATTRIBUTES_BYTES,
+        },
+    )
+
+    @field_validator("timestamp", mode="before")
+    @classmethod
+    def _check_rfc3339(cls, value: Any) -> Any:
+        # Before pydantic's lenient coercion, which would also accept epoch
+        # numbers, a space separator and other non-RFC 3339 shapes.
+        if not isinstance(value, str) or not _RFC3339_RE.fullmatch(value):
+            raise ValueError(
+                "timestamp must be an RFC 3339 date-time string with a UTC offset "
+                "(Z or +/-HH:MM), e.g. 2026-01-15T02:01:12Z"
+            )
+        return value
+
+    @field_validator("timestamp")
+    @classmethod
+    def _to_utc(cls, value: datetime) -> datetime:
+        try:
+            return value.astimezone(timezone.utc)
+        except OverflowError:  # e.g. 9999-12-31T23:59:59-23:59 — a 422, never a 500
+            raise ValueError("timestamp is out of range once normalized to UTC") from None
+
+    @field_validator("source_ip")
+    @classmethod
+    def _check_source_ip(cls, value: Optional[str]) -> Optional[str]:
+        if value is None:
+            return None
+        try:
+            if "%" in value:  # IPv6 zone index: not part of RFC 4291 text form
+                raise ValueError
+            ipaddress.ip_address(value)
+        except ValueError:
+            raise ValueError("source_ip must be an IPv4 or IPv6 address, or null") from None
+        return value
+
+    @field_validator("attributes")
+    @classmethod
+    def _check_attribute_sizes(cls, value: Dict[str, Any]) -> Dict[str, Any]:
+        try:
+            for key, item in value.items():
+                size = len(item) if isinstance(item, str) else len(_compact_json(item))
+                if size > MAX_ATTRIBUTE_VALUE_LENGTH:
+                    raise ValueError(
+                        f"attributes[{key[:64]!r}] exceeds {MAX_ATTRIBUTE_VALUE_LENGTH} characters"
+                    )
+            total = len(_compact_json(value).encode("utf-8"))
+        except (RecursionError, TypeError, OverflowError):
+            # Pathologically nested / unserializable input must be a 422, never a 500.
+            raise ValueError("attributes must be serializable JSON of bounded depth") from None
+        if total > MAX_ATTRIBUTES_BYTES:
+            raise ValueError(f"attributes exceeds {MAX_ATTRIBUTES_BYTES} bytes as compact JSON")
+        return value
 
 
 class EventBatch(BaseModel):
-    """Wrapper for a batch of events from one device."""
+    """Wrapper for a batch of events from one device (≤ MAX_EVENTS_PER_BATCH)."""
+
+    model_config = ConfigDict(extra="forbid")
 
     events: List[NormalizedEvent] = Field(..., max_length=MAX_EVENTS_PER_BATCH)
 
@@ -197,8 +338,10 @@ async def ingest_batch(
 class RawLogLine(BaseModel):
     """Schema for a single raw log line from any supported source."""
 
+    model_config = ConfigDict(extra="forbid")
+
     raw_line: str = Field(..., max_length=MAX_RAW_MESSAGE_LENGTH)
-    source_hint: Optional[str] = Field(
+    source_hint: Optional[SourceHint] = Field(
         default=None,
         description="Optional parser hint: ssh|syslog|windows|network|endpoint",
     )
@@ -207,7 +350,22 @@ class RawLogLine(BaseModel):
 class RawLogBatch(BaseModel):
     """Batch of raw log lines from one device."""
 
+    model_config = ConfigDict(extra="forbid")
+
     lines: List[RawLogLine] = Field(..., max_length=MAX_EVENTS_PER_BATCH)
+
+
+def _raw_event_host(event: Dict[str, Any]) -> str:
+    """
+    Hostname for a parsed /raw event, taken from the log line itself.
+
+    Parsers report it as a top-level ``host`` (SSH), ``extra.host`` (syslog) or
+    ``extra.computer`` (Windows). Unknown → "". Never the device ID: that is
+    the authenticated identity and already lives in ``device_id``.
+    """
+    extra = event.get("extra") or {}
+    host = event.get("host") or extra.get("host") or extra.get("computer") or ""
+    return str(host)[:MAX_HOSTNAME_LENGTH]
 
 
 @router.post("/raw", summary="[V4] Ingest raw log lines via IngestionManager")
@@ -261,7 +419,7 @@ async def ingest_raw_batch(
                 "timestamp":          event.get("timestamp"),
                 "device_id":          device_id,
                 "user_id":            user_id,
-                "host":               event.get("device_id", ""),
+                "host":               _raw_event_host(event),
                 "effective_username": event.get("username") or "",
                 "source_ip":          event.get("source_ip"),
                 "event_type":         event.get("event_type"),
