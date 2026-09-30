@@ -14,10 +14,14 @@ tmp.close()
 import lsadra.config as cfg_mod
 import pathlib
 cfg_mod.DB_PATH = pathlib.Path(tmp.name)
+# database.py binds DB_PATH at import (`from lsadra.config import DB_PATH`), and
+# earlier test modules may already have imported it: patch that binding too.
+import lsadra.storage.database as db_mod
+db_mod.DB_PATH = pathlib.Path(tmp.name)
 
 # Apply V4 schema
 conn = sqlite3.connect(tmp.name)
-conn.executescript(open(r"lsadra\storage\migrations\002_v4_schema.sql").read())
+conn.executescript(open(os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "lsadra", "storage", "migrations", "002_v4_schema.sql")).read())
 # Also create the normalized_events and anomalies tables so foreign keys work
 conn.executescript("""
 CREATE TABLE IF NOT EXISTS normalized_events (id INTEGER PRIMARY KEY AUTOINCREMENT, timestamp TEXT, device_id TEXT, user_id TEXT, host TEXT, effective_username TEXT, source_ip TEXT, event_type TEXT, raw_message TEXT, attributes TEXT, is_synthetic INTEGER);

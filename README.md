@@ -175,7 +175,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 **Where the project is now**
 
 - **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). Two items remain deferred by design: WebSocket handshake authentication (lands with the async core) and signed agent distribution (lands with release engineering).
-- **CI on every PR:** pytest across Ubuntu, Windows, and macOS, plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
+- **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges).

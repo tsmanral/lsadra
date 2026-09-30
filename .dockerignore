@@ -1,0 +1,23 @@
+# Keep the build context (and the image) free of VCS metadata, private
+# planning files, secrets, local state, build artifacts and dev-only trees.
+.git
+.github
+vault/
+MASTER_PLAN.md
+LAUNCH_PACKAGE.md
+PART_B_SYSTEM_PROMPT.md
+fable_handover.md
+.env
+.env.*
+.claude/
+*.db
+*.sqlite*
+data/
+logs/
+frontend/node_modules
+frontend/dist
+**/__pycache__
+.pytest_cache
+.ruff_cache
+tests/
+docs/figures*

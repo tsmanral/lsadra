@@ -9,3 +9,7 @@ guards themselves (they are exercised in dedicated subprocess tests).
 import os
 
 os.environ.setdefault("LSADRA_DEV_MODE", "true")
+
+# test_v4_smoke.py is a standalone script (`python tests/test_v4_smoke.py`) that
+# exits at import time; keep a bare `pytest` from crashing while collecting it.
+collect_ignore = ["test_v4_smoke.py"]
