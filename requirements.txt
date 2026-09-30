@@ -49,7 +49,7 @@ fpdf2>=2.8.7
 kaleido>=0.2.1
 
 # Geolocation
-geopy>=2.3.0
+geopy>=2.5.0
 
 # Testing
 pytest>=7.0.0
