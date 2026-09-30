@@ -12,3 +12,4 @@ Format: Status · Date · Deciders · Context · Decision · Consequences.
 | [0003](0003-apple-less-strategy.md) | Apple-less development strategy | Accepted (superseded in part by 0005) |
 | [0004](0004-intel-two-tier-licensing.md) | Threat-intel two-tier & licensing | Accepted (build at M4) |
 | [0005](0005-apple-testing-strategy.md) | Apple testing strategy — Apple-less local dev, Apple-covered CI | Accepted (supersedes 0003 in part) |
+| [0006](0006-event-schema-v1-freeze.md) | Event schema v1 freeze and boundary enforcement | Accepted |

@@ -32,10 +32,11 @@ def client():
     return TestClient(app)
 
 
-# Minimal valid EventBatch body: only timestamp + event_type are required.
+# Minimal valid EventBatch body (event contract v1): only schema_version,
+# timestamp and event_type are required.
 _VALID_BATCH = {
     "events": [
-        {"timestamp": "2026-03-15T14:30:00", "event_type": "auth_failure"},
+        {"schema_version": "1", "timestamp": "2026-03-15T14:30:00Z", "event_type": "auth_failure"},
     ]
 }
 

@@ -168,8 +168,8 @@ def test_attack_scenarios_contain_malicious_events():
         assert "malicious" in labels, f"{path.name}: attack scenario has no malicious events"
 
 
-def test_seeder_payload_mapping_drops_contract_only_fields():
-    """`schema_version` is a contract field; the ingestion API rejects unknown keys."""
+def test_seeder_payload_mapping_sends_contract_v1_fields():
+    """The ingestion API requires `schema_version` and rejects unknown keys (contract v1)."""
     import sys
 
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
@@ -178,8 +178,9 @@ def test_seeder_payload_mapping_drops_contract_only_fields():
     _, _, event = next(_iter_events())
     payload = to_ingest_payload(event)
 
-    assert "schema_version" not in payload
+    assert payload["schema_version"] == "1"
     assert set(payload) == {
+        "schema_version",
         "timestamp",
         "host",
         "effective_username",

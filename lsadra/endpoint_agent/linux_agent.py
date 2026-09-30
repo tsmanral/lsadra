@@ -4,12 +4,19 @@ import time
 import json
 import logging
 import argparse
+import ipaddress
 import platform
 import re
+import urllib.error
 import urllib.request
 import urllib.parse
 from datetime import datetime
 from typing import List, Dict, Any, Optional
+
+# Event contract v1 (docs/contracts/event-schema.v1.json). The agent must emit
+# events the core accepts: a rejected event fails its whole batch with a 422.
+SCHEMA_VERSION = "1"
+_MAX_USERNAME, _MAX_HOST, _MAX_RAW, _MAX_ATTR_VALUE = 128, 255, 4096, 1024
 
 # ── Logging Configuration ────────────────────────────────────────────────
 logging.basicConfig(
@@ -98,19 +105,25 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         except ValueError:
             return None
 
+    if ts.tzinfo is None:
+        # BSD syslog carries no offset: the line was written in local time.
+        ts = ts.astimezone()
+
     msg = g["message"]
+    host = (g.get("host") or "")[:_MAX_HOST]
 
     # 1. Check for SSH Login attempts
     ma = _AUTH_RE.search(msg)
     if ma:
         status, method, user, src_ip, port = ma.groups()
         return {
+            "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
             "event_type": f"ssh_{status.lower()}_{method}",
-            "host": g.get("host", ""),
-            "effective_username": user,
-            "source_ip": src_ip,
-            "raw_message": f"{status} {method} for {user} from {src_ip}:{port}",
+            "host": host,
+            "effective_username": user[:_MAX_USERNAME],
+            "source_ip": _ip_or_none(src_ip),
+            "raw_message": f"{status} {method} for {user} from {src_ip}:{port}"[:_MAX_RAW],
             "attributes": {
                 "severity": "HIGH" if status == "Failed" else "INFO",
                 "port": port
@@ -122,29 +135,36 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
     if ms:
         user, cmd = ms.groups()
         return {
+            "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
             "event_type": "sudo_command",
-            "host": g.get("host", ""),
-            "effective_username": user,
-            "raw_message": f"User {user} executed sudo: {cmd}",
+            "host": host,
+            "effective_username": user[:_MAX_USERNAME],
+            "raw_message": f"User {user} executed sudo: {cmd}"[:_MAX_RAW],
             "attributes": {
                 "severity": "HIGH",
-                "command": cmd
+                "command": cmd[:_MAX_ATTR_VALUE]
             }
         }
 
     return None
 
 
+def _ip_or_none(value: str) -> Optional[str]:
+    """The contract takes an IPv4/IPv6 literal or null — sshd may log a hostname."""
+    try:
+        return str(ipaddress.ip_address(value))
+    except ValueError:
+        return None
+
+
 # ── Batch Sender ─────────────────────────────────────────────────────────
 
 def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, device_id: str, api_key: str) -> bool:
     url = f"{server_url.rstrip('/')}{endpoint}"
-    payload = json.dumps({
-        "device_id": device_id,
-        "events": events,
-        "sent_at": datetime.now().isoformat()
-    }).encode("utf-8")
+    # The batch envelope is exactly {"events": [...]}; the device identity
+    # travels in the X-Device-Id header (the core rejects unknown keys).
+    payload = json.dumps({"events": events}).encode("utf-8")
     
     headers = {
         "X-Device-Id": device_id,
@@ -162,6 +182,16 @@ def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, de
                     return True
                 logger.error("Server rejected batch (%d)", response.status)
                 return False
+        except urllib.error.HTTPError as exc:
+            if exc.code == 422:
+                # Event-contract rejection: resending the same bytes can never
+                # succeed, and retrying forever would stall the tailer.
+                logger.error("Server rejected batch as invalid (422), dropping it: %.500s",
+                             exc.read().decode("utf-8", "replace"))
+                return False
+            logger.warning("Send failed (%s), retrying in %ds ...", exc, backoff)
+            time.sleep(backoff)
+            backoff = min(backoff * 2, MAX_BACKOFF)
         except Exception as exc:
             logger.warning("Send failed (%s), retrying in %ds ...", exc, backoff)
             time.sleep(backoff)

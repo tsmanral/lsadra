@@ -145,6 +145,7 @@ def send_events(device, events):
 def make_event(device, event_type="auth_success", username=None, source_ip=None, ts=None):
     """Create a single event dict."""
     return {
+        "schema_version": "1",  # event contract v1 (docs/contracts/event-schema.v1.json)
         "timestamp": (ts or datetime.now(timezone.utc)).isoformat(),
         "host": device["hostname"],
         "effective_username": username or random.choice(NORMAL_USERS),

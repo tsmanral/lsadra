@@ -1,8 +1,8 @@
 {
   "$schema": "https://json-schema.org/draft/2020-12/schema",
-  "$id": "https://example.invalid/lsadra/contracts/event-schema.v1.json",
+  "$id": "https://raw.githubusercontent.com/tsmanral/lsadra/main/docs/contracts/event-schema.v1.json",
   "title": "LSADRA Normalized Event",
-  "description": "v1 (DRAFT) — the normalized event emitted by collectors and ingested by the core. Attacker-controlled input: every string field must be treated as untrusted and bounded.",
+  "description": "v1 (frozen 2026-09-30) — the normalized event emitted by collectors and ingested by the core at POST /api/events/batch. Attacker-controlled input: every string field is untrusted and bounded. Validators MUST enable format assertion (ipv4, ipv6, date-time). Keywords prefixed x-lsadra- are enforced by the core and are not expressible in standard JSON Schema. Compatibility policy: docs/contracts/README.md.",
   "type": "object",
   "required": ["schema_version", "timestamp", "event_type"],
   "additionalProperties": false,
@@ -10,34 +10,43 @@
     "schema_version": {
       "type": "string",
       "const": "1",
-      "description": "Contract version this event conforms to."
+      "description": "Contract version this event conforms to. Any other value is rejected."
     },
     "timestamp": {
       "type": "string",
       "format": "date-time",
-      "description": "Event time, RFC 3339 / ISO 8601."
+      "pattern": "^[0-9]{4}-(0[1-9]|1[0-2])-(0[1-9]|[12][0-9]|3[01])[Tt]([01][0-9]|2[0-3]):[0-5][0-9]:[0-5][0-9](\\.[0-9]+)?([Zz]|[+-]([01][0-9]|2[0-3]):[0-5][0-9])$",
+      "description": "Event time: RFC 3339 date-time with a mandatory UTC offset (Z or +/-HH:MM). Naive timestamps, epoch numbers and leap seconds (:60) are rejected. The core normalizes to UTC on ingest."
     },
     "device_id": {
       "type": "string",
       "maxLength": 128,
-      "description": "Registered device identifier (assigned at registration)."
+      "readOnly": true,
+      "description": "Registered device identifier. Server-assigned from the authenticated X-Device-Id credential; an event that carries it is rejected."
     },
     "user_id": {
       "type": "string",
-      "maxLength": 128
+      "maxLength": 128,
+      "readOnly": true,
+      "description": "Owner of the registered device. Server-assigned from the device record; an event that carries it is rejected."
     },
     "host": {
       "type": "string",
-      "maxLength": 255
+      "maxLength": 255,
+      "description": "Hostname as reported by the log source."
     },
     "effective_username": {
       "type": "string",
-      "maxLength": 128
+      "maxLength": 128,
+      "description": "Account the event is attributed to."
     },
     "source_ip": {
-      "type": ["string", "null"],
-      "maxLength": 45,
-      "description": "IPv4/IPv6 of the actor, if known."
+      "anyOf": [
+        { "type": "string", "maxLength": 45, "format": "ipv4" },
+        { "type": "string", "maxLength": 45, "format": "ipv6" },
+        { "type": "null" }
+      ],
+      "description": "IPv4 (dotted quad) or IPv6 (RFC 4291 text form, no zone index) address of the actor, or null when unknown. Hostnames and empty strings are rejected."
     },
     "event_type": {
       "type": "string",
@@ -51,8 +60,11 @@
     },
     "attributes": {
       "type": "object",
-      "description": "Source-specific key/values.",
-      "additionalProperties": true
+      "maxProperties": 32,
+      "additionalProperties": { "maxLength": 1024 },
+      "x-lsadra-maxValueLength": 1024,
+      "x-lsadra-maxSerializedBytes": 8192,
+      "description": "Source-specific key/values; the v1 extension point. At most 32 keys. Each string value at most 1024 characters; each non-string value at most 1024 characters when serialized as compact JSON (x-lsadra-maxValueLength). The whole object at most 8192 bytes as compact UTF-8 JSON (x-lsadra-maxSerializedBytes)."
     }
   }
 }

@@ -190,7 +190,8 @@ def main():
                             record_ids[ch] = rid
                     
                     # Push to V4 raw log API
-                    lines = [{"raw_line": ev, "source_hint": "windows_event"} for ev in events]
+                    # source_hint must be one of ssh|syslog|windows|network|endpoint.
+                    lines = [{"raw_line": ev, "source_hint": "windows"} for ev in events]
                     
                     batch_size = 50
                     for i in range(0, len(lines), batch_size):
