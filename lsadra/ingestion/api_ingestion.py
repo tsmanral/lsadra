@@ -24,6 +24,7 @@ from fastapi.routing import APIRoute
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
 
 from lsadra.config import (
+    BENCH_SKIP_DETECTION,
     MAX_ATTRIBUTE_KEYS,
     MAX_ATTRIBUTE_VALUE_LENGTH,
     MAX_ATTRIBUTES_BYTES,
@@ -322,11 +323,13 @@ async def ingest_batch(
     logger.info("Ingested %d events from device %s", count, device_id)
 
     # ── trigger online detection using the singleton orchestrator ────────
-    try:
-        orchestrator = _get_orchestrator()
-        orchestrator.run_for_new_events(device_id=device_id)
-    except Exception:
-        logger.exception("Online detection failed for device %s", device_id)
+    # BENCH_SKIP_DETECTION is dev-mode-only (config.py refuses it otherwise).
+    if not BENCH_SKIP_DETECTION:
+        try:
+            orchestrator = _get_orchestrator()
+            orchestrator.run_for_new_events(device_id=device_id)
+        except Exception:
+            logger.exception("Online detection failed for device %s", device_id)
 
     return {"status": "ok", "events_accepted": count}
 
@@ -459,11 +462,12 @@ async def ingest_raw_batch(
             logger.exception("[V4] Enhanced feature extraction failed — using V3 pipeline.")
 
     # ── V3 online detection (preserved) ──────────────────────────────────
-    try:
-        orchestrator = _get_orchestrator()
-        orchestrator.run_for_new_events(device_id=device_id)
-    except Exception:
-        logger.exception("Online detection failed for device %s", device_id)
+    if not BENCH_SKIP_DETECTION:
+        try:
+            orchestrator = _get_orchestrator()
+            orchestrator.run_for_new_events(device_id=device_id)
+        except Exception:
+            logger.exception("Online detection failed for device %s", device_id)
 
     return {
         "status":       "ok",

@@ -52,3 +52,5 @@ geopy>=2.5.0
 pytest>=9.1.1
 # Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
 jsonschema>=4.0.0
+# Ingest benchmark harness (benchmarks/): server RSS + CPU sampling
+psutil>=7.0.0
