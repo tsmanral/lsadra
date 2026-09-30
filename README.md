@@ -134,7 +134,8 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
+benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
@@ -195,13 +196,13 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
-- **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges).
+- **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
 - **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
+- **Ingest benchmark:** [`benchmarks/`](benchmarks/) drives the real API at rising rates and records sustained events/s, request latency percentiles, event-loop lag and RSS. The committed baseline for today's synchronous stack is in [`benchmarks/README.md`](benchmarks/README.md) — M1 is measured against it.
 
 **What's next (M1 — async core)**
 
 - Async ingestion on aiosqlite + WAL with worker queues, retention lifecycle, and DuckDB analytics
-- A **benchmark harness** — the throughput target has to be measured, not asserted
 - Authenticated `/ws/alerts` WebSocket handshake
 - Prompt-injection defense: logs are attacker-controlled input, and they reach the LLM and RAG index
 
