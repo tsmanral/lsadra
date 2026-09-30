@@ -31,6 +31,7 @@ EXPECTED_SCENARIOS = {
     "persistence_new_service",
     "data_movement_offhours",
     "benign_background",
+    "injection_attempts",
 }
 
 VALID_LABELS = {"malicious", "benign", "suspicious"}
@@ -158,7 +159,7 @@ def test_benign_control_set_is_entirely_benign():
 
 
 def test_attack_scenarios_contain_malicious_events():
-    for stem in EXPECTED_SCENARIOS - {"benign_background"}:
+    for stem in EXPECTED_SCENARIOS - {"benign_background", "injection_attempts"}:
         path = CORPUS_DIR / f"{stem}.jsonl"
         labels = {
             json.loads(line)["attributes"]["ground_truth"]["label"]
