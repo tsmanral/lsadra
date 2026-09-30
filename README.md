@@ -133,7 +133,7 @@ tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
-  corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background
+  corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records

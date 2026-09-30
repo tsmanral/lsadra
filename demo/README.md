@@ -68,6 +68,7 @@ by `tests/test_demo_corpus.py`.
 | `persistence_new_service.jsonl` | 35 | Windows-flavoured: routine service and process noise, an encoded-command execution, a bogus service installed from a temp path, a scheduled task, then a C2 beacon to `203.0.113.44` | 15 benign / 3 suspicious / 17 malicious |
 | `data_movement_offhours.jsonl` | 41 | `svc-backup.demo` reads far past its daytime baseline at ~02:00, stages an archive, then pushes hundreds of MB to `203.0.113.90` | 16 benign / 13 suspicious / 12 malicious |
 | `benign_background.jsonl` | 64 | The negative-class control set: business-hours logins, package updates, cron, boot-time services, ordinary traffic — plus deliberate near-misses (one isolated failed login, one modest after-hours backup) | 64 benign |
+| `injection_attempts.jsonl` | 29 | Log-injection payloads aimed at the narrative engine, one `phase` per family: markdown/delimiter breakout, instruction-override text, homoglyph/bidi/invisible characters, fields at the contract size limits, nested JSON in `raw_message`. Fixture for the R8 tests in `tests/security/test_r8_*.py`; exempt from the must-contain-malicious rule | 29 suspicious |
 
 Techniques referenced (MITRE ATT&CK, for orientation only — this is not a
 detection-coverage claim): T1110.001, T1078, T1543.003, T1053.005, T1071.001,
