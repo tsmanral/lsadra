@@ -143,6 +143,22 @@ Supplementary ceiling sweep (`--stop-on throughput`, 10 and 20 devices):
 | 20 | 50 | 49 / 46 | 2 619 / 7 057 | 2 255 / 4 206 | 0.63 / 0.70 |
 | 20 | 100 | 23 / 53 | 55 946 / 18 995 | 28 119 / 11 640 | 0.42 / 0.75 |
 
+### Re-check after rebasing onto `0cc230f`
+
+The baseline was measured on `90aee39`. Before merge this branch was rebased
+onto `0cc230f`, which adds boundary enforcement of event schema v1 (payloads
+now carry `schema_version`) and the narrative sanitizer. Spot-check, one run
+each, same machine:
+
+| Detection | Devices | Offered ev/s | Sustained ev/s | p50 / p95 / p99 ms | Loop lag p50 / p99 ms |
+|---|---:|---:|---:|---|---|
+| off | 20 | 1 000 | 988 | 261 / 287 / 295 | 9.2 / 28.0 |
+| off | 20 | 1 900 | 1 873 | 251 / 272 / 288 | 8.8 / 32.6 |
+| on | 10 | 25 | 25 | 2 192 / 2 424 / 2 512 | 8.7 / 1 934 |
+
+All within the run-to-run spread above, so the committed baseline stands for
+the rebased code.
+
 ## What the numbers say
 
 1. **With detection off, ≥ 1 000 events/s is reached** at 20 devices (987 / 985
