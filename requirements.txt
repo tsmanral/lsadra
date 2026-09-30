@@ -52,6 +52,6 @@ kaleido>=0.2.1
 geopy>=2.5.0
 
 # Testing
-pytest>=7.0.0
+pytest>=9.1.1
 # Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
 jsonschema>=4.0.0
