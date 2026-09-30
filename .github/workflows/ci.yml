@@ -68,3 +68,41 @@ jobs:
           else
             echo "tests/test_demo_corpus.py not present on this ref."
           fi
+      - name: Full backend suite
+        # Everything under tests/ except the smoke script (it runs as a plain
+        # script above and exits at import, so pytest must not collect it).
+        run: python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+      - name: Type check
+        run: npx tsc -b --noEmit
+      - name: Build
+        run: npm run build
+      - name: ESLint (report)
+        run: npx eslint . -f json -o eslint.json || true
+      - name: ESLint baseline gate (fail only if errors exceed 164)
+        # Lint debt is being paid down in dedicated PRs; this gate only blocks
+        # regressions above the recorded baseline (164 errors / 5 warnings).
+        run: |
+          node -e '
+            const r = require("./eslint.json");
+            const errors = r.reduce((n, f) => n + f.errorCount, 0);
+            const warnings = r.reduce((n, f) => n + f.warningCount, 0);
+            console.log(`eslint: ${errors} errors, ${warnings} warnings (baseline: 164 errors)`);
+            if (errors > 164) {
+              console.log(`::error::eslint errors ${errors} exceed baseline 164`);
+              process.exit(1);
+            }
+          '
