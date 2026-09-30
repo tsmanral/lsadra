@@ -34,7 +34,7 @@ requests>=2.31.0
 loguru>=0.7.3
 
 # File watching (agent)
-watchdog>=3.0.0
+watchdog>=6.0.0
 
 # Config
 pyyaml>=6.0
