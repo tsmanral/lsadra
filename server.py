@@ -28,13 +28,10 @@ from lsadra.ingestion.api_ingestion import run_online_detection
 from lsadra.onboarding.device_registration import router as devices_router
 from lsadra.storage.database import (
     get_all_incidents,
-    get_device,
     get_incident,
     get_user_by_username,
     init_db,
-    insert_heartbeat,
-    touch_device,
-    update_device_status,
+    record_heartbeat,
     update_incident_status,
     assign_incident as db_assign_incident,
 )
@@ -210,20 +207,15 @@ class HeartbeatRequest(BaseModel):
 
 @app.post("/heartbeat", tags=["heartbeat"])
 async def heartbeat(req: HeartbeatRequest):
-    device = get_device(req.device_id)
-    if not device:
-        raise HTTPException(status_code=404, detail="Unknown device.")
-
-    insert_heartbeat(
+    # One connection, one write transaction (was four separate connect/commits).
+    recorded = record_heartbeat(
         device_id=req.device_id,
         cpu_pct=req.cpu_pct,
         mem_pct=req.mem_pct,
         agent_version=req.agent_version,
     )
-    touch_device(req.device_id)
-
-    if device.get("status") == "OFFLINE":
-        update_device_status(req.device_id, "ONLINE")
+    if not recorded:
+        raise HTTPException(status_code=404, detail="Unknown device.")
 
     return {"status": "ok", "device_id": req.device_id}
 

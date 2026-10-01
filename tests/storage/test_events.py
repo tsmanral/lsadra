@@ -11,7 +11,7 @@ from datetime import datetime
 
 import pytest
 
-from tests.storage._support import DEVICE_ID, USER_ID, make_event
+from tests.storage._support import DEVICE_ID, USER_ID, make_event, transactions
 
 EVENT_KEYS = {
     "id",
@@ -143,3 +143,12 @@ def test_set_watermark_inserts_then_updates(seeded, sql):
 def test_set_watermark_unknown_device_violates_foreign_key(db):
     with pytest.raises(sqlite3.IntegrityError):
         db.set_watermark("ghost", 1)
+
+
+# ── insert_events_batch transaction shape (S2-3) ───────────────────────────
+
+
+def test_insert_events_batch_is_one_transaction(seeded, traced):
+    assert seeded.insert_events_batch([make_event() for _ in range(50)]) == 50
+    assert len(traced) == 1
+    assert transactions(traced[0]) == ["BEGIN", "COMMIT"]

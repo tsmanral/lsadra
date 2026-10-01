@@ -28,13 +28,24 @@ logger = logging.getLogger(__name__)
 # ── connection helper ──────────────────────────────────────────────────────
 
 
+BUSY_TIMEOUT_S = 30  # how long a writer waits for the lock before "database is locked"
+
+
 def get_connection() -> sqlite3.Connection:
-    """Return a connection to the V3 SQLite database (the caller must close it)."""
+    """Return a connection to the V3 SQLite database (the caller must close it).
+
+    Per-connection settings only. ``journal_mode=WAL`` is persistent in the
+    database file, so :func:`init_db` sets it once instead of every call
+    re-issuing it. ``synchronous=NORMAL`` is the WAL-safe setting: a commit
+    survives an application crash; only an OS crash / power loss can roll back
+    the most recent commits, never corrupt the database.
+    """
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(DB_PATH))
+    conn = sqlite3.connect(str(DB_PATH), timeout=BUSY_TIMEOUT_S)
     try:
         conn.row_factory = sqlite3.Row
-        conn.execute("PRAGMA journal_mode=WAL")
+        conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_S * 1000}")
+        conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
     except BaseException:
         conn.close()
@@ -78,11 +89,14 @@ def _connection(
 
 
 def init_db() -> None:
-    """Run all pending migrations to bring the schema up to date."""
+    """Switch the database to WAL (once; it persists) and run pending migrations."""
     from lsadra.storage.migration_runner import run_migrations
 
     logger.info("Initializing V3 database at %s", DB_PATH)
     with _connection() as conn:
+        mode = conn.execute("PRAGMA journal_mode=WAL").fetchone()[0]
+        if str(mode).lower() != "wal":
+            logger.warning("SQLite refused WAL mode (journal_mode=%s) for %s", mode, DB_PATH)
         run_migrations(conn)
     logger.info("V3 database schema ready.")
 
@@ -289,28 +303,34 @@ def insert_event(event: Dict[str, Any]) -> int:
 
 
 def insert_events_batch(events: List[Dict[str, Any]]) -> int:
-    """Bulk-insert normalized events. Returns count inserted."""
+    """Bulk-insert normalized events in one transaction. Returns count inserted.
+
+    All-or-nothing: if any row fails (e.g. a foreign-key violation) the whole
+    batch is rolled back by :func:`_connection`.
+    """
+    rows = [
+        (
+            ev.get("timestamp"),
+            ev.get("device_id"),
+            ev.get("user_id"),
+            ev.get("host"),
+            ev.get("effective_username"),
+            ev.get("source_ip"),
+            ev.get("event_type"),
+            ev.get("raw_message"),
+            json.dumps(ev.get("attributes", {})),
+            ev.get("is_synthetic", False),
+        )
+        for ev in events
+    ]
     with _connection() as conn:
-        cur = conn.cursor()
-        for ev in events:
-            cur.execute(
-                """INSERT INTO normalized_events
-                   (timestamp, device_id, user_id, host, effective_username,
-                    source_ip, event_type, raw_message, attributes, is_synthetic)
-                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (
-                    ev.get("timestamp"),
-                    ev.get("device_id"),
-                    ev.get("user_id"),
-                    ev.get("host"),
-                    ev.get("effective_username"),
-                    ev.get("source_ip"),
-                    ev.get("event_type"),
-                    ev.get("raw_message"),
-                    json.dumps(ev.get("attributes", {})),
-                    ev.get("is_synthetic", False),
-                ),
-            )
+        conn.executemany(
+            """INSERT INTO normalized_events
+               (timestamp, device_id, user_id, host, effective_username,
+                source_ip, event_type, raw_message, attributes, is_synthetic)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
         conn.commit()
         return len(events)
 
@@ -634,6 +654,43 @@ def insert_heartbeat(
             (device_id, cpu_pct, mem_pct, agent_version),
         )
         conn.commit()
+
+
+def record_heartbeat(
+    device_id: str,
+    cpu_pct: Optional[float] = None,
+    mem_pct: Optional[float] = None,
+    agent_version: Optional[str] = None,
+) -> bool:
+    """Record a device heartbeat on one connection with one write transaction.
+
+    Same effect as ``get_device`` → ``insert_heartbeat`` → ``touch_device`` →
+    ``update_device_status(ONLINE)`` (the last only when the device was
+    OFFLINE), which the heartbeat endpoint used to run as four separate
+    connect/commit cycles. Returns ``False`` and writes nothing when the device
+    does not exist; ``True`` otherwise.
+    """
+    with _connection() as conn:
+        # Read-only existence check: an unknown device_id never takes the write lock.
+        if conn.execute("SELECT 1 FROM devices WHERE id = ?", (device_id,)).fetchone() is None:
+            return False
+        cur = conn.execute(
+            """UPDATE devices
+                  SET last_seen_at = ?,
+                      status = CASE WHEN status = 'OFFLINE' THEN 'ONLINE' ELSE status END
+                WHERE id = ?""",
+            (datetime.utcnow().isoformat(), device_id),
+        )
+        if cur.rowcount == 0:  # deleted between the check and the update
+            conn.rollback()
+            return False
+        conn.execute(
+            """INSERT INTO device_heartbeats (device_id, cpu_pct, mem_pct, agent_version)
+               VALUES (?, ?, ?, ?)""",
+            (device_id, cpu_pct, mem_pct, agent_version),
+        )
+        conn.commit()
+        return True
 
 
 def get_latest_heartbeat(device_id: str) -> Optional[Dict[str, Any]]:

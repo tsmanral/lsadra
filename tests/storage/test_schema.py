@@ -49,15 +49,60 @@ def test_get_connection_returns_row_factory_wal_and_foreign_keys(db):
         conn.close()
 
 
-def test_get_connection_uses_sqlite_default_busy_timeout(db):
-    # Current connection model: no explicit timeout, so sqlite3's 5 s default.
-    # test_concurrency.py sizes its contention load against this value; a
-    # Sprint 2 change to the timeout must update both.
+def test_get_connection_sets_30s_busy_timeout(db):
+    # Sprint 2 (S2-3): explicit 30 s, up from sqlite3's 5 s default.
+    # test_concurrency.py sizes its contention load against db.BUSY_TIMEOUT_S.
+    assert db.BUSY_TIMEOUT_S == 30
     conn = db.get_connection()
     try:
-        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 5000
+        assert conn.execute("PRAGMA busy_timeout").fetchone()[0] == 30_000
     finally:
         conn.close()
+
+
+def test_get_connection_sets_synchronous_normal(db):
+    conn = db.get_connection()
+    try:
+        assert conn.execute("PRAGMA synchronous").fetchone()[0] == 1  # NORMAL
+    finally:
+        conn.close()
+
+
+def test_init_db_sets_wal_once_and_it_persists_in_the_file(tmp_path, monkeypatch, db):
+    fresh = tmp_path / "fresh_wal.db"
+    monkeypatch.setattr(database, "DB_PATH", fresh)
+    # The per-call path no longer issues journal_mode: a file that never went
+    # through init_db() stays in SQLite's default rollback-journal mode.
+    conn = db.get_connection()
+    try:
+        assert conn.execute("PRAGMA journal_mode").fetchone()[0] == "delete"
+    finally:
+        conn.close()
+    db.init_db()
+    # A bare connection (no LSADRA pragmas) sees WAL: it is stored in the file.
+    raw = sqlite3.connect(str(fresh))
+    try:
+        assert raw.execute("PRAGMA journal_mode").fetchone()[0] == "wal"
+    finally:
+        raw.close()
+
+
+def test_get_connection_issues_per_connection_pragmas_only(db, monkeypatch):
+    statements, kwargs_seen = [], []
+    real_connect = sqlite3.connect
+
+    def traced_connect(*args, **kwargs):
+        kwargs_seen.append(kwargs)
+        conn = real_connect(*args, **kwargs)
+        conn.set_trace_callback(statements.append)
+        return conn
+
+    monkeypatch.setattr(sqlite3, "connect", traced_connect)
+    db.get_connection().close()
+    assert kwargs_seen == [{"timeout": 30}]
+    pragmas = [s for s in statements if s.upper().startswith("PRAGMA")]
+    assert pragmas == ["PRAGMA busy_timeout=30000", "PRAGMA synchronous=NORMAL", "PRAGMA foreign_keys=ON"]
+    assert not any("journal_mode" in s for s in statements)
 
 
 def test_get_connection_creates_missing_parent_directory(db, tmp_path, monkeypatch):

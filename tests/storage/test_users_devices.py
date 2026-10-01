@@ -3,7 +3,7 @@
 Covers: create_user, get_user_by_username, get_user_by_id, update_user_role,
 list_users, create_device, get_device, get_devices_for_user, get_all_devices,
 touch_device, update_device_status, increment_device_event_count, store_token,
-consume_token, insert_heartbeat, get_latest_heartbeat.
+consume_token, insert_heartbeat, record_heartbeat, get_latest_heartbeat.
 """
 
 import sqlite3
@@ -11,7 +11,7 @@ from datetime import datetime, timedelta
 
 import pytest
 
-from tests.storage._support import DEVICE_ID, USER_ID
+from tests.storage._support import DEVICE_ID, USER_ID, transactions
 
 USER_KEYS = {"id", "username", "password_hash", "role", "created_at"}
 DEVICE_KEYS = {
@@ -214,3 +214,72 @@ def test_get_latest_heartbeat_orders_by_timestamp(seeded, sql):
 
 def test_get_latest_heartbeat_missing_returns_none(db):
     assert db.get_latest_heartbeat("ghost") is None
+
+
+# ── record_heartbeat (S2-3: the heartbeat endpoint's four calls, one transaction) ──
+
+
+def _legacy_heartbeat(db, device_id, cpu, mem, version):
+    """The pre-S2-3 heartbeat handler sequence, verbatim (4 connect/commit cycles)."""
+    device = db.get_device(device_id)
+    if not device:
+        return False
+    db.insert_heartbeat(device_id=device_id, cpu_pct=cpu, mem_pct=mem, agent_version=version)
+    db.touch_device(device_id)
+    if device.get("status") == "OFFLINE":
+        db.update_device_status(device_id, "ONLINE")
+    return True
+
+
+@pytest.mark.parametrize("initial", ["BASELINING", "ONLINE", "OFFLINE"])
+def test_record_heartbeat_matches_the_legacy_four_call_sequence(seeded, initial):
+    seeded.create_device("dev-legacy", USER_ID, "host-1", "linux", "synthetic-key-hash")
+    for dev in (DEVICE_ID, "dev-legacy"):
+        seeded.update_device_status(dev, initial)
+
+    before = datetime.utcnow()
+    assert seeded.record_heartbeat(DEVICE_ID, 12.5, 40.0, "1.2.3") is True
+    assert _legacy_heartbeat(seeded, "dev-legacy", 12.5, 40.0, "1.2.3") is True
+
+    new, old = seeded.get_device(DEVICE_ID), seeded.get_device("dev-legacy")
+    volatile = {"id", "created_at", "last_seen_at"}
+    assert {k: v for k, v in new.items() if k not in volatile} == {
+        k: v for k, v in old.items() if k not in volatile
+    }
+    assert new["status"] == ("ONLINE" if initial == "OFFLINE" else initial)
+    assert before <= datetime.fromisoformat(new["last_seen_at"]) <= datetime.utcnow()
+
+    hb_new = seeded.get_latest_heartbeat(DEVICE_ID)
+    hb_old = seeded.get_latest_heartbeat("dev-legacy")
+    assert set(hb_new) == set(hb_old)
+    fields = ("cpu_pct", "mem_pct", "agent_version")
+    assert tuple(hb_new[f] for f in fields) == tuple(hb_old[f] for f in fields) == (12.5, 40.0, "1.2.3")
+
+
+def test_record_heartbeat_optional_fields_default_to_null(seeded):
+    assert seeded.record_heartbeat(DEVICE_ID) is True
+    hb = seeded.get_latest_heartbeat(DEVICE_ID)
+    assert (hb["cpu_pct"], hb["mem_pct"], hb["agent_version"]) == (None, None, None)
+
+
+def test_record_heartbeat_unknown_device_returns_false_and_writes_nothing(seeded, sql, traced):
+    assert seeded.record_heartbeat("ghost", 1.0, 2.0, "x") is False
+    assert sql("SELECT COUNT(*) AS n FROM device_heartbeats")[0]["n"] == 0
+    assert seeded.get_device(DEVICE_ID)["last_seen_at"] is None
+    # Read-only: an unknown device_id never opens a write transaction.
+    assert transactions(traced[0]) == []
+
+
+def test_record_heartbeat_uses_one_connection_and_one_transaction(seeded, traced):
+    seeded.update_device_status(DEVICE_ID, "OFFLINE")
+    traced.clear()
+    assert seeded.record_heartbeat(DEVICE_ID, 1.0, 2.0, "v") is True
+    assert len(traced) == 1
+    assert transactions(traced[0]) == ["BEGIN", "COMMIT"]
+
+
+def test_record_heartbeat_repeated_beats_append_rows(seeded, sql):
+    for i in range(3):
+        seeded.record_heartbeat(DEVICE_ID, float(i))
+    assert sql("SELECT COUNT(*) AS n FROM device_heartbeats")[0]["n"] == 3
+    assert seeded.get_device(DEVICE_ID)["status"] == "BASELINING"

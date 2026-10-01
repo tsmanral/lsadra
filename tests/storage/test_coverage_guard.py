@@ -14,7 +14,7 @@ import lsadra.storage.database as database
 
 SUITE_DIR = Path(__file__).parent
 FIXTURE_NAMES = {"db", "seeded"}
-EXPECTED_PUBLIC_COUNT = 57  # audit §13 baseline; update deliberately with new tests
+EXPECTED_PUBLIC_COUNT = 58  # audit §13 baseline 57 + record_heartbeat (S2-3); update deliberately
 
 
 def _public_functions():
