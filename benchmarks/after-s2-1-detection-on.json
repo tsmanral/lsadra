@@ -1,0 +1,291 @@
+{
+  "schema": "lsadra.ingest-bench/1",
+  "generated_at": "2026-10-01T13:55:27+00:00",
+  "git": {
+    "sha": "7faa3bf27366ffb748a41d06726868cf52883662",
+    "dirty": false
+  },
+  "machine": {
+    "cpu": "Intel(R) Core(TM) Ultra 9 185H",
+    "cpu_physical_cores": 16,
+    "cpu_logical_cores": 22,
+    "ram_gb": 31.4,
+    "os": "Windows-11-10.0.26200-SP0",
+    "python": "3.14.3",
+    "server_event_loop": "asyncio"
+  },
+  "command": "python.exe benchmarks/run_ingest_bench.py --detection on --devices 20 --rates 500 1000 1500 --repeats 2 --output benchmarks/after-s2-1-detection-on.json",
+  "params": {
+    "detection": "on",
+    "repeats": 2,
+    "devices": [
+      20
+    ],
+    "rates": [
+      500.0,
+      1000.0,
+      1500.0
+    ],
+    "step_duration_s": 15.0,
+    "min_requests_per_step": 12,
+    "batch_size": 100,
+    "pace": 0.95,
+    "per_device_limit_batches_per_min": 60,
+    "payloads": "demo/corpus scenarios below, cycled in timestamp order, stamped at send time",
+    "scenarios": [
+      "ssh_bruteforce",
+      "persistence_new_service",
+      "data_movement_offhours",
+      "benign_background"
+    ]
+  },
+  "degraded_rule": {
+    "sustained_below_fraction_of_offered": 0.9,
+    "latency_p99_ms_above": 1000.0,
+    "loop_lag_p99_ms_above": 500.0,
+    "any_429_error_skipped_or_abandoned": true,
+    "ladder_stops_on": "any"
+  },
+  "runs": [
+    {
+      "detection": "on",
+      "repetition": 1,
+      "server_boot_s": 1.55,
+      "registration_s": 5.41,
+      "warmup_s": 5.85,
+      "rss_mb_after_warmup": 452.2,
+      "loop_lag_idle_ms": {
+        "samples": 46,
+        "truncated": false,
+        "p50": 7.09,
+        "p99": 21.13,
+        "max": 25.6
+      },
+      "configs": [
+        {
+          "devices": 20,
+          "steps": [
+            {
+              "offered_ev_s": 500.0,
+              "devices": 20,
+              "batch_size": 100,
+              "window_s": 15.089,
+              "requests_scheduled": 75,
+              "requests_ok": 75,
+              "requests_429": 0,
+              "requests_error": 0,
+              "requests_skipped_backpressure": 0,
+              "requests_abandoned": 0,
+              "events_accepted": 7500,
+              "sustained_ev_s": 497.05,
+              "latency_ms": {
+                "p50": 275.0,
+                "p95": 299.24,
+                "p99": 343.47,
+                "max": 407.2
+              },
+              "client_max_schedule_lag_ms": 15.31,
+              "server_cpu_cores_avg": 1.71,
+              "loop_lag_ms": {
+                "samples": 139,
+                "truncated": false,
+                "p50": 8.84,
+                "p99": 53.02,
+                "max": 122.74
+              },
+              "rss_mb": {
+                "max": 499.3,
+                "end": 499.3
+              },
+              "db_mb_end": 10.1,
+              "settle_before_s": 37.46,
+              "degraded": []
+            },
+            {
+              "offered_ev_s": 1000.0,
+              "devices": 20,
+              "batch_size": 100,
+              "window_s": 15.155,
+              "requests_scheduled": 150,
+              "requests_ok": 150,
+              "requests_429": 0,
+              "requests_error": 0,
+              "requests_skipped_backpressure": 0,
+              "requests_abandoned": 0,
+              "events_accepted": 15000,
+              "sustained_ev_s": 989.8,
+              "latency_ms": {
+                "p50": 238.35,
+                "p95": 952.81,
+                "p99": 1356.09,
+                "max": 1555.48
+              },
+              "client_max_schedule_lag_ms": 16.29,
+              "server_cpu_cores_avg": 2.35,
+              "loop_lag_ms": {
+                "samples": 125,
+                "truncated": false,
+                "p50": 8.93,
+                "p99": 197.62,
+                "max": 1096.76
+              },
+              "rss_mb": {
+                "max": 516.4,
+                "end": 516.3
+              },
+              "db_mb_end": 29.3,
+              "settle_before_s": 138.53,
+              "degraded": [
+                "latency_p99"
+              ]
+            }
+          ],
+          "max_healthy_sustained_ev_s": 497.05
+        }
+      ],
+      "server_log_counts": {
+        "Online detection:": 47,
+        "Auto-training models": 1,
+        "all layers trained": 1,
+        "Traceback": 0
+      }
+    },
+    {
+      "detection": "on",
+      "repetition": 2,
+      "server_boot_s": 1.56,
+      "registration_s": 4.25,
+      "warmup_s": 4.8,
+      "rss_mb_after_warmup": 491.5,
+      "loop_lag_idle_ms": {
+        "samples": 46,
+        "truncated": false,
+        "p50": 8.46,
+        "p99": 10.56,
+        "max": 10.65
+      },
+      "configs": [
+        {
+          "devices": 20,
+          "steps": [
+            {
+              "offered_ev_s": 500.0,
+              "devices": 20,
+              "batch_size": 100,
+              "window_s": 15.031,
+              "requests_scheduled": 75,
+              "requests_ok": 75,
+              "requests_429": 0,
+              "requests_error": 0,
+              "requests_skipped_backpressure": 0,
+              "requests_abandoned": 0,
+              "events_accepted": 7500,
+              "sustained_ev_s": 498.96,
+              "latency_ms": {
+                "p50": 231.24,
+                "p95": 271.01,
+                "p99": 288.07,
+                "max": 308.08
+              },
+              "client_max_schedule_lag_ms": 15.62,
+              "server_cpu_cores_avg": 1.5,
+              "loop_lag_ms": {
+                "samples": 137,
+                "truncated": false,
+                "p50": 8.82,
+                "p99": 40.77,
+                "max": 42.1
+              },
+              "rss_mb": {
+                "max": 497.5,
+                "end": 496.7
+              },
+              "db_mb_end": 10.4,
+              "settle_before_s": 25.25,
+              "degraded": []
+            },
+            {
+              "offered_ev_s": 1000.0,
+              "devices": 20,
+              "batch_size": 100,
+              "window_s": 15.152,
+              "requests_scheduled": 150,
+              "requests_ok": 150,
+              "requests_429": 0,
+              "requests_error": 0,
+              "requests_skipped_backpressure": 0,
+              "requests_abandoned": 0,
+              "events_accepted": 15000,
+              "sustained_ev_s": 990.0,
+              "latency_ms": {
+                "p50": 249.07,
+                "p95": 336.73,
+                "p99": 422.34,
+                "max": 543.75
+              },
+              "client_max_schedule_lag_ms": 24.5,
+              "server_cpu_cores_avg": 2.21,
+              "loop_lag_ms": {
+                "samples": 129,
+                "truncated": false,
+                "p50": 10.13,
+                "p99": 82.88,
+                "max": 245.18
+              },
+              "rss_mb": {
+                "max": 504.3,
+                "end": 504.3
+              },
+              "db_mb_end": 25.5,
+              "settle_before_s": 47.52,
+              "degraded": []
+            },
+            {
+              "offered_ev_s": 1500.0,
+              "devices": 20,
+              "batch_size": 100,
+              "window_s": 15.23,
+              "requests_scheduled": 225,
+              "requests_ok": 225,
+              "requests_429": 0,
+              "requests_error": 0,
+              "requests_skipped_backpressure": 0,
+              "requests_abandoned": 0,
+              "events_accepted": 22500,
+              "sustained_ev_s": 1477.34,
+              "latency_ms": {
+                "p50": 263.81,
+                "p95": 356.98,
+                "p99": 418.19,
+                "max": 507.35
+              },
+              "client_max_schedule_lag_ms": 16.57,
+              "server_cpu_cores_avg": 3.14,
+              "loop_lag_ms": {
+                "samples": 120,
+                "truncated": false,
+                "p50": 14.74,
+                "p99": 124.32,
+                "max": 204.97
+              },
+              "rss_mb": {
+                "max": 506.9,
+                "end": 506.9
+              },
+              "db_mb_end": 42.8,
+              "settle_before_s": 6.06,
+              "degraded": []
+            }
+          ],
+          "max_healthy_sustained_ev_s": 1477.34
+        }
+      ],
+      "server_log_counts": {
+        "Online detection:": 36,
+        "Auto-training models": 1,
+        "all layers trained": 1,
+        "Traceback": 0
+      }
+    }
+  ]
+}

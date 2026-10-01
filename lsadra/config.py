@@ -145,6 +145,16 @@ MIN_BASELINE_EVENTS: int = int(os.getenv("LSADRA_MIN_BASELINE_EVENTS", "5"))
 # Detection — Thresholds
 # ---------------------------------------------------------------------------
 DETECTION_THROTTLE_SECONDS: float = 5.0  # min gap between online detection runs
+
+# Online detection runs off the ingestion request path: handlers enqueue the
+# device id and one worker drains it (lsadra/detection/detection_worker.py).
+# The size bounds *distinct devices* waiting for a run (batches for a waiting
+# device coalesce). When it is full, ingestion answers 503 + Retry-After before
+# writing anything, so the agent's retry cannot duplicate events.
+DETECTION_QUEUE_SIZE: int = int(os.getenv("LSADRA_DETECTION_QUEUE_SIZE", "256"))
+if DETECTION_QUEUE_SIZE < 1:
+    raise RuntimeError("LSADRA_DETECTION_QUEUE_SIZE must be >= 1.")
+DETECTION_QUEUE_RETRY_AFTER_SECONDS: int = 5
 STATISTICAL_BASELINE_SIGMA: float = 3.0  # z-score threshold for Layer 1
 AUTOENCODER_PERCENTILE_THRESHOLD: float = 95.0  # reconstruction-error percentile
 

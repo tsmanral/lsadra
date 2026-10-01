@@ -25,6 +25,7 @@ from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validato
 
 from lsadra.config import (
     BENCH_SKIP_DETECTION,
+    DETECTION_QUEUE_RETRY_AFTER_SECONDS,
     MAX_ATTRIBUTE_KEYS,
     MAX_ATTRIBUTE_VALUE_LENGTH,
     MAX_ATTRIBUTES_BYTES,
@@ -37,6 +38,7 @@ from lsadra.config import (
     RATE_LIMIT_EVENTS_PER_MIN,
     RATE_LIMIT_MAX_KEYS,
 )
+from lsadra.detection.detection_worker import detection_queue
 from lsadra.ratelimit import SlidingWindowRateLimiter
 from lsadra.storage.database import (
     get_device,
@@ -266,6 +268,35 @@ def _get_orchestrator():
     return _orchestrator
 
 
+def run_online_detection(device_id: str) -> None:
+    """Detection-worker entry point (worker thread, never a request handler)."""
+    _get_orchestrator().run_for_new_events(device_id=device_id)
+
+
+# ── Online detection hand-off ─────────────────────────────────────────────
+# Handlers never run detection: they reserve a slot on the detection queue
+# before writing and commit it after the write (lsadra/detection/
+# detection_worker.py). A full queue is a 503 + Retry-After with nothing
+# written, so the agent's retry cannot store the batch twice.
+
+
+def _reserve_detection(device_id: str) -> bool:
+    """Admit this batch for detection, or raise 503 before anything is stored.
+
+    Returns False when detection is skipped (BENCH_SKIP_DETECTION, dev only).
+    """
+    if BENCH_SKIP_DETECTION:
+        return False
+    if not detection_queue.reserve(device_id):
+        logger.warning("Detection queue full — batch from device %s refused (503)", device_id)
+        raise HTTPException(
+            status_code=503,
+            detail="Detection queue is full; the batch was not stored. Retry later.",
+            headers={"Retry-After": str(DETECTION_QUEUE_RETRY_AFTER_SECONDS)},
+        )
+    return True
+
+
 # ── V4: IngestionManager singleton ────────────────────────────────────────
 # [V4 ENHANCEMENT — gap: multi-source ingestion]
 # [DESIGN CHOICE] Singleton keeps parser chain and stats alive across requests.
@@ -293,12 +324,14 @@ async def ingest_batch(
     """
     Accept a batch of events from an endpoint agent.
 
-    After inserting events, triggers online detection for this device.
+    After inserting events, schedules online detection for this device on the
+    detection worker (never inline).
     """
     device_id: str = device["id"]
     user_id: str = device["user_id"]
 
     _check_rate_limit(device_id)
+    detect = _reserve_detection(device_id)
 
     # Build rows for bulk insert
     rows = []
@@ -318,18 +351,18 @@ async def ingest_batch(
             }
         )
 
-    count = insert_events_batch(rows)
+    try:
+        count = insert_events_batch(rows)
+    except BaseException:
+        if detect:
+            detection_queue.release(device_id)
+        raise
+    # ── schedule online detection (worker-side; BENCH_SKIP_DETECTION is
+    # dev-mode-only and skips it — config.py refuses it otherwise) ─────────
+    if detect:
+        detection_queue.commit(device_id)
     touch_device(device_id)
     logger.info("Ingested %d events from device %s", count, device_id)
-
-    # ── trigger online detection using the singleton orchestrator ────────
-    # BENCH_SKIP_DETECTION is dev-mode-only (config.py refuses it otherwise).
-    if not BENCH_SKIP_DETECTION:
-        try:
-            orchestrator = _get_orchestrator()
-            orchestrator.run_for_new_events(device_id=device_id)
-        except Exception:
-            logger.exception("Online detection failed for device %s", device_id)
 
     return {"status": "ok", "events_accepted": count}
 
@@ -440,8 +473,20 @@ async def ingest_raw_batch(
             logger.exception("[V4] Failed to ingest raw line: %.120s", line_obj.raw_line)
             parse_errors += 1
 
+    detect = _reserve_detection(device_id)
+    try:
+        if db_rows:
+            insert_events_batch(db_rows)
+    except BaseException:
+        if detect:
+            detection_queue.release(device_id)
+        raise
+    # ── schedule online detection (V3 behaviour preserved: scheduled even
+    # when no line parsed, so throttled-over events still get picked up) ────
+    if detect:
+        detection_queue.commit(device_id)
+
     if db_rows:
-        insert_events_batch(db_rows)
         touch_device(device_id)
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
@@ -460,14 +505,6 @@ async def ingest_raw_batch(
             logger.debug("[V4] Feature extraction complete for %d events.", len(df))
         except Exception:
             logger.exception("[V4] Enhanced feature extraction failed — using V3 pipeline.")
-
-    # ── V3 online detection (preserved) ──────────────────────────────────
-    if not BENCH_SKIP_DETECTION:
-        try:
-            orchestrator = _get_orchestrator()
-            orchestrator.run_for_new_events(device_id=device_id)
-        except Exception:
-            logger.exception("Online detection failed for device %s", device_id)
 
     return {
         "status":       "ok",
