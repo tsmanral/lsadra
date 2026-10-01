@@ -76,13 +76,9 @@ class DeviceConfig(BaseModel):
 
 # ── Off-loop registration work ────────────────────────────────────────────
 # Token consumption, bcrypt and the device insert run in the threadpool, never
-# on the event loop. ``consume_token`` is a read-then-update (check-then-act):
-# on the loop, registrations could not interleave inside it; in the threadpool
-# they can, and one single-use token could register several devices. This lock
-# keeps exactly the in-process serialization the loop used to give, for the
-# milliseconds the consume takes (bcrypt stays outside it). It does not cover
-# other processes — making the consume itself atomic is a storage change,
-# tracked separately.
+# on the event loop. On the loop, token consumption was never interleaved with
+# another registration; this lock keeps that serialization now that it runs in
+# the threadpool, for the milliseconds the consume takes (bcrypt stays outside).
 _token_consume_lock = threading.Lock()
 
 
