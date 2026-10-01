@@ -1,6 +1,6 @@
 """Shared constants and builders for the storage contract suite (synthetic data only)."""
 
-from typing import Any, Dict
+from typing import Any, Dict, List
 
 USER_ID = "user-1"
 USERNAME = "alice"
@@ -22,3 +22,8 @@ def make_event(**overrides: Any) -> Dict[str, Any]:
     }
     event.update(overrides)
     return event
+
+
+def transactions(statements: List[str]) -> List[str]:
+    """The transaction-control statements in one connection traced by ``traced``."""
+    return [s.strip() for s in statements if s.strip() in ("BEGIN", "COMMIT", "ROLLBACK")]

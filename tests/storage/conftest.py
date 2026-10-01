@@ -55,6 +55,28 @@ def sql(db):
 
 
 @pytest.fixture
+def traced(db, monkeypatch):
+    """Record every connection the storage module opens and the SQL it runs.
+
+    Returns a list with one entry per opened connection: the statements SQLite
+    executed on it (implicit ``BEGIN`` / ``COMMIT`` / ``ROLLBACK`` included).
+    Request it after ``seeded`` so fixture setup is not recorded.
+    """
+    connections: List[List[str]] = []
+    real_get_connection = database.get_connection
+
+    def tracing_get_connection():
+        conn = real_get_connection()
+        statements: List[str] = []
+        conn.set_trace_callback(statements.append)
+        connections.append(statements)
+        return conn
+
+    monkeypatch.setattr(database, "get_connection", tracing_get_connection)
+    return connections
+
+
+@pytest.fixture
 def seeded(db):
     """One synthetic user owning one device (FKs require both for events)."""
     db.create_user(USER_ID, USERNAME, "synthetic-not-a-real-hash", "ANALYST")

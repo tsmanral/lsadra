@@ -80,6 +80,7 @@ CALLS = {
     "get_open_incidents": (),
     "get_all_incidents": (),
     "insert_heartbeat": (DEVICE_ID,),
+    "record_heartbeat": (DEVICE_ID,),
     "get_latest_heartbeat": (DEVICE_ID,),
     "register_model": ("m", "ensemble", "/m"),
     "get_latest_model": ("m",),

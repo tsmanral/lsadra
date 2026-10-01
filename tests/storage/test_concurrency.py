@@ -1,22 +1,37 @@
 """Contract: concurrent writers (N threads inserting event batches).
 
-The storage layer opens one connection per call with sqlite3's default 5 s busy
-timeout and no writer serialization. Under enough concurrent batch writers the
-waiters exceed that timeout and ``insert_events_batch`` raises
-``sqlite3.OperationalError: database is locked``, losing the batch.
+The storage layer opens one connection per call with no writer serialization.
+A writer that cannot get the write lock within the busy timeout raises
+``sqlite3.OperationalError: database is locked`` and loses its batch.
+
+History of the high-contention case (same load both times: 32 threads, each
+batch sized so the serialized write time of all threads is ~15 s):
+  * Sprint 1 (kickoff C): sqlite3's default 5 s busy timeout -> 17-20/32
+    writers hit ``database is locked`` (strict xfail).
+  * Sprint 2 S2-3: ``get_connection()`` sets a 30 s busy timeout,
+    ``synchronous=NORMAL`` and no longer re-issues the WAL pragma, and
+    ``insert_events_batch`` is one ``executemany`` -> all 32 commit. Marker
+    removed. Measured first-lock threshold (Windows dev box, Python 3.14,
+    C's sweep: threads x batch size, 1 batch/thread, fresh DB per point,
+    threads 8..1024, 3 runs; range = first locking thread count across runs):
+      batch rows | before (5 s)  | after (30 s)
+      100        | 128-160       | 1024 in 2/3 runs, none <=1024 in 1/3
+      1,000      | 96-128        | 1024 in 1/3 runs, none <=1024 in 2/3
+      5,000      | 64            | 768-1024
+      20,000     | 32            | 256
+    i.e. the lock now appears only once the queued writers' wall time
+    approaches the 30 s timeout.
 
 Two tests:
-  * moderate concurrency (well under the timeout) must succeed — this passes on
-    current code and pins that the per-call model is safe at low contention;
-  * high contention must also succeed — it FAILS on current code and is a strict
-    xfail. When Sprint 2 lands a real write model (single-writer queue, longer
-    busy timeout, ...) it will XPASS, and strict mode forces the marker's removal.
+  * moderate concurrency (well under the timeout) must succeed;
+  * high contention (C's load, sized against the *old* 5 s timeout) must also
+    succeed — the regression pin for S2-3. It does not claim unlimited
+    concurrency: by pigeonhole, any load whose serialized write time exceeds
+    the busy timeout still locks (single-writer queue is a separate decision).
 
 The high-contention load is self-calibrating: it measures this machine's
 single-thread batch cost first and sizes each batch so that the serialized
-write time of all threads is ~3x the busy timeout. By pigeonhole, at least one
-waiter must then exceed the timeout, so the failure is deterministic regardless
-of runner speed, while wall time stays ~timeout (timed-out waiters give up).
+write time of all threads is ~SERIAL_LOAD_S, independent of runner speed.
 """
 
 import math
@@ -28,9 +43,10 @@ import pytest
 
 from tests.storage._support import DEVICE_ID, make_event
 
-BUSY_TIMEOUT_S = 5.0  # sqlite3.connect() default; pinned in test_schema.py
 CONTENTION_THREADS = 32
-SERIAL_LOAD_FACTOR = 3.0  # serialized write time / busy timeout
+# C's load: 3x the old 5 s default timeout. Kept fixed so the pin means "the
+# load that locked in Sprint 1 no longer does"; half the current timeout.
+SERIAL_LOAD_S = 15.0
 MAX_BATCH_ROWS = 200_000
 
 
@@ -80,25 +96,15 @@ def test_moderate_concurrent_batch_writers_do_not_lock(seeded, sql):
     assert _row_count(sql) == n_threads * batches * size
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "Current code: per-call connections, default 5 s busy timeout, no writer "
-        "serialization. 32 threads each writing one batch sized so serialized "
-        "write time is ~3x the timeout -> waiters exceed 5 s and "
-        "insert_events_batch raises 'database is locked' (batch lost). Sprint 2 "
-        "write-model input; do not fix storage in the contract suite."
-    ),
-)
 def test_high_contention_batch_writers_do_not_lock(seeded, sql):
+    assert seeded.BUSY_TIMEOUT_S >= 2 * SERIAL_LOAD_S, "load must stay well under the timeout"
     # Calibrate: single-thread cost per row on this machine (warm run).
     probe = _batch(5_000)
     seeded.insert_events_batch(probe)
     t0 = time.perf_counter()
     seeded.insert_events_batch(probe)
     per_row = (time.perf_counter() - t0) / len(probe)
-    target_batch_s = SERIAL_LOAD_FACTOR * BUSY_TIMEOUT_S / (CONTENTION_THREADS - 1)
+    target_batch_s = SERIAL_LOAD_S / (CONTENTION_THREADS - 1)
     size = min(MAX_BATCH_ROWS, max(5_000, math.ceil(target_batch_s / per_row)))
     baseline_rows = _row_count(sql)
 
@@ -106,7 +112,7 @@ def test_high_contention_batch_writers_do_not_lock(seeded, sql):
     ok, lock_errors, other_errors = _run_writers(seeded, CONTENTION_THREADS, 1, _batch(size))
     elapsed = time.perf_counter() - started
 
-    if other_errors:  # anything but a lock error is a real failure, not the xfail
+    if other_errors:  # anything but a lock error is a different failure
         pytest.fail(f"unexpected writer errors: {other_errors[:3]}")
     # Failed batches must not leave partial rows behind.
     assert _row_count(sql) - baseline_rows == ok * size
