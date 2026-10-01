@@ -77,18 +77,6 @@ def test_cleanup_old_data_keeps_non_retention_tables(seeded, sql):
     assert _count(sql, "ingestion_stats") == 1
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=sqlite3.IntegrityError,
-    reason=(
-        "Current behavior: cleanup_old_data() deletes normalized_events before "
-        "anomalies, and anomalies.event_id REFERENCES normalized_events(id) with "
-        "PRAGMA foreign_keys=ON, so any expired event that has an anomaly makes "
-        "the whole cleanup raise 'FOREIGN KEY constraint failed' and delete "
-        "nothing. The failing call also leaves its connection (and write lock) "
-        "open until GC. Storage fix is out of scope for the contract suite."
-    ),
-)
 def test_cleanup_old_data_removes_expired_event_that_has_an_anomaly(seeded, sql):
     event_id = seeded.insert_event(make_event(timestamp=OLD))
     aid = seeded.insert_anomaly({"event_id": event_id, "device_id": DEVICE_ID, "is_anomaly": True})
@@ -96,3 +84,84 @@ def test_cleanup_old_data_removes_expired_event_that_has_an_anomaly(seeded, sql)
     assert seeded.cleanup_old_data() == 1
     assert _count(sql, "normalized_events") == 0
     assert _count(sql, "anomalies") == 0
+
+
+def _expired_event_with_incident_anomalies(seeded, sql, n_anomalies):
+    event_id = seeded.insert_event(make_event(timestamp=OLD))
+    incident_id = seeded.create_incident(DEVICE_ID, "192.0.2.10", "brute_force", "HIGH", OLD)
+    for _ in range(n_anomalies):
+        aid = seeded.insert_anomaly(
+            {
+                "event_id": event_id,
+                "device_id": DEVICE_ID,
+                "is_anomaly": True,
+                "incident_id": incident_id,
+            }
+        )
+        sql("UPDATE anomalies SET created_at=? WHERE id=?", (OLD_SQL, aid))
+    return event_id, incident_id
+
+
+def test_cleanup_old_data_fk_order_many_expired_events_with_anomalies_and_incidents(seeded, sql):
+    # Regression (FK order): anomalies.event_id -> normalized_events(id) and
+    # anomalies.incident_id -> incidents(id). Several expired events, each with
+    # several anomalies grouped into an incident, must all go in one pass.
+    expired = [_expired_event_with_incident_anomalies(seeded, sql, n) for n in (1, 2, 3)]
+    recent_ts = (datetime.utcnow() - timedelta(days=1)).isoformat()
+    live_event = seeded.insert_event(make_event(timestamp=recent_ts))
+    live_anomaly = seeded.insert_anomaly(
+        {"event_id": live_event, "device_id": DEVICE_ID, "is_anomaly": True}
+    )
+
+    assert seeded.cleanup_old_data() == len(expired)
+
+    assert [r["id"] for r in sql("SELECT id FROM normalized_events")] == [live_event]
+    assert [r["id"] for r in sql("SELECT id FROM anomalies")] == [live_anomaly]
+    # Incidents are outside the retention scope and are only ever a parent here.
+    assert _count(sql, "incidents") == len(expired)
+    for _, incident_id in expired:
+        assert seeded.get_incident(incident_id) is not None
+        assert seeded.get_anomalies_for_incident(incident_id) == []
+
+
+def test_cleanup_old_data_keeps_expired_event_still_referenced_by_retained_anomaly(seeded, sql):
+    # A back-filled log line: the event's own timestamp is past retention, but the
+    # anomaly raised on it is recent. Deleting the event would violate the FK;
+    # deleting the anomaly would drop a finding inside its retention window. The
+    # event is kept until its anomaly ages out.
+    event_id = seeded.insert_event(make_event(timestamp=OLD))
+    aid = seeded.insert_anomaly({"event_id": event_id, "device_id": DEVICE_ID, "is_anomaly": True})
+    seeded.insert_event(make_event(timestamp=OLD))  # expired, unreferenced -> deleted
+
+    assert seeded.cleanup_old_data() == 1
+    assert [r["id"] for r in sql("SELECT id FROM normalized_events")] == [event_id]
+    assert [r["id"] for r in sql("SELECT id FROM anomalies")] == [aid]
+
+    sql("UPDATE anomalies SET created_at=? WHERE id=?", (OLD_SQL, aid))
+    assert seeded.cleanup_old_data() == 1
+    assert _count(sql, "normalized_events") == 0
+    assert _count(sql, "anomalies") == 0
+
+
+def test_cleanup_old_data_is_one_transaction_rolled_back_on_failure(seeded, sql):
+    event_id = seeded.insert_event(make_event(timestamp=OLD))
+    aid = seeded.insert_anomaly({"event_id": event_id, "device_id": DEVICE_ID, "is_anomaly": True})
+    sql("UPDATE anomalies SET created_at=? WHERE id=?", (OLD_SQL, aid))
+    seeded.insert_drift_record("m", "f", 0.1, False)
+    sql("UPDATE feature_drift SET measured_at=?", (OLD_SQL,))
+    # Test-DB-only trigger: make the LAST retention DELETE fail.
+    sql(
+        "CREATE TRIGGER fail_drift_delete BEFORE DELETE ON feature_drift "
+        "BEGIN SELECT RAISE(ABORT, 'injected retention failure'); END"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected retention failure"):
+        seeded.cleanup_old_data()
+
+    # Nothing from the earlier DELETEs in the same call survived.
+    assert _count(sql, "normalized_events") == 1
+    assert _count(sql, "anomalies") == 1
+    assert _count(sql, "feature_drift") == 1
+    # And the write lock was released: the next writer is not blocked.
+    sql("DROP TRIGGER fail_drift_delete")
+    assert seeded.cleanup_old_data() == 1

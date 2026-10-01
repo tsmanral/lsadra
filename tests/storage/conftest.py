@@ -30,9 +30,10 @@ def db(tmp_path, monkeypatch):
     monkeypatch.setattr(database, "DB_PATH", path)
     database.init_db()
     yield database
-    # Storage functions do not close their connection when a statement raises
-    # (no try/finally); the orphaned connection keeps its write transaction
-    # open until garbage-collected. Collect it so later tests start clean.
+    # Storage functions close their own connection even when a statement raises
+    # (pinned by test_connection_lifecycle.py). Connections opened directly by a
+    # test (e.g. a lock probe) may still be unreferenced-but-open; collect them
+    # so later tests start clean.
     gc.collect()
 
 
