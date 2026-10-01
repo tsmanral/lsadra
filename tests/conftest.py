@@ -7,9 +7,23 @@ guards themselves (they are exercised in dedicated subprocess tests).
 """
 
 import os
+import sys
+
+import pytest
 
 os.environ.setdefault("LSADRA_DEV_MODE", "true")
 
 # test_v4_smoke.py is a standalone script (`python tests/test_v4_smoke.py`) that
 # exits at import time; keep a bare `pytest` from crashing while collecting it.
 collect_ignore = ["test_v4_smoke.py"]
+
+
+@pytest.fixture(autouse=True)
+def _reset_detection_queue():
+    """Ingestion enqueues onto a process-wide detection queue that only a
+    running lifespan drains; TestClient(app) without ``with`` never drains it,
+    so reset it between tests to keep its bound from leaking across them."""
+    yield
+    worker = sys.modules.get("lsadra.detection.detection_worker")
+    if worker is not None and not worker.detection_queue.running:
+        worker.detection_queue.reset()
