@@ -95,31 +95,45 @@ def test_mark_model_stale_unknown_model_is_noop(db):
     assert db.get_latest_model("nope") is None
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "Current behavior: register_model() never sets `version` (schema default 1), "
-        "so every registration of a name is version 1 and get_latest_model() — "
-        "ORDER BY version DESC LIMIT 1 — returns an arbitrary row (observed: the "
-        "FIRST registration). Storage fix is out of scope for the contract suite."
-    ),
-)
 def test_get_latest_model_returns_most_recent_registration(db):
     db.register_model("m", "ensemble", "/first")
     db.register_model("m", "ensemble", "/second")
     assert db.get_latest_model("m")["file_path"] == "/second"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    raises=AssertionError,
-    reason=(
-        "Current behavior: mark_model_stale() targets version = MAX(version), and "
-        "all registrations are version 1, so it marks EVERY registration of the "
-        "model stale, not just the latest. Storage fix is out of scope."
-    ),
-)
+def test_register_model_versions_increment_per_model_name(db, sql):
+    db.register_model("ensemble", "ensemble", "/e1")
+    db.register_model("autoencoder", "autoencoder", "/a1")
+    db.register_model("ensemble", "ensemble", "/e2")
+    db.register_model("ensemble", "ensemble", "/e3")
+    versions = {
+        r["file_path"]: r["version"] for r in sql("SELECT file_path, version FROM model_registry")
+    }
+    assert versions == {"/e1": 1, "/a1": 1, "/e2": 2, "/e3": 3}
+    assert db.get_latest_model("ensemble")["version"] == 3
+    assert db.get_latest_model("autoencoder")["version"] == 1
+
+
+def test_latest_model_breaks_legacy_version_ties_by_newest_row(db, sql):
+    # Rows written before versions incremented all carry the schema default 1.
+    for path in ("/old-1", "/old-2"):
+        sql(
+            "INSERT INTO model_registry (model_name, model_type, file_path, trained_at) "
+            "VALUES ('m', 'ensemble', ?, '2026-01-01T00:00:00')",
+            (path,),
+        )
+    assert db.get_latest_model("m")["file_path"] == "/old-2"
+    db.mark_model_stale("m")
+    stale = {
+        r["file_path"]: r["is_stale"] for r in sql("SELECT file_path, is_stale FROM model_registry")
+    }
+    assert stale == {"/old-1": 0, "/old-2": 1}
+    # The first registration after the fix supersedes the legacy rows.
+    db.register_model("m", "ensemble", "/new")
+    assert db.get_latest_model("m")["file_path"] == "/new"
+    assert db.get_latest_model("m")["version"] == 2
+
+
 def test_mark_model_stale_marks_only_latest_registration(db, sql):
     db.register_model("m", "ensemble", "/first")
     db.register_model("m", "ensemble", "/second")
