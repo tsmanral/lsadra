@@ -7,6 +7,7 @@ short-lived token obtained from the dashboard.
 
 import logging
 import secrets
+import threading
 import time
 import uuid
 from typing import Any, Dict, List, Optional
@@ -14,6 +15,7 @@ from typing import Any, Dict, List, Optional
 from fastapi import APIRouter, HTTPException, Request
 import bcrypt
 from pydantic import BaseModel, Field, constr
+from starlette.concurrency import run_in_threadpool
 
 from lsadra.config import (
     MAX_HOSTNAME_LENGTH,
@@ -72,6 +74,43 @@ class DeviceConfig(BaseModel):
     log_paths: List[str]
 
 
+# ── Off-loop registration work ────────────────────────────────────────────
+# Token consumption, bcrypt and the device insert run in the threadpool, never
+# on the event loop. ``consume_token`` is a read-then-update (check-then-act):
+# on the loop, registrations could not interleave inside it; in the threadpool
+# they can, and one single-use token could register several devices. This lock
+# keeps exactly the in-process serialization the loop used to give, for the
+# milliseconds the consume takes (bcrypt stays outside it). It does not cover
+# other processes — making the consume itself atomic is a storage change,
+# tracked separately.
+_token_consume_lock = threading.Lock()
+
+
+def _register(token: str, hostname: str, os_type: str,
+              display_name: Optional[str]) -> Optional[Dict[str, str]]:
+    """Consume the token and create the device; None if the token is invalid."""
+    with _token_consume_lock:
+        token_data = validate_and_consume(token)
+    if token_data is None:
+        return None
+
+    user_id: str = token_data["user_id"]
+    device_id = str(uuid.uuid4())
+    api_key = secrets.token_urlsafe(32)
+
+    api_key_hash = bcrypt.hashpw(api_key.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
+
+    create_device(
+        device_id=device_id,
+        user_id=user_id,
+        hostname=hostname,
+        os_type=os_type,
+        api_key_hash=api_key_hash,
+        display_name=display_name,
+    )
+    return {"user_id": user_id, "device_id": device_id, "api_key": api_key}
+
+
 # ── Endpoints ─────────────────────────────────────────────────────────────
 
 
@@ -88,24 +127,15 @@ async def register_device(body: RegisterRequest, request: Request) -> RegisterRe
     """
     _check_ip_rate(request)
 
-    token_data = validate_and_consume(body.token)
-    if token_data is None:
+    registered = await run_in_threadpool(
+        _register, body.token, body.hostname, body.os_type, body.display_name
+    )
+    if registered is None:
         raise HTTPException(status_code=400, detail="Invalid or expired registration token.")
 
-    user_id: str = token_data["user_id"]
-    device_id = str(uuid.uuid4())
-    api_key = secrets.token_urlsafe(32)
-
-    api_key_hash = bcrypt.hashpw(api_key.encode("utf-8"), bcrypt.gensalt()).decode("utf-8")
-
-    create_device(
-        device_id=device_id,
-        user_id=user_id,
-        hostname=body.hostname,
-        os_type=body.os_type,
-        api_key_hash=api_key_hash,
-        display_name=body.display_name,
-    )
+    user_id = registered["user_id"]
+    device_id = registered["device_id"]
+    api_key = registered["api_key"]
     logger.info(
         "Device registered: id=%s hostname=%s user=%s",
         device_id, body.hostname, user_id,
@@ -130,7 +160,7 @@ async def get_device_config(device_id: str) -> DeviceConfig:
     The agent can call this periodically to pick up config changes
     (e.g., new log paths, rotated API key).
     """
-    device = get_device(device_id)
+    device = await run_in_threadpool(get_device, device_id)
     if device is None:
         raise HTTPException(status_code=404, detail="Device not found.")
 

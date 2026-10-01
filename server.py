@@ -4,6 +4,8 @@ LSADRA V3 — FastAPI server (primary V3 entrypoint).
 
 import asyncio
 import logging
+import sqlite3
+import uuid
 from collections import deque
 from contextlib import asynccontextmanager, suppress
 from datetime import datetime
@@ -14,10 +16,12 @@ from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
+from starlette.concurrency import run_in_threadpool
 
 from lsadra.auth import (
     create_access_token,
     get_current_user,
+    hash_password,
     require_role,
     verify_password,
 )
@@ -27,6 +31,7 @@ from lsadra.ingestion.api_ingestion import router as events_router
 from lsadra.ingestion.api_ingestion import run_online_detection
 from lsadra.onboarding.device_registration import router as devices_router
 from lsadra.storage.database import (
+    create_user,
     get_all_incidents,
     get_incident,
     get_user_by_username,
@@ -143,6 +148,12 @@ async def api_health():
     return body
 
 
+# ── Off-loop rule ────────────────────────────────────────────────────────
+# Every async handler below runs its sync storage (and bcrypt) work through
+# ONE run_in_threadpool call around a small sync function, so the event loop
+# is released once per request and never blocks on SQLite or hashing.
+
+
 # ── Auth endpoints ───────────────────────────────────────────────────────
 
 
@@ -158,10 +169,18 @@ class TokenResponse(BaseModel):
     user_id: str
 
 
+def _authenticated_user(username: str, password: str) -> Optional[Dict[str, Any]]:
+    """User row if *password* verifies, else None (threadpool: DB read + bcrypt)."""
+    user = get_user_by_username(username)
+    if not user or not verify_password(password, user["password_hash"]):
+        return None
+    return user
+
+
 @app.post("/api/auth/login", response_model=TokenResponse, tags=["auth"])
 async def login(req: LoginRequest):
-    user = get_user_by_username(req.username)
-    if not user or not verify_password(req.password, user["password_hash"]):
+    user = await run_in_threadpool(_authenticated_user, req.username, req.password)
+    if user is None:
         raise HTTPException(status_code=401, detail="Invalid credentials.")
 
     token = create_access_token(
@@ -179,20 +198,31 @@ class RegisterRequest(BaseModel):
     username: str
     password: str
 
+def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
+    """Create the user; None if the username is taken (threadpool: DB + bcrypt).
+
+    On the event loop the existence check and the insert could not interleave
+    with another registration; in the threadpool they can. The UNIQUE
+    constraint on ``users.username`` then rejects the loser, which is mapped to
+    the same "taken" answer instead of surfacing as a 500.
+    """
+    if get_user_by_username(username):
+        return None
+    role = "ADMIN" if username.lower() == "admin" else "ANALYST"
+    uid = str(uuid.uuid4())
+    try:
+        create_user(uid, username, hash_password(password), role)
+    except sqlite3.IntegrityError:
+        return None
+    return {"user_id": uid, "role": role}
+
+
 @app.post("/api/auth/register", tags=["auth"])
 async def register(req: RegisterRequest):
-    from lsadra.storage.database import create_user
-    from lsadra.auth import hash_password
-    import uuid
-
-    existing = get_user_by_username(req.username)
-    if existing:
+    account = await run_in_threadpool(_create_account, req.username, req.password)
+    if account is None:
         raise HTTPException(status_code=400, detail="Username already taken.")
-
-    role = "ADMIN" if req.username.lower() == "admin" else "ANALYST"
-    uid = str(uuid.uuid4())
-    create_user(uid, req.username, hash_password(req.password), role)
-    return {"status": "ok", "user_id": uid, "role": role}
+    return {"status": "ok", **account}
 
 
 # ── Heartbeat endpoint ─────────────────────────────────────────────────
@@ -208,7 +238,8 @@ class HeartbeatRequest(BaseModel):
 @app.post("/heartbeat", tags=["heartbeat"])
 async def heartbeat(req: HeartbeatRequest):
     # One connection, one write transaction (was four separate connect/commits).
-    recorded = record_heartbeat(
+    recorded = await run_in_threadpool(
+        record_heartbeat,
         device_id=req.device_id,
         cpu_pct=req.cpu_pct,
         mem_pct=req.mem_pct,
@@ -232,17 +263,30 @@ class IncidentAssignRequest(BaseModel):
     user_id: str
 
 
+def _set_incident_status(incident_id: int, status: str, notes: str) -> bool:
+    """False if the incident does not exist (threadpool: DB read + write)."""
+    if not get_incident(incident_id):
+        return False
+    update_incident_status(incident_id, status, notes)
+    return True
+
+
+def _assign_incident(incident_id: int, user_id: str) -> bool:
+    """False if the incident does not exist (threadpool: DB read + write)."""
+    if not get_incident(incident_id):
+        return False
+    db_assign_incident(incident_id, user_id)
+    return True
+
+
 @app.post("/api/incidents/{incident_id}/status", tags=["incidents"])
 async def update_incident(
     incident_id: int,
     req: IncidentStatusRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    incident = get_incident(incident_id)
-    if not incident:
+    if not await run_in_threadpool(_set_incident_status, incident_id, req.status, req.notes):
         raise HTTPException(status_code=404, detail="Incident not found.")
-
-    update_incident_status(incident_id, req.status, req.notes)
     return {"status": "ok", "incident_id": incident_id, "new_status": req.status}
 
 
@@ -252,11 +296,8 @@ async def assign_incident(
     req: IncidentAssignRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    incident = get_incident(incident_id)
-    if not incident:
+    if not await run_in_threadpool(_assign_incident, incident_id, req.user_id):
         raise HTTPException(status_code=404, detail="Incident not found.")
-
-    db_assign_incident(incident_id, req.user_id)
     return {"status": "ok", "incident_id": incident_id, "assigned_to": req.user_id}
 
 
@@ -267,7 +308,7 @@ async def list_incidents(
     user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER")),
 ):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    incidents = get_all_incidents(status=status, limit=limit, user_id=uid)
+    incidents = await run_in_threadpool(get_all_incidents, status=status, limit=limit, user_id=uid)
     return {"incidents": incidents, "count": len(incidents)}
 
 
