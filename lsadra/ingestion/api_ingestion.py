@@ -22,6 +22,7 @@ from fastapi import APIRouter, Depends, Header, HTTPException, Request, Response
 from fastapi.exceptions import RequestValidationError
 from fastapi.routing import APIRoute
 from pydantic import AwareDatetime, BaseModel, ConfigDict, Field, field_validator
+from starlette.concurrency import run_in_threadpool
 
 from lsadra.config import (
     BENCH_SKIP_DETECTION,
@@ -40,11 +41,7 @@ from lsadra.config import (
 )
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ratelimit import SlidingWindowRateLimiter
-from lsadra.storage.database import (
-    get_device,
-    insert_events_batch,
-    touch_device,
-)
+from lsadra.storage.database import get_device, store_batch_and_touch
 
 logger = logging.getLogger(__name__)
 
@@ -297,6 +294,25 @@ def _reserve_detection(device_id: str) -> bool:
     return True
 
 
+async def _store_reserved(device_id: str, rows: List[Dict[str, Any]], detect: bool) -> int:
+    """Write *rows* + touch the device off the event loop, then settle detection.
+
+    The storage call runs in the threadpool (one connection, one transaction:
+    :func:`store_batch_and_touch`). The detection reservation was taken on the
+    loop *before* this call and is committed or released here, back on the
+    loop — the queue is only ever touched from the event-loop thread.
+    """
+    try:
+        count = await run_in_threadpool(store_batch_and_touch, device_id, rows)
+    except BaseException:
+        if detect:
+            detection_queue.release(device_id)
+        raise
+    if detect:
+        detection_queue.commit(device_id)
+    return count
+
+
 # ── V4: IngestionManager singleton ────────────────────────────────────────
 # [V4 ENHANCEMENT — gap: multi-source ingestion]
 # [DESIGN CHOICE] Singleton keeps parser chain and stats alive across requests.
@@ -351,17 +367,10 @@ async def ingest_batch(
             }
         )
 
-    try:
-        count = insert_events_batch(rows)
-    except BaseException:
-        if detect:
-            detection_queue.release(device_id)
-        raise
-    # ── schedule online detection (worker-side; BENCH_SKIP_DETECTION is
-    # dev-mode-only and skips it — config.py refuses it otherwise) ─────────
-    if detect:
-        detection_queue.commit(device_id)
-    touch_device(device_id)
+    # Write off the loop; on success schedule online detection (worker-side;
+    # BENCH_SKIP_DETECTION is dev-mode-only and skips it — config.py refuses
+    # it otherwise), on failure give the reservation back.
+    count = await _store_reserved(device_id, rows, detect)
     logger.info("Ingested %d events from device %s", count, device_id)
 
     return {"status": "ok", "events_accepted": count}
@@ -413,8 +422,8 @@ async def ingest_raw_batch(
     Accept a batch of raw log lines from any supported source.
 
     Routes each line through the V4 IngestionManager for auto-detection
-    and parsing, then stores the resulting unified events and triggers
-    enhanced feature extraction before online detection.
+    and parsing, then stores the resulting unified events (off the event
+    loop) and schedules online detection on the detection worker.
 
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     [GLASSWING ALIGNMENT — central ingestion orchestrator]
@@ -437,7 +446,6 @@ async def ingest_raw_batch(
     source_counts: Dict[str, int] = {}
 
     db_rows: List[Dict[str, Any]] = []
-    v4_events: List[Dict[str, Any]] = []
 
     for line_obj in batch.lines:
         try:
@@ -464,7 +472,6 @@ async def ingest_raw_batch(
                 "is_synthetic":       False,
             }
             db_rows.append(db_row)
-            v4_events.append(event)
             accepted += 1
 
             src = event.get("source_type", "unknown")
@@ -474,37 +481,16 @@ async def ingest_raw_batch(
             parse_errors += 1
 
     detect = _reserve_detection(device_id)
-    try:
-        if db_rows:
-            insert_events_batch(db_rows)
-    except BaseException:
-        if detect:
-            detection_queue.release(device_id)
-        raise
-    # ── schedule online detection (V3 behaviour preserved: scheduled even
-    # when no line parsed, so throttled-over events still get picked up) ────
-    if detect:
-        detection_queue.commit(device_id)
-
     if db_rows:
-        touch_device(device_id)
+        await _store_reserved(device_id, db_rows, detect)
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
             accepted, device_id, parse_errors, source_counts,
         )
-
-    # ── V4 enhanced feature extraction (graceful degradation) ────────────
-    # [V4 ENHANCEMENT — gap: temporal + relationship features]
-    if v4_events:
-        try:
-            import pandas as pd
-            from lsadra.features.feature_extractor import build_enhanced_feature_table
-
-            df = pd.DataFrame(v4_events)
-            df = build_enhanced_feature_table(df)
-            logger.debug("[V4] Feature extraction complete for %d events.", len(df))
-        except Exception:
-            logger.exception("[V4] Enhanced feature extraction failed — using V3 pipeline.")
+    elif detect:
+        # ── schedule online detection (V3 behaviour preserved: scheduled even
+        # when no line parsed, so throttled-over events still get picked up) ──
+        detection_queue.commit(device_id)
 
     return {
         "status":       "ok",

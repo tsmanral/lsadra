@@ -1,7 +1,8 @@
 """Contract: normalized events and detection watermarks.
 
 Covers: insert_event, insert_events_batch, get_events_since,
-get_events_for_user, get_event_count_for_device, get_watermark, set_watermark.
+get_events_for_user, get_event_count_for_device, get_watermark, set_watermark,
+store_batch_and_touch.
 """
 
 import gc
@@ -152,3 +153,55 @@ def test_insert_events_batch_is_one_transaction(seeded, traced):
     assert seeded.insert_events_batch([make_event() for _ in range(50)]) == 50
     assert len(traced) == 1
     assert transactions(traced[0]) == ["BEGIN", "COMMIT"]
+
+
+# ── store_batch_and_touch (S2-4: the ingest endpoints' insert + touch, one transaction) ──
+
+
+def _legacy_store(db, device_id, events):
+    """The pre-S2-4 ingest handler sequence, verbatim (2 connect/commit cycles)."""
+    count = db.insert_events_batch(events)
+    db.touch_device(device_id)
+    return count
+
+
+def _stored(db, device_id):
+    volatile = {"id", "device_id"}
+    return [{k: v for k, v in e.items() if k not in volatile} for e in db.get_events_since(device_id, 0)]
+
+
+def test_store_batch_and_touch_matches_the_legacy_two_call_sequence(seeded):
+    seeded.create_device("dev-legacy", USER_ID, "host-2", "linux", "synthetic-key-hash")
+    batch = [make_event(attributes={"n": i}, is_synthetic=bool(i % 2)) for i in range(5)]
+
+    before = datetime.utcnow()
+    assert seeded.store_batch_and_touch(DEVICE_ID, batch) == 5
+    assert _legacy_store(seeded, "dev-legacy", [dict(e, device_id="dev-legacy") for e in batch]) == 5
+
+    assert _stored(seeded, DEVICE_ID) == _stored(seeded, "dev-legacy")
+    assert len(_stored(seeded, DEVICE_ID)) == 5
+    new, old = seeded.get_device(DEVICE_ID), seeded.get_device("dev-legacy")
+    for dev in (new, old):
+        assert before <= datetime.fromisoformat(dev["last_seen_at"]) <= datetime.utcnow()
+    assert new["status"] == old["status"] and new["event_count"] == old["event_count"]
+
+
+def test_store_batch_and_touch_empty_batch_still_touches(seeded):
+    assert seeded.store_batch_and_touch(DEVICE_ID, []) == 0
+    assert seeded.get_event_count_for_device(DEVICE_ID) == 0
+    assert seeded.get_device(DEVICE_ID)["last_seen_at"] is not None
+
+
+def test_store_batch_and_touch_is_one_connection_one_transaction(seeded, traced):
+    assert seeded.store_batch_and_touch(DEVICE_ID, [make_event() for _ in range(50)]) == 50
+    assert len(traced) == 1
+    assert transactions(traced[0]) == ["BEGIN", "COMMIT"]
+
+
+def test_store_batch_and_touch_is_all_or_nothing(seeded):
+    bad = make_event()
+    del bad["event_type"]  # NOT NULL, fails mid-batch
+    with pytest.raises(sqlite3.IntegrityError):
+        seeded.store_batch_and_touch(DEVICE_ID, [make_event(), bad])
+    assert seeded.get_event_count_for_device(DEVICE_ID) == 0
+    assert seeded.get_device(DEVICE_ID)["last_seen_at"] is None  # touch rolled back too

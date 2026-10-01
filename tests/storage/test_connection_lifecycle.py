@@ -60,6 +60,7 @@ CALLS = {
     "consume_token": ("tok",),
     "insert_event": (make_event(),),
     "insert_events_batch": ([make_event()],),
+    "store_batch_and_touch": (DEVICE_ID, [make_event()]),
     "get_events_since": (DEVICE_ID, 0),
     "get_events_for_user": (USER_ID,),
     "get_event_count_for_device": (DEVICE_ID,),
