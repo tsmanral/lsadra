@@ -19,7 +19,7 @@ shap>=0.52.0
 joblib>=1.4.0
 
 # Explainability & Visualization
-matplotlib>=3.7.0
+matplotlib>=3.11.2
 
 # Auth & Security
 python-jose[cryptography]>=3.5.0
