@@ -46,7 +46,7 @@ class TestAuthPassthrough:
 
     def test_mismatched_api_key_rejected_and_no_ingestion(self, client):
         """
-        Wrong X-API-Key => 401 'Invalid API key.' and insert_events_batch
+        Wrong X-API-Key => 401 'Invalid API key.' and store_batch_and_touch
         is never called.
 
         Pre-fix code logged-and-continued on mismatch, so the batch would be
@@ -59,7 +59,7 @@ class TestAuthPassthrough:
         create_device("test-device-001", "u1", "test-host", "linux", "test-secret-abc123")
 
         with patch(
-            "lsadra.ingestion.api_ingestion.insert_events_batch"
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch"
         ) as mock_ins:
             response = client.post(
                 "/api/events/batch",
@@ -89,7 +89,7 @@ class TestAuthPassthrough:
         create_device("test-device-002", "u2", "test-host", "linux", "")
 
         with patch(
-            "lsadra.ingestion.api_ingestion.insert_events_batch"
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch"
         ) as mock_ins:
             response = client.post(
                 "/api/events/batch",

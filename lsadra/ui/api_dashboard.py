@@ -1,6 +1,7 @@
 from typing import Dict, Any, List, Optional
 from fastapi import APIRouter, Depends, HTTPException
 from fastapi.responses import Response
+from starlette.concurrency import run_in_threadpool
 import logging
 
 logger = logging.getLogger(__name__)
@@ -19,19 +20,23 @@ from lsadra.ui.utils.report_generator import generate_report
 
 router = APIRouter(tags=["dashboard"])
 
+# Off-loop rule: every handler runs its sync storage work (SQLite reads/writes,
+# report rendering, model training) through ONE run_in_threadpool call, so the
+# event loop is released once per request and never blocks on it.
+
 @router.get("/kpis")
 async def api_kpis(device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    return get_dashboard_kpis(user_id=uid, device_id=device_id)
+    return await run_in_threadpool(get_dashboard_kpis, user_id=uid, device_id=device_id)
 
 @router.get("/anomalies")
 async def api_anomalies(limit: int = 50, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    return get_dashboard_recent_anomalies(limit=limit, user_id=uid, device_id=device_id)
+    return await run_in_threadpool(
+        get_dashboard_recent_anomalies, limit=limit, user_id=uid, device_id=device_id
+    )
 
-@router.get("/events")
-async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
-    uid = user["user_id"] if user["role"] != "ADMIN" else None
+def _recent_events(uid: Optional[str], limit: int) -> List[Dict[str, Any]]:
     if not uid:
         # For admin, we could return all, but the function requires user_id
         # Let's just use the database function directly for admin if needed
@@ -42,15 +47,21 @@ async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN
         return [dict(r) for r in rows]
     return get_events_for_user(user_id=uid, limit=limit)
 
+
+@router.get("/events")
+async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+    uid = user["user_id"] if user["role"] != "ADMIN" else None
+    return await run_in_threadpool(_recent_events, uid, limit)
+
 @router.get("/metrics")
 async def api_metrics(start: str, end: str, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
-    return get_dashboard_metrics(device_id, start, end)
+    return await run_in_threadpool(get_dashboard_metrics, device_id, start, end)
 
 @router.get("/health")
 async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     """Global ingestion health for dashboard tiles."""
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    kpis = get_dashboard_kpis(user_id=uid)
+    kpis = await run_in_threadpool(get_dashboard_kpis, user_id=uid)
     
     # Return healthy status if there are any devices, or if we just want the HUD to look alive
     return {
@@ -64,16 +75,13 @@ async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALY
 @router.get("/devices")
 async def api_devices(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    return get_dashboard_devices(user_id=uid)
+    return await run_in_threadpool(get_dashboard_devices, user_id=uid)
 
-@router.delete("/devices/{device_id}")
-async def api_delete_device(device_id: str, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
-    """Delete a device and its associated events/anomalies."""
+def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
     from lsadra.storage.database import get_connection
     conn = get_connection()
     try:
         # Check if device exists and belongs to user (if not admin)
-        uid = user["user_id"] if user["role"] != "ADMIN" else None
         check_query = "SELECT id FROM devices WHERE id = ?"
         params = [device_id]
         if uid:
@@ -113,14 +121,19 @@ async def api_delete_device(device_id: str, user: dict = Depends(require_role("A
     finally:
         conn.close()
 
-@router.post("/devices/{device_id}/status")
-async def api_toggle_device_status(device_id: str, active: bool, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
-    """Manually activate or deactivate a device."""
+
+@router.delete("/devices/{device_id}")
+async def api_delete_device(device_id: str, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    """Delete a device and its associated events/anomalies."""
+    uid = user["user_id"] if user["role"] != "ADMIN" else None
+    return await run_in_threadpool(_delete_device, device_id, uid)
+
+
+def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict[str, Any]:
     from lsadra.storage.database import get_connection
     conn = get_connection()
     try:
         # Check if device exists and belongs to user (if not admin)
-        uid = user["user_id"] if user["role"] != "ADMIN" else None
         check_query = "SELECT id FROM devices WHERE id = ?"
         params = [device_id]
         if uid:
@@ -138,20 +151,32 @@ async def api_toggle_device_status(device_id: str, active: bool, user: dict = De
     finally:
         conn.close()
 
-@router.get("/export")
-async def api_export(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+
+@router.post("/devices/{device_id}/status")
+async def api_toggle_device_status(device_id: str, active: bool, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    """Manually activate or deactivate a device."""
     uid = user["user_id"] if user["role"] != "ADMIN" else None
+    return await run_in_threadpool(_set_device_status, device_id, active, uid)
+
+
+def _render_report(uid: Optional[str]) -> bytes:
     kpis = get_dashboard_kpis(user_id=uid)
     incidents = get_dashboard_open_incidents(user_id=uid)
     anomalies = get_dashboard_recent_anomalies(limit=50, user_id=uid)
 
-    pdf_bytes = generate_report(
+    return generate_report(
         title="LSADRA Security Report",
         kpis=kpis,
         incidents=incidents,
         anomalies=anomalies,
     )
-    
+
+
+@router.get("/export")
+async def api_export(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+    uid = user["user_id"] if user["role"] != "ADMIN" else None
+    pdf_bytes = await run_in_threadpool(_render_report, uid)
+
     return Response(
         content=pdf_bytes, 
         media_type="application/pdf", 
@@ -163,7 +188,7 @@ from pydantic import BaseModel
 
 @router.get("/users")
 async def api_users(user: dict = Depends(require_role("ADMIN"))):
-    return list_users()
+    return await run_in_threadpool(list_users)
 
 class RoleUpdate(BaseModel):
     user_id: str
@@ -171,11 +196,10 @@ class RoleUpdate(BaseModel):
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
-    update_user_role(req.user_id, req.role)
+    await run_in_threadpool(update_user_role, req.user_id, req.role)
     return {"status": "ok"}
 
-@router.get("/stats")
-async def api_stats(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+def _table_counts() -> Dict[str, int]:
     conn = get_connection()
     tables = ["normalized_events", "anomalies", "incidents", "devices",
                "device_heartbeats", "metrics_5min", "model_registry",
@@ -190,8 +214,13 @@ async def api_stats(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWE
     conn.close()
     return stats
 
-@router.get("/models")
-async def api_models(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+
+@router.get("/stats")
+async def api_stats(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+    return await run_in_threadpool(_table_counts)
+
+
+def _model_registry() -> List[Dict[str, Any]]:
     conn = get_connection()
     rows = conn.execute(
         """SELECT model_name, model_type, version, event_count,
@@ -202,14 +231,24 @@ async def api_models(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEW
     conn.close()
     return [dict(r) for r in rows]
 
+
+@router.get("/models")
+async def api_models(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+    return await run_in_threadpool(_model_registry)
+
 from lsadra.ui.data_layer import get_dashboard_drift
 
-@router.get("/drift")
-async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+
+def _drift_records() -> Dict[str, List[Dict]]:
     ans = {}
     for m in ["ensemble", "autoencoder"]:
         ans[m] = get_dashboard_drift(m, limit=100)
     return ans
+
+
+@router.get("/drift")
+async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+    return await run_in_threadpool(_drift_records)
 
 @router.post("/run-drift")
 async def api_run_drift(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
@@ -217,8 +256,7 @@ async def api_run_drift(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
     run_drift()
     return {"status": "ok"}
 
-@router.post("/retrain")
-async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+def _retrain() -> Dict[str, Any]:
     from lsadra.detection.detection_orchestrator import DetectionOrchestrator
     from lsadra.features.feature_extractor import build_features
     conn = get_connection()
@@ -235,10 +273,15 @@ async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
     orchestrator.train(df)
     return {"status": "ok", "events": len(df)}
 
+
+@router.post("/retrain")
+async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    return await run_in_threadpool(_retrain)
+
 from lsadra.onboarding.token_manager import generate_token
 
 @router.post("/generate-token")
 async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     user_id = user["user_id"]
-    token = generate_token(user_id)
+    token = await run_in_threadpool(generate_token, user_id)
     return {"token": token}

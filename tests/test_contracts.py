@@ -299,7 +299,7 @@ def test_corpus_ingests_through_http(client, device_headers, no_detection):
 @pytest.mark.parametrize("case_id,field,mutate,schema_rejects", MUTATIONS, ids=[m[0] for m in MUTATIONS])
 def test_mutated_event_is_422_naming_field(client, device_headers, no_detection, case_id, field, mutate, schema_rejects):
     event = _mutated(mutate)
-    with patch("lsadra.ingestion.api_ingestion.insert_events_batch") as insert:
+    with patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as insert:
         r = client.post("/api/events/batch", json={"events": [BASE_EVENT, event]}, headers=device_headers)
     locs = _error_locs(r) if r.status_code == 422 else []
     print(f"{case_id}: HTTP {r.status_code} loc={locs[:1]}")

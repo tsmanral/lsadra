@@ -302,34 +302,60 @@ def insert_event(event: Dict[str, Any]) -> int:
         return row_id or 0
 
 
+_INSERT_EVENT_SQL = """INSERT INTO normalized_events
+               (timestamp, device_id, user_id, host, effective_username,
+                source_ip, event_type, raw_message, attributes, is_synthetic)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"""
+
+
+def _insert_events(conn: sqlite3.Connection, events: List[Dict[str, Any]]) -> None:
+    """Stage *events* on *conn* (no commit) — shared by the batch writers."""
+    conn.executemany(
+        _INSERT_EVENT_SQL,
+        [
+            (
+                ev.get("timestamp"),
+                ev.get("device_id"),
+                ev.get("user_id"),
+                ev.get("host"),
+                ev.get("effective_username"),
+                ev.get("source_ip"),
+                ev.get("event_type"),
+                ev.get("raw_message"),
+                json.dumps(ev.get("attributes", {})),
+                ev.get("is_synthetic", False),
+            )
+            for ev in events
+        ],
+    )
+
+
 def insert_events_batch(events: List[Dict[str, Any]]) -> int:
     """Bulk-insert normalized events in one transaction. Returns count inserted.
 
     All-or-nothing: if any row fails (e.g. a foreign-key violation) the whole
     batch is rolled back by :func:`_connection`.
     """
-    rows = [
-        (
-            ev.get("timestamp"),
-            ev.get("device_id"),
-            ev.get("user_id"),
-            ev.get("host"),
-            ev.get("effective_username"),
-            ev.get("source_ip"),
-            ev.get("event_type"),
-            ev.get("raw_message"),
-            json.dumps(ev.get("attributes", {})),
-            ev.get("is_synthetic", False),
-        )
-        for ev in events
-    ]
     with _connection() as conn:
-        conn.executemany(
-            """INSERT INTO normalized_events
-               (timestamp, device_id, user_id, host, effective_username,
-                source_ip, event_type, raw_message, attributes, is_synthetic)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            rows,
+        _insert_events(conn, events)
+        conn.commit()
+        return len(events)
+
+
+def store_batch_and_touch(device_id: str, events: List[Dict[str, Any]]) -> int:
+    """Insert a device's event batch and touch the device in one transaction.
+
+    Same effect as :func:`insert_events_batch` followed by
+    :func:`touch_device` (the same two statements), which the ingestion
+    endpoints used to run as two connect/commit cycles. One connection, one
+    write transaction, all-or-nothing: if either statement fails, neither the
+    events nor ``last_seen_at`` are written. Returns the count inserted.
+    """
+    with _connection() as conn:
+        _insert_events(conn, events)
+        conn.execute(
+            "UPDATE devices SET last_seen_at = ? WHERE id = ?",
+            (datetime.utcnow().isoformat(), device_id),
         )
         conn.commit()
         return len(events)

@@ -276,7 +276,7 @@ def test_full_queue_is_503_with_retry_after_and_nothing_stored(path, body):
     full = DetectionQueue(1)
     _enqueue(full, blocker)
     with patch("lsadra.ingestion.api_ingestion.detection_queue", full), \
-         patch("lsadra.ingestion.api_ingestion.insert_events_batch") as insert:
+         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as insert:
         response = _client().post(path, json=body, headers=headers)
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "5"
@@ -299,7 +299,7 @@ def test_failed_write_releases_the_reservation():
     headers = _device()
     q = DetectionQueue(1)
     with patch("lsadra.ingestion.api_ingestion.detection_queue", q), \
-         patch("lsadra.ingestion.api_ingestion.insert_events_batch",
+         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch",
                side_effect=RuntimeError("database is locked")):
         response = _client().post("/api/events/batch", json=BATCH, headers=headers)
     assert response.status_code == 500
