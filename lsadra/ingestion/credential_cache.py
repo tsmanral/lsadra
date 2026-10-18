@@ -13,6 +13,14 @@ What is stored, per device id:
 * the exact ``api_key_hash`` the key was verified against;
 * the absolute expiry (verification time + TTL; a hit does not extend it).
 
+Refresh-ahead: a hit on an entry past half its TTL still answers "yes" at
+once, but also hands the caller a one-time claim to re-run bcrypt off the
+request path (``claim_refresh`` / ``finish_refresh``). Only that fresh, passing
+verify resets the expiry, so no entry ever outlives TTL seconds since its last
+real bcrypt. Without it, a device sending steadily paid one inline bcrypt
+(~250 ms) every TTL, which at one batch a second is ~1.7% of its requests: the
+whole of the ingest p99 tail.
+
 A hit requires all three to match: same device id, the device row's current
 ``api_key_hash`` equal to the one cached (so a re-keyed device misses), and the
 presented key's fingerprint equal to the cached one (constant-time compare).
@@ -33,12 +41,16 @@ import os
 import threading
 import time
 from collections import OrderedDict
-from typing import Callable, NamedTuple, Optional
+from typing import Callable, NamedTuple, Optional, Set
+
+# A hit on an entry older than this fraction of the TTL claims a background re-verify.
+REFRESH_AFTER_FRACTION = 0.5
 
 
 class _Entry(NamedTuple):
     fingerprint: bytes
     stored_hash: str
+    verified_at: float
     expires_at: float
 
 
@@ -56,6 +68,7 @@ class VerifiedCredentialCache:
         self._clock = clock
         self._secret = os.urandom(32)
         self._entries: "OrderedDict[str, _Entry]" = OrderedDict()
+        self._refreshing: Set[str] = set()
         self._lock = threading.Lock()
 
     @property
@@ -90,20 +103,62 @@ class VerifiedCredentialCache:
         """Record a successful bcrypt verification. Call only after checkpw returned True."""
         if not self.enabled:
             return
-        entry = _Entry(self._fingerprint(api_key), stored_hash, self._clock() + self._ttl)
         with self._lock:
-            self._entries[device_id] = entry
-            self._entries.move_to_end(device_id)
-            while len(self._entries) > self._max_entries:
-                self._entries.popitem(last=False)
+            self._store(device_id, api_key, stored_hash)
+
+    def _store(self, device_id: str, api_key: str, stored_hash: str) -> None:
+        now = self._clock()
+        self._entries[device_id] = _Entry(
+            self._fingerprint(api_key), stored_hash, now, now + self._ttl
+        )
+        self._entries.move_to_end(device_id)
+        while len(self._entries) > self._max_entries:
+            self._entries.popitem(last=False)
+
+    def claim_refresh(self, device_id: str, api_key: str, stored_hash: str) -> bool:
+        """
+        True at most once per entry: the caller must re-verify the key with
+        bcrypt and report back with ``finish_refresh``. Call only after
+        ``is_verified`` returned True for the same arguments.
+        """
+        if not self.enabled:
+            return False
+        fingerprint = self._fingerprint(api_key)
+        now = self._clock()
+        with self._lock:
+            entry = self._entries.get(device_id)
+            if (
+                entry is None
+                or device_id in self._refreshing
+                or entry.stored_hash != stored_hash
+                or now < entry.verified_at + self._ttl * REFRESH_AFTER_FRACTION
+                or not hmac.compare_digest(entry.fingerprint, fingerprint)
+            ):
+                return False
+            self._refreshing.add(device_id)
+            return True
+
+    def finish_refresh(self, device_id: str, api_key: str, stored_hash: str, ok: bool) -> None:
+        """
+        End a claimed refresh. *ok* is the bcrypt verdict; only a pass renews
+        the entry, and only if the device was not invalidated meanwhile.
+        """
+        with self._lock:
+            if device_id not in self._refreshing:
+                return  # invalidated while bcrypt ran: do not resurrect the entry
+            self._refreshing.discard(device_id)
+            if ok:
+                self._store(device_id, api_key, stored_hash)
 
     def invalidate(self, device_id: Optional[str] = None) -> None:
         """Forget one device (or every device when *device_id* is None)."""
         with self._lock:
             if device_id is None:
                 self._entries.clear()
+                self._refreshing.clear()
             else:
                 self._entries.pop(device_id, None)
+                self._refreshing.discard(device_id)
 
     def __len__(self) -> int:
         with self._lock:

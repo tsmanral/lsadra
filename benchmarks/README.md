@@ -80,7 +80,12 @@ can take longer than the device-auth cache TTL (60 s), which would otherwise
 start the step with every device paying bcrypt at once, a server-restart
 condition rather than steady load. The read stores nothing, enqueues no
 detection and does not count against the ingest limiter. Results before
-`after-s2-5-rewarm-a.json` were measured without it.
+`after-s2-5-rewarm-a.json` were measured without it. A re-warm read on an
+entry past half its TTL queues a background bcrypt re-verify (refresh-ahead),
+so the harness settles once more after the re-warm (`settle_before_s` is the
+sum of both waits). Before refresh-ahead, every device re-ran bcrypt inline
+once per TTL wherever its entry happened to expire, which put a 200–300 ms
+tail into most steps (the PC results on 28c13d8).
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,

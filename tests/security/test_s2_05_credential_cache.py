@@ -5,6 +5,8 @@ The cache lets `_authenticate_device` skip a repeat bcrypt verify. That is
 only safe if it can never turn a "no" into a "yes", so every test here pins
 one way it could: a wrong key, an expired entry, a re-keyed or deleted device,
 an unbounded cache, a cached failure, or the key itself sitting in memory.
+The refresh-ahead tests pin that a background re-verify can only renew an
+entry after a fresh, passing bcrypt, and never brings back a revoked one.
 
 Each load-bearing test names the guard whose removal makes it fail.
 
@@ -60,6 +62,30 @@ def clock(monkeypatch):
         VerifiedCredentialCache(ttl_seconds=_TTL, max_entries=100, clock=c),
     )
     return c
+
+
+class _DeferredExecutor:
+    """Stands in for the refresh executor: holds jobs until a test runs them."""
+
+    def __init__(self) -> None:
+        self.jobs = []
+
+    def submit(self, fn, *args):
+        self.jobs.append((fn, args))
+
+    def run_all(self) -> int:
+        jobs, self.jobs = self.jobs, []
+        for fn, args in jobs:
+            fn(*args)
+        return len(jobs)
+
+
+@pytest.fixture(autouse=True)
+def refresher(monkeypatch):
+    """Background re-verifies run only when a test says so — deterministic counts."""
+    executor = _DeferredExecutor()
+    monkeypatch.setattr(api_ingestion, "_credential_refresh_executor", executor)
+    return executor
 
 
 @pytest.fixture
@@ -174,16 +200,130 @@ def test_entry_expires_after_ttl(device, clock, checkpw_calls):
     assert len(checkpw_calls) == 2
 
 
-def test_hits_do_not_extend_the_ttl(device, clock, checkpw_calls):
-    """Expiry is absolute from verification: a busy device is still re-verified every TTL."""
+def test_hits_do_not_extend_the_ttl(device, clock, checkpw_calls, refresher):
+    """Expiry is absolute from verification: hits alone never move it."""
     _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
-    for _ in range(5):
-        clock.now += _TTL / 5 - 0.01
+    for _ in range(4):
+        clock.now += _TTL / 10
         _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
     assert len(checkpw_calls) == 1
-    clock.now += 1
+    assert refresher.jobs == []  # still under half the TTL: no re-verify claimed
+    clock.now += _TTL
     _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
     assert len(checkpw_calls) == 2
+
+
+def test_unrun_refresh_does_not_extend_the_ttl(device, clock, checkpw_calls, refresher):
+    """
+    LOAD-BEARING: claiming a refresh renews nothing; only a finished, passing
+    bcrypt does. Fails if the claim itself (or the hit) moves the expiry.
+    """
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.75
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert len(refresher.jobs) == 1
+    clock.now += _TTL * 0.25
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert len(checkpw_calls) == 2  # expired: inline bcrypt again
+
+
+# ── refresh-ahead ────────────────────────────────────────────────────────────
+
+
+def test_refresh_ahead_keeps_bcrypt_off_the_request(device, clock, checkpw_calls, refresher):
+    """
+    A steadily sending device pays bcrypt inline once: past half the TTL a hit
+    queues a re-verify, and the renewed entry outlives the original expiry.
+    """
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    inline = background = 0
+    for _ in range(10):  # 3 TTLs of one request every 0.3 TTL
+        clock.now += _TTL * 0.3
+        before = len(checkpw_calls)
+        _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+        inline += len(checkpw_calls) - before
+        background += refresher.run_all()
+    assert inline == 0
+    assert background == 5  # one re-verify every other request (0.6 TTL apart)
+    assert len(checkpw_calls) == 1 + background
+
+
+def test_refresh_is_claimed_once_per_entry(device, clock, refresher):
+    """Concurrent hits past the half-life queue one re-verify, not one each."""
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    for _ in range(5):
+        _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert len(refresher.jobs) == 1
+    refresher.run_all()
+    clock.now += _TTL * 0.1  # fresh entry: under half its TTL again
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert refresher.jobs == []
+
+
+def test_wrong_key_cannot_claim_a_refresh(device, clock, refresher, checkpw_calls):
+    """A forged request on a cached device never queues background bcrypt work."""
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    _assert_401(device, _WRONG_KEY)
+    assert refresher.jobs == []
+    assert not api_ingestion.device_credential_cache.claim_refresh(
+        device, _WRONG_KEY, db_module.get_device(device)["api_key_hash"]
+    )
+
+
+def test_failed_refresh_does_not_renew(device, clock, checkpw_calls, refresher, monkeypatch):
+    """
+    LOAD-BEARING: a re-verify that does not pass leaves the old expiry in place.
+    Fails if finish_refresh renews regardless of the bcrypt verdict.
+    """
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    monkeypatch.setattr(api_ingestion.bcrypt, "checkpw", lambda pw, h: False)
+    assert refresher.run_all() == 1
+    clock.now += _TTL * 0.4
+    _assert_401(device, _CORRECT_KEY)  # expired, and the (patched) bcrypt says no
+
+
+def test_crashed_refresh_releases_the_claim(device, clock, refresher, monkeypatch):
+    """An exception in the re-verify renews nothing and lets a later hit retry."""
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+
+    def boom(pw, h):
+        raise RuntimeError("synthetic failure")
+
+    monkeypatch.setattr(api_ingestion.bcrypt, "checkpw", boom)
+    refresher.run_all()
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert len(refresher.jobs) == 1
+
+
+def test_invalidate_during_refresh_is_not_undone(device, clock, refresher, checkpw_calls):
+    """
+    LOAD-BEARING: forgetting a device while its re-verify runs wins. Fails if
+    finish_refresh stores the entry without checking the claim still stands.
+    """
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    api_ingestion.device_credential_cache.invalidate(device)
+    refresher.run_all()
+    assert len(api_ingestion.device_credential_cache) == 0
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    assert len(checkpw_calls) == 3  # first, the refresh, and inline again
+
+
+def test_rekeyed_device_mid_refresh_rejects_old_key(device, clock, refresher):
+    """A refresh that finishes after a re-key cannot make the old key pass."""
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    clock.now += _TTL * 0.6
+    _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
+    _set_hash(device, _hash("test-rotated-cache-key-789"))
+    refresher.run_all()  # renews the entry for the OLD hash only
+    _assert_401(device, _CORRECT_KEY)
 
 
 def test_ttl_zero_disables_the_cache(device, monkeypatch, checkpw_calls):

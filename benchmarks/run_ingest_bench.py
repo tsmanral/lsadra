@@ -18,7 +18,9 @@ For each detection mode (on / off) and repetition it:
    device count stops at the first degraded step (rule in the output JSON).
    Before each step, after the server settles, every device in the step makes
    one authenticated ``GET /api/events/stats`` (unmeasured), so a settle longer
-   than the device-auth cache TTL does not start the step on a cold cache.
+   than the device-auth cache TTL does not start the step on a cold cache; the
+   server then settles again, so the background re-verifies those reads may
+   queue finish before the step starts.
 
 Detection-off runs set ``LSADRA_BENCH_SKIP_DETECTION=true`` (dev-mode-only
 switch) so storage cost and detection cost can be told apart.
@@ -464,8 +466,11 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 batch = seed_demo.SERVER_MAX_EVENTS_PER_BATCH
                 duration = max(args.duration, args.min_requests * batch / rate)
                 rewarm_s = rewarm_auth(server, creds[:devices])
+                # A re-warm hit past half the cache TTL queues a background
+                # bcrypt re-verify; let those finish before measuring.
+                settle_s += settle(server)
                 step = run_step(server, creds[:devices], cycler, rate, duration)
-                step["settle_before_s"] = settle_s
+                step["settle_before_s"] = round(settle_s, 2)
                 step["auth_rewarm_s"] = round(rewarm_s, 2)
                 step["degraded"] = degraded_reasons(step, args.stop_p99_ms, args.stop_loop_lag_ms)
                 config["steps"].append(step)

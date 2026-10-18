@@ -14,6 +14,7 @@ import json
 import logging
 import re
 import time
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime, timezone
 from typing import Any, Callable, Coroutine, Dict, List, Literal, Optional
 
@@ -225,6 +226,32 @@ def _check_rate_limit(device_id: str) -> None:
 device_credential_cache = VerifiedCredentialCache(
     ttl_seconds=DEVICE_AUTH_CACHE_TTL_SECONDS, max_entries=DEVICE_AUTH_CACHE_MAX_ENTRIES
 )
+# Refresh-ahead re-verifies run here, never on a request. Two workers bound the
+# CPU they take; claims are one per device, so the queue is bounded by the cache.
+_credential_refresh_executor = ThreadPoolExecutor(
+    max_workers=2, thread_name_prefix="device-auth-refresh"
+)
+
+
+def _checkpw(api_key: str, stored_hash: str) -> bool:
+    # Direct bcrypt (passlib dropped, §6 #15). Fail CLOSED on any error —
+    # e.g. an over-72-byte key from an attacker, which bcrypt rejects with
+    # ValueError; that must be a 401, never a 500 or a pass-through.
+    try:
+        return bcrypt.checkpw(api_key.encode("utf-8"), stored_hash.encode("utf-8"))
+    except (ValueError, TypeError):
+        return False
+
+
+def _refresh_credential(device_id: str, api_key: str, stored_hash: str) -> None:
+    """Background bcrypt re-verify of a cached key; renews the entry only on a pass."""
+    ok = False
+    try:
+        ok = _checkpw(api_key, stored_hash)
+    except Exception:  # never leave the claim held
+        logger.exception("Device credential refresh failed for %s", device_id)
+    finally:
+        device_credential_cache.finish_refresh(device_id, api_key, stored_hash, ok)
 
 
 def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header(...)) -> Dict[str, Any]:
@@ -236,6 +263,8 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
     before that stored the raw key and are compared in constant time.
     The device row is read on every call; a bcrypt verify is skipped only when
     the credential cache holds this exact key verified against this exact hash.
+    A hit past half the cache TTL also queues a background re-verify, so a
+    steadily sending device never waits on bcrypt once its key is cached.
     """
     device = get_device(x_device_id)
     if device is None:
@@ -247,14 +276,12 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
 
     if stored_hash.startswith("$2"):
         if device_credential_cache.is_verified(x_device_id, x_api_key, stored_hash):
+            if device_credential_cache.claim_refresh(x_device_id, x_api_key, stored_hash):
+                _credential_refresh_executor.submit(
+                    _refresh_credential, x_device_id, x_api_key, stored_hash
+                )
             return device
-        # Direct bcrypt (passlib dropped, §6 #15). Fail CLOSED on any error —
-        # e.g. an over-72-byte key from an attacker, which bcrypt rejects with
-        # ValueError; that must be a 401, never a 500 or a pass-through.
-        try:
-            ok = bcrypt.checkpw(x_api_key.encode("utf-8"), stored_hash.encode("utf-8"))
-        except (ValueError, TypeError):
-            ok = False
+        ok = _checkpw(x_api_key, stored_hash)
         if ok:
             device_credential_cache.remember(x_device_id, x_api_key, stored_hash)
     else:
