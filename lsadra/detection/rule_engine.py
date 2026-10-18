@@ -22,6 +22,7 @@ New V4 rules cover:
 
 import logging
 import sqlite3
+from datetime import datetime, timedelta
 from typing import Any, Dict, Optional, Tuple
 
 logger = logging.getLogger(__name__)
@@ -414,6 +415,12 @@ def detect_lateral_movement(
     Flags if the same IP accessed 3+ distinct users OR 3+ distinct devices
     within the last 30 minutes.
 
+    The window is an ISO cutoff computed here, not SQLite's
+    ``datetime('now', ...)``: ingestion stores ``isoformat()`` of a UTC time
+    (``YYYY-MM-DDTHH:MM:SS+00:00``), and compared as text against
+    ``YYYY-MM-DD HH:MM:SS`` (``'T' > ' '``) every event from the current day
+    would fall inside the window.
+
     [V4 ENHANCEMENT — gap: relationship modeling]
     [GLASSWING ALIGNMENT — lateral movement detection]
 
@@ -432,12 +439,13 @@ def detect_lateral_movement(
                GROUP_CONCAT(DISTINCT device_id)          AS affected_devices
         FROM normalized_events
         WHERE source_ip = ?
-          AND timestamp >= datetime('now', '-30 minutes')
+          AND timestamp >= ?
         GROUP BY source_ip
         HAVING unique_users >= 3 OR unique_devices >= 3
     """
     try:
-        row = db_conn.execute(sql, (ip,)).fetchone()
+        cutoff = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
+        row = db_conn.execute(sql, (ip, cutoff)).fetchone()
         if row is None:
             return None
         d = dict(row)
