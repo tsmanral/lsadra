@@ -232,9 +232,13 @@ class BenchServer:
             return 0
 
     def db_bytes(self) -> int:
-        return sum(
-            p.stat().st_size for p in self.data_dir.glob("bench.db*") if p.is_file()
-        )
+        total = 0
+        for path in self.data_dir.glob("bench.db*"):
+            try:
+                total += path.stat().st_size
+            except FileNotFoundError:  # SQLite may drop -wal/-shm between glob and stat
+                pass
+        return total
 
     def log_tail(self, lines: int = 40) -> str:
         try:
