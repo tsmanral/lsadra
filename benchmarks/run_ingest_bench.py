@@ -16,6 +16,9 @@ For each detection mode (on / off) and repetition it:
    (psutil, sampled every 0.5 s) and event-loop lag p50/p99 (the dev-mode
    sampler in ``server.py``, read from ``/api/health``). The ladder for a
    device count stops at the first degraded step (rule in the output JSON).
+   Before each step, after the server settles, every device in the step makes
+   one authenticated ``GET /api/events/stats`` (unmeasured), so a settle longer
+   than the device-auth cache TTL does not start the step on a cold cache.
 
 Detection-off runs set ``LSADRA_BENCH_SKIP_DETECTION=true`` (dev-mode-only
 switch) so storage cost and detection cost can be told apart.
@@ -396,6 +399,27 @@ def warm_up(server: BenchServer, creds: List[seed_demo.DeviceCred],
     return time.perf_counter() - started
 
 
+def rewarm_auth(server: BenchServer, creds: List[seed_demo.DeviceCred]) -> float:
+    """One authenticated read per device, so the step starts on a warm credential cache.
+
+    Settling can outlast the device-auth cache TTL; without this, every device
+    pays a fresh bcrypt verify in the first second of the step, which measures a
+    restart rather than steady load. ``/api/events/stats`` authenticates exactly
+    like ``/batch`` but stores nothing, enqueues no detection and is not rate
+    limited, so it uses none of the step's per-device budget.
+    """
+    started = time.perf_counter()
+    for device_id, api_key in creds:
+        resp = requests.get(
+            f"{server.url}/api/events/stats",
+            headers={"x-device-id": device_id, "x-api-key": api_key},
+            timeout=60,
+        )
+        if resp.status_code != 200:
+            raise RuntimeError(f"auth re-warm failed: {resp.status_code} {resp.text[:200]}")
+    return time.perf_counter() - started
+
+
 def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict[str, Any]:
     label = f"detection={'on' if detection else 'off'} rep={repetition}"
     print(f"[{label}] starting server", flush=True)
@@ -439,8 +463,10 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 # percentile rests on at least --min-requests samples.
                 batch = seed_demo.SERVER_MAX_EVENTS_PER_BATCH
                 duration = max(args.duration, args.min_requests * batch / rate)
+                rewarm_s = rewarm_auth(server, creds[:devices])
                 step = run_step(server, creds[:devices], cycler, rate, duration)
                 step["settle_before_s"] = settle_s
+                step["auth_rewarm_s"] = round(rewarm_s, 2)
                 step["degraded"] = degraded_reasons(step, args.stop_p99_ms, args.stop_loop_lag_ms)
                 config["steps"].append(step)
                 lat, lag = step["latency_ms"], step["loop_lag_ms"]
