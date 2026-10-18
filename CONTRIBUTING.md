@@ -148,6 +148,7 @@ AI-assisted contributions (Copilot, Claude, ChatGPT, etc.) are welcome — much 
 - **You are responsible for your contribution.** Review, understand, and test everything you submit
 - Do not submit unreviewed AI output — PRs that don't build or clearly weren't tested will be closed
 - Security-sensitive code (auth, parsers, agent install paths) gets extra scrutiny regardless of how it was written
+- Autonomous coding agents follow [CLAUDE.md](CLAUDE.md): PR-only, no force-push, gates before every commit, and merges only on the maintainer's word
 
 ## Coding Standards
 

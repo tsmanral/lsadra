@@ -148,6 +148,7 @@ fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
 server.py           FastAPI entry point
+CLAUDE.md           Rules for AI coding agents working in this repo
 ```
 
 ## Contributing
