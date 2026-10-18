@@ -27,3 +27,13 @@ def _reset_detection_queue():
     worker = sys.modules.get("lsadra.detection.detection_worker")
     if worker is not None and not worker.detection_queue.running:
         worker.detection_queue.reset()
+
+
+@pytest.fixture(autouse=True)
+def _reset_device_credential_cache():
+    """The verified-credential cache is process-wide; clear it between tests so
+    one test's successful auth never turns into another test's cache hit."""
+    yield
+    ingestion = sys.modules.get("lsadra.ingestion.api_ingestion")
+    if ingestion is not None:
+        ingestion.device_credential_cache.invalidate()

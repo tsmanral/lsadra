@@ -27,6 +27,8 @@ from starlette.concurrency import run_in_threadpool
 from lsadra.config import (
     BENCH_SKIP_DETECTION,
     DETECTION_QUEUE_RETRY_AFTER_SECONDS,
+    DEVICE_AUTH_CACHE_MAX_ENTRIES,
+    DEVICE_AUTH_CACHE_TTL_SECONDS,
     MAX_ATTRIBUTE_KEYS,
     MAX_ATTRIBUTE_VALUE_LENGTH,
     MAX_ATTRIBUTES_BYTES,
@@ -40,6 +42,7 @@ from lsadra.config import (
     RATE_LIMIT_MAX_KEYS,
 )
 from lsadra.detection.detection_worker import detection_queue
+from lsadra.ingestion.credential_cache import VerifiedCredentialCache
 from lsadra.ratelimit import SlidingWindowRateLimiter
 from lsadra.storage.database import get_device, store_batch_and_touch
 
@@ -216,6 +219,13 @@ def _check_rate_limit(device_id: str) -> None:
 
 # ── Auth dependency ───────────────────────────────────────────────────────
 
+# Verified-credential cache (D7 Option A): skips the repeat bcrypt verify for a
+# key that already passed it against the device's current hash, for at most
+# DEVICE_AUTH_CACHE_TTL_SECONDS. See lsadra/ingestion/credential_cache.py.
+device_credential_cache = VerifiedCredentialCache(
+    ttl_seconds=DEVICE_AUTH_CACHE_TTL_SECONDS, max_entries=DEVICE_AUTH_CACHE_MAX_ENTRIES
+)
+
 
 def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header(...)) -> Dict[str, Any]:
     """
@@ -224,6 +234,8 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
     Returns the device row dict on success, raises 401 otherwise.
     Keys registered since hashing landed are bcrypt-verified; rows created
     before that stored the raw key and are compared in constant time.
+    The device row is read on every call; a bcrypt verify is skipped only when
+    the credential cache holds this exact key verified against this exact hash.
     """
     device = get_device(x_device_id)
     if device is None:
@@ -234,6 +246,8 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
         raise HTTPException(status_code=401, detail="Device has no credential set.")
 
     if stored_hash.startswith("$2"):
+        if device_credential_cache.is_verified(x_device_id, x_api_key, stored_hash):
+            return device
         # Direct bcrypt (passlib dropped, §6 #15). Fail CLOSED on any error —
         # e.g. an over-72-byte key from an attacker, which bcrypt rejects with
         # ValueError; that must be a 401, never a 500 or a pass-through.
@@ -241,6 +255,8 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
             ok = bcrypt.checkpw(x_api_key.encode("utf-8"), stored_hash.encode("utf-8"))
         except (ValueError, TypeError):
             ok = False
+        if ok:
+            device_credential_cache.remember(x_device_id, x_api_key, stored_hash)
     else:
         ok = hmac.compare_digest(stored_hash, x_api_key)
     if not ok:

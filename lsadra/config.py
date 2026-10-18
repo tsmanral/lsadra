@@ -121,6 +121,21 @@ RATE_LIMIT_EVENTS_PER_MIN: int = 60    # POST /api/events/batch per device
 RATE_LIMIT_MAX_KEYS: int = int(os.getenv("LSADRA_RATE_LIMIT_MAX_KEYS", "10000"))
 
 # ---------------------------------------------------------------------------
+# Device-auth credential cache (D7 Option A)
+# ---------------------------------------------------------------------------
+# A device key that passed bcrypt is remembered — as a keyed HMAC fingerprint,
+# never the key — for at most this many seconds, bound to the stored hash it
+# was verified against. The device row is still read on every request; only
+# the repeat bcrypt verify is skipped. 0 disables the cache.
+# (lsadra/ingestion/credential_cache.py)
+DEVICE_AUTH_CACHE_TTL_SECONDS: float = float(os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60"))
+DEVICE_AUTH_CACHE_MAX_ENTRIES: int = int(os.getenv("LSADRA_DEVICE_AUTH_CACHE_MAX_ENTRIES", "10000"))
+if not 0 <= DEVICE_AUTH_CACHE_TTL_SECONDS <= 3600:
+    raise RuntimeError("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS must be between 0 and 3600.")
+if DEVICE_AUTH_CACHE_MAX_ENTRIES < 1:
+    raise RuntimeError("LSADRA_DEVICE_AUTH_CACHE_MAX_ENTRIES must be >= 1.")
+
+# ---------------------------------------------------------------------------
 # Input Validation Caps
 # These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
 # the source of truth; tests/test_contracts.py fails if the two drift.
