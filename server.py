@@ -5,6 +5,7 @@ LSADRA V3 — FastAPI server (primary V3 entrypoint).
 import asyncio
 import logging
 import sqlite3
+import sys
 import uuid
 from collections import deque
 from contextlib import asynccontextmanager, suppress
@@ -73,6 +74,8 @@ async def _sample_loop_lag() -> None:
 async def lifespan(app: FastAPI):
     """Lifecycle events for FastAPI."""
     logger.info("Initializing LSADRA V3 Backend...")
+    previous_switch_interval = sys.getswitchinterval()
+    sys.setswitchinterval(config.THREAD_SWITCH_INTERVAL_MS / 1000.0)
     init_db()
     Path("data/models").mkdir(parents=True, exist_ok=True)
     sampler = asyncio.create_task(_sample_loop_lag()) if DEV_MODE else None
@@ -92,6 +95,7 @@ async def lifespan(app: FastAPI):
         sampler.cancel()
         with suppress(asyncio.CancelledError):
             await sampler
+    sys.setswitchinterval(previous_switch_interval)
     logger.info("Shutting down LSADRA V3 Backend...")
 
 

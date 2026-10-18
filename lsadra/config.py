@@ -136,6 +136,18 @@ if DEVICE_AUTH_CACHE_MAX_ENTRIES < 1:
     raise RuntimeError("LSADRA_DEVICE_AUTH_CACHE_MAX_ENTRIES must be >= 1.")
 
 # ---------------------------------------------------------------------------
+# Interpreter thread switch interval
+# ---------------------------------------------------------------------------
+# Online detection is CPU-bound Python on its own thread in the server process.
+# With CPython's default 5 ms switch interval, request threads (auth, storage)
+# that give up the GIL for every SQLite call queue behind it several times per
+# request, which put a 100-400 ms tail on ingest while detection ran. A shorter
+# interval hands the GIL back sooner; the server sets it at startup.
+THREAD_SWITCH_INTERVAL_MS: float = float(os.getenv("LSADRA_THREAD_SWITCH_INTERVAL_MS", "0.5"))
+if not 0 < THREAD_SWITCH_INTERVAL_MS <= 100:
+    raise RuntimeError("LSADRA_THREAD_SWITCH_INTERVAL_MS must be > 0 and <= 100.")
+
+# ---------------------------------------------------------------------------
 # Input Validation Caps
 # These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
 # the source of truth; tests/test_contracts.py fails if the two drift.
