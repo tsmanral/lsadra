@@ -74,6 +74,13 @@ part of any step.
 Before each step the harness waits until the server is idle (CPU < 25 % of a
 core and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does not
 leak into the next.
+After that settle, and before measuring, every device in the step makes one
+authenticated `GET /api/events/stats` (`auth_rewarm_s` in the JSON). Settling
+can take longer than the device-auth cache TTL (60 s), which would otherwise
+start the step with every device paying bcrypt at once, a server-restart
+condition rather than steady load. The read stores nothing, enqueues no
+detection and does not count against the ingest limiter. Results before
+`after-s2-5-rewarm.json` were measured without it.
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,
