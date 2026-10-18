@@ -44,6 +44,7 @@ from lsadra.storage.database import (
     set_watermark,
     update_device_status,
 )
+from lsadra.ui.alert_stream import alert_hub
 
 logger = logging.getLogger(__name__)
 
@@ -187,7 +188,8 @@ class DetectionOrchestrator:
                 anomaly_id = insert_anomaly(res)
                 res["anomaly_id"] = anomaly_id
                 # Process through incident manager
-                self.incident_manager.process_anomaly(res)
+                res["incident_id"] = self.incident_manager.process_anomaly(res)
+                alert_hub.publish(res)  # /ws/alerts; never raises
 
         # Update watermark
         max_id = max(ev.get("id", 0) for ev in new_events)
