@@ -170,6 +170,13 @@ DETECTION_QUEUE_SIZE: int = int(os.getenv("LSADRA_DETECTION_QUEUE_SIZE", "256"))
 if DETECTION_QUEUE_SIZE < 1:
     raise RuntimeError("LSADRA_DETECTION_QUEUE_SIZE must be >= 1.")
 DETECTION_QUEUE_RETRY_AFTER_SECONDS: int = 5
+
+# /ws/alerts: alerts buffered per connected client before the server gives up
+# on a client that is not reading. It is closed with 1013 and should reconnect
+# and backfill from GET /api/dashboard/anomalies (lsadra/ui/alert_stream.py).
+WS_ALERT_QUEUE_SIZE: int = int(os.getenv("LSADRA_WS_ALERT_QUEUE_SIZE", "256"))
+if WS_ALERT_QUEUE_SIZE < 1:
+    raise RuntimeError("LSADRA_WS_ALERT_QUEUE_SIZE must be >= 1.")
 STATISTICAL_BASELINE_SIGMA: float = 3.0  # z-score threshold for Layer 1
 AUTOENCODER_PERCENTILE_THRESHOLD: float = 95.0  # reconstruction-error percentile
 
