@@ -7,17 +7,23 @@ V3 jobs (preserved):
   - Metrics aggregation (every 5 min)
   - Device offline detection (every 2 min)
   - Threat intel refresh (every 24h)
-  - IP geolocation resolution (every 24h)
+  - IP geolocation resolution (every 24h; opt-in, LSADRA_GEO_RESOLUTION_ENABLED)
   - Feature drift detection (every 24h)
-  - Data cleanup (daily at 02:00 UTC)
+  - Data retention cleanup (every RETENTION_INTERVAL_MINUTES, first run 1 min
+    after start; bounded batches, see storage.database.cleanup_old_data)
 
 V4 jobs (new — added after V3 jobs):
   - Cross-source correlation check (every 5 min)    [GLASSWING ALIGNMENT]
   - Lateral movement scan (every 10 min)            [GLASSWING ALIGNMENT]
   - Ingestion health check (every 15 min)           [V4 ENHANCEMENT]
+
+Started and stopped by server.py's lifespan (LSADRA_SCHEDULER_ENABLED). Every
+job runs one instance at a time, and a run missed while the previous one was
+still going is coalesced into a single catch-up run.
 """
 
 import logging
+from datetime import datetime, timedelta
 
 logger = logging.getLogger(__name__)
 
@@ -25,13 +31,17 @@ _scheduler = None
 
 
 def start_scheduler() -> None:
-    """Initialize and start the APScheduler background scheduler."""
+    """Initialize and start the APScheduler background scheduler (idempotent)."""
     global _scheduler
+
+    if _scheduler is not None and _scheduler.running:
+        return
+
+    from lsadra.config import GEO_RESOLUTION_ENABLED, RETENTION_INTERVAL_MINUTES
 
     try:
         from apscheduler.schedulers.background import BackgroundScheduler
         from apscheduler.triggers.interval import IntervalTrigger
-        from apscheduler.triggers.cron import CronTrigger
     except ImportError:
         logger.warning(
             "APScheduler not installed — background jobs will not run. "
@@ -39,7 +49,10 @@ def start_scheduler() -> None:
         )
         return
 
-    _scheduler = BackgroundScheduler(timezone="UTC")
+    _scheduler = BackgroundScheduler(
+        timezone="UTC",
+        job_defaults={"coalesce": True, "max_instances": 1, "misfire_grace_time": 300},
+    )
 
     # ── V3 Job 1: Metrics aggregation (every 5 min) ─────────────────────
     _scheduler.add_job(
@@ -68,14 +81,16 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # ── V3 Job 4: IP geolocation resolution (every 24h) ─────────────────
-    _scheduler.add_job(
-        _run_geo_resolution,
-        IntervalTrigger(hours=24),
-        id="geo_resolution",
-        name="IP Geolocation Resolution",
-        replace_existing=True,
-    )
+    # ── V3 Job 4: IP geolocation resolution (every 24h; opt-in) ─────────
+    # Sends observed public IPs to ipinfo.io, so it only runs when enabled.
+    if GEO_RESOLUTION_ENABLED:
+        _scheduler.add_job(
+            _run_geo_resolution,
+            IntervalTrigger(hours=24),
+            id="geo_resolution",
+            name="IP Geolocation Resolution",
+            replace_existing=True,
+        )
 
     # ── V3 Job 5: Feature drift detection (every 24h) ───────────────────
     _scheduler.add_job(
@@ -86,10 +101,14 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # ── V3 Job 6: Data cleanup (daily at 02:00 UTC) ─────────────────────
+    # ── V3 Job 6: Data retention cleanup ────────────────────────────────
+    # Frequent small runs instead of one daily sweep: each run only has an
+    # interval's worth of expired rows to delete, and the first run (shortly
+    # after start) catches up a server that was down at the old 02:00 slot.
     _scheduler.add_job(
         _run_data_cleanup,
-        CronTrigger(hour=2, minute=0),
+        IntervalTrigger(minutes=RETENTION_INTERVAL_MINUTES),
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
         id="data_cleanup",
         name="Data Retention Cleanup",
         replace_existing=True,
@@ -134,14 +153,27 @@ def start_scheduler() -> None:
 def stop_scheduler() -> None:
     """Stop the background scheduler gracefully."""
     global _scheduler
-    if _scheduler and _scheduler.running:
+    if _scheduler is not None and _scheduler.running:
+        # wait=False: a long retention run must not hold up shutdown; it stops
+        # at its next batch boundary when the process exits, losing nothing.
         _scheduler.shutdown(wait=False)
         logger.info("Background scheduler stopped.")
-        _scheduler = None
+    _scheduler = None
+
+
+def _iso_cutoff(minutes: int) -> str:
+    """UTC cutoff in the format normalized_events.timestamp is stored in.
+
+    Ingestion stores ``datetime.isoformat()`` of a UTC-aware time
+    (``YYYY-MM-DDTHH:MM:SS+00:00``). SQLite's ``datetime('now', ...)`` returns
+    ``YYYY-MM-DD HH:MM:SS``; compared as text, ``'T' > ' '`` makes every event
+    from the current day match, so the windows must be computed here.
+    """
+    return (datetime.utcnow() - timedelta(minutes=minutes)).isoformat()
 
 
 # ============================================================================
-# V3 job implementations (preserved exactly)
+# V3 job implementations
 # ============================================================================
 
 
@@ -252,6 +284,7 @@ def _run_cross_source_correlation() -> None:
     try:
         from lsadra.storage.database import get_connection
 
+        cutoff = _iso_cutoff(minutes=10)
         conn = get_connection()
         rows = conn.execute(
             """SELECT source_ip,
@@ -265,10 +298,11 @@ def _run_cross_source_correlation() -> None:
                           END
                       ) AS source_count
                FROM normalized_events
-               WHERE timestamp >= datetime('now', '-10 minutes')
+               WHERE timestamp >= ?
                  AND source_ip IS NOT NULL
                GROUP BY source_ip
                HAVING source_count >= 2""",
+            (cutoff,),
         ).fetchall()
         conn.close()
 
@@ -299,8 +333,9 @@ def _run_lateral_movement_scan() -> None:
         conn = get_connection()
         active_ips = conn.execute(
             """SELECT DISTINCT source_ip FROM normalized_events
-               WHERE timestamp >= datetime('now', '-30 minutes')
-                 AND source_ip IS NOT NULL"""
+               WHERE timestamp >= ?
+                 AND source_ip IS NOT NULL""",
+            (_iso_cutoff(minutes=30),),
         ).fetchall()
 
         for row in active_ips:

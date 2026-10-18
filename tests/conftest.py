@@ -12,6 +12,9 @@ import sys
 import pytest
 
 os.environ.setdefault("LSADRA_DEV_MODE", "true")
+# The background scheduler would run real jobs against whatever database a
+# test's lifespan points at; tests that need it start it explicitly.
+os.environ.setdefault("LSADRA_SCHEDULER_ENABLED", "false")
 
 # test_v4_smoke.py is a standalone script (`python tests/test_v4_smoke.py`) that
 # exits at import time; keep a bare `pytest` from crashing while collecting it.

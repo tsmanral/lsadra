@@ -16,12 +16,18 @@ V4 additions (all new functions — none of the V3 functions modified):
 import json
 import logging
 import sqlite3
+import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
-from lsadra.config import DB_PATH, RETENTION_DAYS
+from lsadra.config import (
+    DB_PATH,
+    RETENTION_BATCH_PAUSE_S,
+    RETENTION_BATCH_SIZE,
+    RETENTION_DAYS,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -996,34 +1002,60 @@ def get_drift_records(model_name: str, limit: int = 50) -> List[Dict[str, Any]]:
 # ══════════════════════════════════════════════════════════════════════════
 
 
-def cleanup_old_data() -> int:
+# Retention order matters: the only FK into ``normalized_events`` is
+# ``anomalies.event_id`` (migration 001), so anomalies go first. Table and column
+# names are constants, never input.
+_RETENTION_STEPS = (
+    ("anomalies", "created_at", ""),
+    (
+        "normalized_events",
+        "timestamp",
+        "AND id NOT IN (SELECT event_id FROM anomalies WHERE event_id IS NOT NULL)",
+    ),
+    ("device_heartbeats", "timestamp", ""),
+    ("metrics_5min", "window_start", ""),
+    ("feature_drift", "measured_at", ""),
+)
+
+
+def cleanup_old_data(batch_size: Optional[int] = None) -> int:
     """Delete rows older than RETENTION_DAYS. Returns the number of events deleted.
 
-    All deletes run in one transaction (one commit; any failure rolls back every
-    table) in foreign-key-safe order. The only FK into ``normalized_events`` is
-    ``anomalies.event_id`` (migration 001), so anomalies go first. An expired
-    event still referenced by a *retained* anomaly (e.g. a back-filled log line
-    whose anomaly is recent) is kept until that anomaly ages out — deleting it
-    would violate the FK, deleting the anomaly early would drop a finding inside
-    its retention window. ``incidents`` are not part of retention; they are only
+    Bounded: each table is cleared in transactions of at most ``batch_size`` rows
+    (default ``RETENTION_BATCH_SIZE``), each committed on its own, with a short
+    pause between them so ingest writers waiting on the write lock get it. A
+    failure rolls back only the batch in flight; earlier batches stay deleted,
+    and the next run picks up where this one stopped.
+
+    Tables go in foreign-key-safe order (``_RETENTION_STEPS``). An expired event
+    still referenced by a *retained* anomaly (e.g. a back-filled log line whose
+    anomaly is recent) is kept until that anomaly ages out: deleting it would
+    violate the FK, deleting the anomaly early would drop a finding inside its
+    retention window. ``incidents`` are not part of retention; they are only
     ever the parent side (``anomalies.incident_id``), so they impose no ordering.
     """
+    batch = batch_size or RETENTION_BATCH_SIZE
+    if batch < 1:
+        raise ValueError("retention batch size must be at least 1")
     cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
+    events_deleted = 0
     with _connection() as conn:
-        conn.execute("DELETE FROM anomalies WHERE created_at < ?", (cutoff,))
-        cur = conn.execute(
-            """DELETE FROM normalized_events
-               WHERE timestamp < ?
-                 AND id NOT IN (SELECT event_id FROM anomalies WHERE event_id IS NOT NULL)""",
-            (cutoff,),
-        )
-        events_deleted = cur.rowcount
-        conn.execute("DELETE FROM device_heartbeats WHERE timestamp < ?", (cutoff,))
-        conn.execute("DELETE FROM metrics_5min WHERE window_start < ?", (cutoff,))
-        conn.execute("DELETE FROM feature_drift WHERE measured_at < ?", (cutoff,))
-        conn.commit()
-        logger.info("Retention cleanup: removed %d events older than %s", events_deleted, cutoff)
-        return events_deleted
+        for table, column, extra in _RETENTION_STEPS:
+            while True:
+                cur = conn.execute(
+                    f"""DELETE FROM {table} WHERE rowid IN (
+                            SELECT rowid FROM {table} WHERE {column} < ? {extra} LIMIT ?)""",
+                    (cutoff, batch),
+                )
+                conn.commit()
+                deleted = cur.rowcount
+                if table == "normalized_events":
+                    events_deleted += deleted
+                if deleted < batch:
+                    break
+                time.sleep(RETENTION_BATCH_PAUSE_S)
+    logger.info("Retention cleanup: removed %d events older than %s", events_deleted, cutoff)
+    return events_deleted
 
 
 # ══════════════════════════════════════════════════════════════════════════

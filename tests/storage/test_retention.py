@@ -143,13 +143,13 @@ def test_cleanup_old_data_keeps_expired_event_still_referenced_by_retained_anoma
     assert _count(sql, "anomalies") == 0
 
 
-def test_cleanup_old_data_is_one_transaction_rolled_back_on_failure(seeded, sql):
+def test_cleanup_old_data_failure_keeps_committed_batches_and_releases_the_lock(seeded, sql):
     event_id = seeded.insert_event(make_event(timestamp=OLD))
     aid = seeded.insert_anomaly({"event_id": event_id, "device_id": DEVICE_ID, "is_anomaly": True})
     sql("UPDATE anomalies SET created_at=? WHERE id=?", (OLD_SQL, aid))
     seeded.insert_drift_record("m", "f", 0.1, False)
     sql("UPDATE feature_drift SET measured_at=?", (OLD_SQL,))
-    # Test-DB-only trigger: make the LAST retention DELETE fail.
+    # Test-DB-only trigger: make the LAST retention table's DELETE fail.
     sql(
         "CREATE TRIGGER fail_drift_delete BEFORE DELETE ON feature_drift "
         "BEGIN SELECT RAISE(ABORT, 'injected retention failure'); END"
@@ -158,10 +158,89 @@ def test_cleanup_old_data_is_one_transaction_rolled_back_on_failure(seeded, sql)
     with pytest.raises(sqlite3.IntegrityError, match="injected retention failure"):
         seeded.cleanup_old_data()
 
-    # Nothing from the earlier DELETEs in the same call survived.
-    assert _count(sql, "normalized_events") == 1
-    assert _count(sql, "anomalies") == 1
+    # Bounded retention commits batch by batch: tables finished before the
+    # failure stay cleaned; only the failing batch rolled back.
+    assert _count(sql, "normalized_events") == 0
+    assert _count(sql, "anomalies") == 0
     assert _count(sql, "feature_drift") == 1
-    # And the write lock was released: the next writer is not blocked.
+    # And the write lock was released: the next run is not blocked and finishes.
     sql("DROP TRIGGER fail_drift_delete")
-    assert seeded.cleanup_old_data() == 1
+    assert seeded.cleanup_old_data() == 0
+    assert _count(sql, "feature_drift") == 0
+
+
+def test_cleanup_old_data_rolls_back_only_the_failing_batch(seeded, sql):
+    seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(4)])
+    ids = [r["id"] for r in sql("SELECT id FROM normalized_events ORDER BY id")]
+    last = ids[-1]
+    sql(
+        "CREATE TRIGGER fail_last_event BEFORE DELETE ON normalized_events "
+        f"WHEN OLD.id = {last} BEGIN SELECT RAISE(ABORT, 'injected batch failure'); END"
+    )
+
+    with pytest.raises(sqlite3.IntegrityError, match="injected batch failure"):
+        seeded.cleanup_old_data(batch_size=2)
+
+    # Batch 1 (two rows) committed; batch 2 (the other two) rolled back whole.
+    assert _count(sql, "normalized_events") == 2
+
+
+def test_cleanup_old_data_deletes_in_bounded_batches(seeded, sql, monkeypatch):
+    pauses = []
+    monkeypatch.setattr(database.time, "sleep", pauses.append)
+    seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(5)])
+    recent_ts = (datetime.utcnow() - timedelta(days=1)).isoformat()
+    seeded.insert_event(make_event(timestamp=recent_ts))
+
+    assert seeded.cleanup_old_data(batch_size=2) == 5
+
+    # 5 expired events in batches of 2 -> 2, 2, 1: a pause after each full batch.
+    assert len(pauses) == 2
+    assert _count(sql, "normalized_events") == 1
+
+
+def test_cleanup_old_data_uses_the_configured_batch_size(seeded, monkeypatch):
+    pauses = []
+    monkeypatch.setattr(database.time, "sleep", pauses.append)
+    monkeypatch.setattr(database, "RETENTION_BATCH_SIZE", 1)
+    seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(3)])
+
+    assert seeded.cleanup_old_data() == 3
+    assert len(pauses) == 3  # every batch of 1 was full
+
+
+def test_cleanup_old_data_batches_keep_fk_order(seeded, sql):
+    # Small batches must not change the FK-safe order: every anomaly batch runs
+    # before any event batch, so an expired event is never deleted under one.
+    for n in (1, 2, 3):
+        _expired_event_with_incident_anomalies(seeded, sql, n)
+    assert seeded.cleanup_old_data(batch_size=1) == 3
+    assert _count(sql, "normalized_events") == 0
+    assert _count(sql, "anomalies") == 0
+
+
+def test_cleanup_old_data_releases_the_write_lock_between_batches(seeded, sql, monkeypatch):
+    # A writer that will not wait at all (timeout=0) must still get the lock
+    # during the pause between two batches.
+    writes = []
+
+    def write_during_pause(_seconds):
+        other = sqlite3.connect(str(seeded.DB_PATH), timeout=0)
+        try:
+            other.execute("INSERT INTO ingestion_stats (source_type) VALUES ('probe')")
+            other.commit()
+            writes.append(True)
+        finally:
+            other.close()
+
+    monkeypatch.setattr(database.time, "sleep", write_during_pause)
+    seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(3)])
+
+    assert seeded.cleanup_old_data(batch_size=2) == 3
+    assert writes == [True]
+
+
+def test_cleanup_old_data_rejects_a_non_positive_batch_size(db, monkeypatch):
+    monkeypatch.setattr(database, "RETENTION_BATCH_SIZE", 0)
+    with pytest.raises(ValueError):
+        db.cleanup_old_data()
