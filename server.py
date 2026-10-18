@@ -25,10 +25,12 @@ from lsadra.auth import (
     require_role,
     verify_password,
 )
+from lsadra import config
 from lsadra.config import BENCH_SKIP_DETECTION, CORS_ALLOWED_ORIGINS, DEV_MODE, REQUIRE_TLS
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ingestion.api_ingestion import router as events_router
 from lsadra.ingestion.api_ingestion import run_online_detection
+from lsadra.jobs.scheduler import start_scheduler, stop_scheduler
 from lsadra.onboarding.device_registration import router as devices_router
 from lsadra.storage.database import (
     create_user,
@@ -77,7 +79,14 @@ async def lifespan(app: FastAPI):
     # Online detection worker: ingestion handlers only enqueue; detection runs
     # here, on one dedicated thread — never on the loop, never in a request.
     detection_queue.start(run_online_detection)
+    # Background jobs (retention, metrics, offline detection, ...) run on
+    # APScheduler's own threads; read the flag at startup so tests can patch it.
+    scheduler_on = config.SCHEDULER_ENABLED
+    if scheduler_on:
+        start_scheduler()
     yield
+    if scheduler_on:
+        stop_scheduler()
     await detection_queue.stop()
     if sampler is not None:
         sampler.cancel()

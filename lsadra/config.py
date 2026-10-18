@@ -227,6 +227,23 @@ METRICS_AGGREGATION_INTERVAL_MINUTES: int = int(
 # ---------------------------------------------------------------------------
 RETENTION_DAYS: int = int(os.getenv("LSADRA_RETENTION_DAYS", "30"))
 DATA_RETENTION_DAYS: int = RETENTION_DAYS  # alias
+# Bounded cleanup: each DELETE transaction removes at most this many rows, then
+# commits and pauses so ingest writers waiting on the lock get it between
+# batches instead of waiting out one long transaction. 1,000 rows held the lock
+# ~40 ms per batch locally (5,000 rows: ~215 ms, near the 250 ms request gate).
+RETENTION_BATCH_SIZE: int = int(os.getenv("LSADRA_RETENTION_BATCH_SIZE", "1000"))
+RETENTION_BATCH_PAUSE_S: float = float(os.getenv("LSADRA_RETENTION_BATCH_PAUSE_S", "0.05"))
+RETENTION_INTERVAL_MINUTES: int = int(os.getenv("LSADRA_RETENTION_INTERVAL_MINUTES", "60"))
+
+# ---------------------------------------------------------------------------
+# Background scheduler
+# ---------------------------------------------------------------------------
+# Started by server.py's lifespan. The test suite turns it off (tests/conftest.py)
+# so a TestClient lifespan never runs jobs against a test database.
+SCHEDULER_ENABLED: bool = os.getenv("LSADRA_SCHEDULER_ENABLED", "true").lower() == "true"
+# IP geolocation sends every observed public source IP to ipinfo.io (no key);
+# off unless the operator opts in, like the other runtime-tier sources (§8).
+GEO_RESOLUTION_ENABLED: bool = os.getenv("LSADRA_GEO_RESOLUTION_ENABLED", "false").lower() == "true"
 
 # ---------------------------------------------------------------------------
 # V4 Configuration Keys
