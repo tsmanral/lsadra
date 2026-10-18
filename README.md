@@ -98,6 +98,17 @@ curl -X POST http://localhost:8000/api/events/raw \
 
 Per-source ingestion health is available at `GET /api/events/stats`.
 
+## Live Alerts
+
+`/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
+
+```js
+const ws = new WebSocket("wss://lsadra.example/ws/alerts", ["bearer", token]);
+ws.onmessage = (e) => console.log(JSON.parse(e.data)); // {"type":"ready",...} then {"type":"alert",...}
+```
+
+Scoping matches the REST API: an ADMIN receives every alert, other roles only their own. A missing, invalid or expired token, or plain `ws://` while TLS is required, is refused with close code `1008` (an HTTP `403` at the handshake). An open socket is closed with `1008` when its token expires, so the client reconnects with a fresh one. A client that stops reading is closed with `1013` once `LSADRA_WS_ALERT_QUEUE_SIZE` alerts (default 256) are waiting for it; it should reconnect and backfill from `GET /api/dashboard/anomalies`. The React dashboard still polls; it moves to the socket with the M3 UI work.
+
 ## Architecture
 
 ```mermaid
@@ -114,6 +125,7 @@ graph TD
     INC --> NB[Narrative Builder<br/>SHAP + MITRE ATT&CK]
     NB --> DB[(SQLite)]
     DB --> DASH[React SOC Dashboard]
+    NB -->|/ws/alerts, JWT at handshake| DASH
 ```
 
 A deeper technical walkthrough lives in [ARCHITECTURE.md](ARCHITECTURE.md), and the platform's design evolution is documented in [docs/V3_VS_V4_EVOLUTION.md](docs/V3_VS_V4_EVOLUTION.md).
@@ -195,7 +207,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 
 **Where the project is now**
 
-- **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). Two items remain deferred by design: WebSocket handshake authentication (lands with the async core) and signed agent distribution (lands with release engineering).
+- **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). One item remains deferred by design: signed agent distribution (lands with release engineering). The `/ws/alerts` live feed authenticates at the handshake (see [Live Alerts](#live-alerts)).
 - **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
@@ -206,7 +218,6 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 **What's next (M1 — async core)**
 
 - Async ingestion on aiosqlite + WAL with worker queues, retention lifecycle, and DuckDB analytics
-- Authenticated `/ws/alerts` WebSocket handshake
 - Prompt-injection defense: logs are attacker-controlled input, and they reach the LLM and RAG index
 
 Follow [Releases](https://github.com/tsmanral/lsadra/releases) for progress, or the [ADRs](docs/architecture/adr/) for the reasoning behind the larger calls.
