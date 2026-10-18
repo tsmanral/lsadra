@@ -80,7 +80,7 @@ can take longer than the device-auth cache TTL (60 s), which would otherwise
 start the step with every device paying bcrypt at once, a server-restart
 condition rather than steady load. The read stores nothing, enqueues no
 detection and does not count against the ingest limiter. Results before
-`after-s2-5-rewarm.json` were measured without it.
+`after-s2-5-rewarm-a.json` were measured without it.
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,
