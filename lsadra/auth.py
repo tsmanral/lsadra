@@ -9,13 +9,13 @@ compatibility issues.
 """
 
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Optional
 
 import bcrypt
+import jwt
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
 
 from lsadra.config import JWT_EXPIRATION_MINUTES, JWT_SECRET, TOKEN_ALGORITHM
 
@@ -53,7 +53,7 @@ def create_access_token(
     Claims:
         sub: user_id, username, role, exp.
     """
-    expire = datetime.utcnow() + timedelta(minutes=expires_minutes)
+    expire = datetime.now(timezone.utc) + timedelta(minutes=expires_minutes)
     payload = {
         "sub": user_id,
         "username": username,
@@ -66,9 +66,14 @@ def create_access_token(
 def decode_token(token: str) -> dict:
     """Decode and validate a JWT token. Raises HTTPException on failure."""
     try:
-        payload = jwt.decode(token, JWT_SECRET, algorithms=[TOKEN_ALGORITHM])
+        payload = jwt.decode(
+            token,
+            JWT_SECRET,
+            algorithms=[TOKEN_ALGORITHM],
+            options={"require": ["exp", "sub"]},
+        )
         return payload
-    except JWTError as e:
+    except jwt.InvalidTokenError as e:
         raise HTTPException(
             status_code=status.HTTP_401_UNAUTHORIZED,
             detail=f"Invalid or expired token: {e}",
