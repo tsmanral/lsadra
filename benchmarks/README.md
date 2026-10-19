@@ -14,7 +14,7 @@ async work is measured against.
 
 ```bash
 pip install -r requirements.txt
-python benchmarks/run_ingest_bench.py                       # full baseline, ~25 min
+python benchmarks/run_ingest_bench.py                       # full baseline, ~35 min
 python benchmarks/run_ingest_bench.py --detection on --devices 10 20 \
     --stop-on throughput                                    # detection-on ceiling, ~20 min
 python benchmarks/run_ingest_bench.py --detection off --devices 1 --rates 50 \
@@ -86,6 +86,24 @@ so the harness settles once more after the re-warm (`settle_before_s` is the
 sum of both waits). Before refresh-ahead, every device re-ran bcrypt inline
 once per TTL wherever its entry happened to expire, which put a 200–300 ms
 tail into most steps (the PC results on 28c13d8).
+
+Refresh-ahead only renews an entry that is hit past half its TTL. In a step
+where each device sends less often than that (the 25 ev/s step at 10 and 20
+devices, where a device sends every 40 or 80 s, and 50 ev/s at 20 devices), a
+re-warm read can land on an entry younger than half its TTL, queue nothing,
+and leave it to expire before that device's next batch, which then pays
+bcrypt inline. Which devices did depended only on where the previous step left
+each entry's age, so the first 25 ev/s step after a device count change
+sometimes showed one ~250 ms request (the PC results on ec1d66e). For those
+steps the harness now waits half the TTL plus 1 s after settling and before
+re-warming (`auth_fresh_wait_s`), so every re-warm read either queues a
+background re-verify or verifies inline, and the step starts with every entry
+freshly verified. It reads the TTL from `LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS`
+like the server does. This keeps such steps measuring ingestion rather than
+cache phase. It does not change what a sparse agent sees: one that sends less
+often than once per TTL still pays bcrypt on every batch, and one whose gap
+between batches exceeds half the TTL can occasionally pay it once. Agents that
+flush every few seconds never do.
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,

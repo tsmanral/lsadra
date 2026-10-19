@@ -97,3 +97,44 @@ def test_harness_emits_schema_at_50_events_per_second(tmp_path):
     assert step["loop_lag_ms"]["p99"] is not None
     assert step["rss_mb"]["max"] > 0
     assert isinstance(step["degraded"], list)
+    # One device at 50 ev/s sends every 2 s: no wait for a fresh credential cache.
+    assert step["auth_fresh_wait_s"] == 0
+
+
+def test_fresh_auth_wait_only_for_devices_sending_less_often_than_half_the_ttl():
+    bench = _load_harness()
+    assert bench.AUTH_CACHE_TTL_S == 60  # the server default the ladder is tuned for
+    # 100-event batches: interval = devices * 100 / rate.
+    assert not bench.needs_fresh_auth(1, 25)    # every 4 s
+    assert not bench.needs_fresh_auth(10, 50)   # every 20 s
+    assert bench.needs_fresh_auth(10, 25)       # every 40 s
+    assert bench.needs_fresh_auth(20, 50)       # every 40 s
+    assert not bench.needs_fresh_auth(20, 100)  # every 20 s
+
+
+def test_rewarm_after_the_wait_keeps_a_sparse_device_off_inline_bcrypt():
+    """
+    The case behind the slow first 25 ev/s step: a re-warm read on an entry
+    younger than half its TTL queues no re-verify, so a device whose next batch
+    comes 40 s later finds it expired. Re-warming once the entry is past half
+    its TTL renews it instead.
+    """
+    from lsadra.ingestion.credential_cache import VerifiedCredentialCache
+
+    bench = _load_harness()
+    ttl = bench.AUTH_CACHE_TTL_S
+
+    def next_batch_hits(wait_before_rewarm: float) -> bool:
+        now = [0.0]
+        cache = VerifiedCredentialCache(ttl, 10, clock=lambda: now[0])
+        cache.remember("dev", "key", "$2b$hash")
+        now[0] += 20.0                             # entry age when the settle ends
+        now[0] += wait_before_rewarm
+        assert cache.is_verified("dev", "key", "$2b$hash")
+        if cache.claim_refresh("dev", "key", "$2b$hash"):
+            cache.finish_refresh("dev", "key", "$2b$hash", ok=True)
+        now[0] += 3.0 + 40.0                       # second settle, then 40 s between batches
+        return cache.is_verified("dev", "key", "$2b$hash")
+
+    assert not next_batch_hits(0.0)  # before: inline bcrypt on that batch
+    assert next_batch_hits(ttl * bench.AUTH_REFRESH_AFTER_FRACTION + 1.0)

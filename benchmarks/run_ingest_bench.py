@@ -21,6 +21,8 @@ For each detection mode (on / off) and repetition it:
    than the device-auth cache TTL does not start the step on a cold cache; the
    server then settles again, so the background re-verifies those reads may
    queue finish before the step starts.
+   Where each device in a step sends less often than every half cache TTL,
+   the harness first waits half a TTL so every re-warm read renews its entry.
 
 Detection-off runs set ``LSADRA_BENCH_SKIP_DETECTION=true`` (dev-mode-only
 switch) so storage cost and detection cost can be told apart.
@@ -85,6 +87,12 @@ IDLE_LAG_SECONDS = 5.0  # no-load loop-lag sample taken after warm-up
 SETTLE_TIMEOUT_S = 600.0  # max wait for a backlog to drain between steps
 SETTLE_LAG_MS = 50.0
 SETTLE_CPU_PCT = 25.0  # server process CPU (% of one core) considered idle
+# Must match the server's LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS (lsadra/config.py);
+# the server subprocess inherits this environment, so both read the same value.
+AUTH_CACHE_TTL_S = float(os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60"))
+# A cache hit past this fraction of the TTL queues a background re-verify
+# (REFRESH_AFTER_FRACTION in lsadra/ingestion/credential_cache.py).
+AUTH_REFRESH_AFTER_FRACTION = 0.5
 LOG_MARKERS = ["Online detection:", "Auto-training models", "all layers trained", "Traceback"]
 
 
@@ -426,6 +434,38 @@ def rewarm_auth(server: BenchServer, creds: List[seed_demo.DeviceCred]) -> float
     return time.perf_counter() - started
 
 
+def needs_fresh_auth(devices: int, rate: float) -> bool:
+    """
+    True when each device in the step sends less often than every half cache TTL.
+
+    Then a re-warm read can land on an entry younger than half its TTL (no
+    background re-verify is queued) and the device's next batch, more than half
+    a TTL later, can find it expired and pay bcrypt inline. Which devices hit
+    that depends only on where the previous step left each entry's age, so the
+    step would measure that phase, not ingestion. Steady agents (every few
+    seconds) never see it: their hits past half the TTL renew the entry.
+    """
+    if AUTH_CACHE_TTL_S <= 0:
+        return False
+    interval_s = devices * seed_demo.SERVER_MAX_EVENTS_PER_BATCH / rate
+    return interval_s > AUTH_CACHE_TTL_S * AUTH_REFRESH_AFTER_FRACTION
+
+
+def wait_for_refreshable_auth() -> float:
+    """
+    Right after a settle, sleep until every cached device entry is past half its TTL.
+
+    No device request runs during a settle, and the settle waits out any
+    background re-verify, so no entry was verified later than the moment it
+    ended. Half a TTL (plus a margin) later, the re-warm read either queues a
+    background re-verify for each entry or finds it expired and verifies it
+    inline; either way every entry starts the step freshly verified.
+    """
+    wait = AUTH_CACHE_TTL_S * AUTH_REFRESH_AFTER_FRACTION + 1.0
+    time.sleep(wait)
+    return wait
+
+
 def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict[str, Any]:
     label = f"detection={'on' if detection else 'off'} rep={repetition}"
     print(f"[{label}] starting server", flush=True)
@@ -469,6 +509,9 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 # percentile rests on at least --min-requests samples.
                 batch = seed_demo.SERVER_MAX_EVENTS_PER_BATCH
                 duration = max(args.duration, args.min_requests * batch / rate)
+                fresh_wait_s = 0.0
+                if needs_fresh_auth(devices, rate):
+                    fresh_wait_s = wait_for_refreshable_auth()
                 rewarm_s = rewarm_auth(server, creds[:devices])
                 # A re-warm hit past half the cache TTL queues a background
                 # bcrypt re-verify; let those finish before measuring.
@@ -476,6 +519,7 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 step = run_step(server, creds[:devices], cycler, rate, duration)
                 step["settle_before_s"] = round(settle_s, 2)
                 step["auth_rewarm_s"] = round(rewarm_s, 2)
+                step["auth_fresh_wait_s"] = round(fresh_wait_s, 2)
                 step["degraded"] = degraded_reasons(step, args.stop_p99_ms, args.stop_loop_lag_ms)
                 config["steps"].append(step)
                 lat, lag = step["latency_ms"], step["loop_lag_ms"]
