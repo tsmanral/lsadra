@@ -1,0 +1,51 @@
+name: Feature request
+description: Suggest a new capability, detection, log source or improvement.
+title: "feat: "
+labels: ["enhancement", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Describe the problem you're trying to solve, not only the solution. Detection gaps, missing log sources and dashboard workflow pain points are especially valuable.
+
+        For larger changes, opening this issue first lets us agree on the approach before you invest time (see [CONTRIBUTING.md](https://github.com/tsmanral/lsadra/blob/main/CONTRIBUTING.md)).
+  - type: dropdown
+    id: component
+    attributes:
+      label: Area
+      options:
+        - API / server
+        - Dashboard (frontend)
+        - Detection pipeline / rules / ML models
+        - Log parsers / ingestion
+        - Endpoint agent
+        - Docker / deployment
+        - Docs
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem
+      description: What are you trying to do, and what gets in the way today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed solution
+      description: What you'd like LSADRA to do. Example events or screenshots help (synthetic data only).
+    validations:
+      required: true
+  - type: textarea
+    id: alternatives
+    attributes:
+      label: Alternatives considered
+      description: Other approaches or workarounds you've tried.
+  - type: checkboxes
+    id: contribute
+    attributes:
+      label: Contributing
+      options:
+        - label: I'd be willing to open a pull request for this.
