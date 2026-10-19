@@ -96,7 +96,8 @@ Please make sure the smoke test passes before opening a PR.
 
 - **Good first contributions**: documentation fixes, new detection rules, new log parsers, test coverage, dashboard polish
 - **Larger changes**: open an issue first describing what you want to build so we can align on the approach before you invest time
-- **Not sure where to start?** Check the [issue tracker](../../issues) for open items
+- **Not sure where to start?** Look for issues labelled [`good first issue`](../../labels/good%20first%20issue) or [`help wanted`](../../labels/help%20wanted), or browse the [issue tracker](../../issues)
+- **Labels** live in [`.github/labels.json`](.github/labels.json) and are synced to the repository when that file changes on `main`; edit the file rather than the labels page
 
 ## Sign-off (DCO)
 
@@ -185,7 +186,7 @@ Parsers live in `lsadra/ingestion/`. New parsers should:
 
 ## Reporting Bugs
 
-Open an issue with:
+Open an issue with the **Bug report** form, which asks for:
 
 - What you expected vs. what happened
 - Steps to reproduce (sample log lines are gold)
@@ -194,11 +195,11 @@ Open an issue with:
 
 ## Feature Requests
 
-Open an issue describing the problem you're trying to solve (not just the solution). Detection gaps, missing log sources, and dashboard workflow pain points are especially valuable feedback.
+Open an issue with the **Feature request** form, describing the problem you're trying to solve (not just the solution). Detection gaps, missing log sources, and dashboard workflow pain points are especially valuable feedback.
 
 ## Security Issues
 
-**Never report vulnerabilities in public issues.** See our [Security Policy](SECURITY.md) for private reporting channels.
+**Never report vulnerabilities in public issues.** See our [Security Policy](SECURITY.md) for private reporting channels. The issue chooser links straight to private vulnerability reporting.
 
 ## Code of Conduct
 

@@ -1,0 +1,10 @@
+# Blank issues are off so every report goes through a form, and security
+# reports are routed to private channels before anyone can open a public issue.
+blank_issues_enabled: false
+contact_links:
+  - name: Report a security vulnerability
+    url: https://github.com/tsmanral/lsadra/security/advisories/new
+    about: Please report vulnerabilities privately, never in a public issue. Opens a private advisory visible only to maintainers.
+  - name: Security policy
+    url: https://github.com/tsmanral/lsadra/blob/main/SECURITY.md
+    about: Other private reporting channels, what to include, and how quickly you'll hear back.

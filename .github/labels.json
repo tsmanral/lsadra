@@ -1,0 +1,16 @@
+[
+  { "name": "bug", "color": "d73a4a", "description": "Something isn't working" },
+  { "name": "enhancement", "color": "a2eeef", "description": "New feature or request" },
+  { "name": "good first issue", "color": "7057ff", "description": "Good for newcomers: small, well-scoped, with pointers in the issue" },
+  { "name": "help wanted", "color": "008672", "description": "Maintainers would welcome a contribution here" },
+  { "name": "needs-triage", "color": "fbca04", "description": "New issue, not reviewed by a maintainer yet" },
+  { "name": "documentation", "color": "0075ca", "description": "Improvements or additions to documentation" },
+  { "name": "security-hardening", "color": "b60205", "description": "Defense-in-depth work. Report vulnerabilities privately, never in an issue" },
+  { "name": "dependencies", "color": "0366d6", "description": "Pull requests that update a dependency file" },
+  { "name": "area: api", "color": "c5def5", "description": "FastAPI server, auth, endpoints" },
+  { "name": "area: dashboard", "color": "c5def5", "description": "React frontend" },
+  { "name": "area: detection", "color": "c5def5", "description": "Rules, ML models, detection pipeline" },
+  { "name": "area: parsers", "color": "c5def5", "description": "Log parsers and ingestion" },
+  { "name": "area: agent", "color": "c5def5", "description": "Endpoint agents and collectors" },
+  { "name": "area: ci", "color": "c5def5", "description": "GitHub Actions, release, tooling" }
+]

@@ -1,0 +1,32 @@
+name: labels
+
+# Keeps the repository's issue labels in step with .github/labels.json.
+# Creates missing labels and updates colour/description on existing ones; it
+# never deletes a label, so labels added by hand in the UI are left alone.
+on:
+  push:
+    branches: [main]
+    paths: [".github/labels.json", ".github/workflows/labels.yml"]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  issues: write
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - name: Create or update labels
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          jq -c '.[]' .github/labels.json | while read -r label; do
+            name=$(jq -r '.name' <<<"$label")
+            gh label create "$name" \
+              --repo "$GITHUB_REPOSITORY" \
+              --color "$(jq -r '.color' <<<"$label")" \
+              --description "$(jq -r '.description' <<<"$label")" \
+              --force
+          done

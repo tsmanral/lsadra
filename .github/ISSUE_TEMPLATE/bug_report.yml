@@ -1,0 +1,78 @@
+name: Bug report
+description: Something in LSADRA doesn't work the way it should.
+title: "bug: "
+labels: ["bug", "needs-triage"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thanks for taking the time to report a bug.
+
+        **Is this a security vulnerability?** Stop here and use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) instead (see [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md)). Public issues are visible to everyone.
+  - type: checkboxes
+    id: not-security
+    attributes:
+      label: Before you file
+      options:
+        - label: This is not a security vulnerability.
+          required: true
+        - label: I searched existing issues and didn't find this one.
+          required: true
+  - type: dropdown
+    id: component
+    attributes:
+      label: Component
+      options:
+        - API / server
+        - Dashboard (frontend)
+        - Detection pipeline / rules / ML models
+        - Log parsers / ingestion
+        - Endpoint agent
+        - Docker / deployment
+        - Docs
+        - Other / not sure
+    validations:
+      required: true
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: What happened?
+      description: What you expected, and what happened instead.
+    validations:
+      required: true
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      description: Sample log lines are gold. Use synthetic or redacted data only.
+      placeholder: |
+        1. Start the server with ...
+        2. Send these events ...
+        3. See ...
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: Version or commit
+      placeholder: "v4.x.x or a commit SHA"
+    validations:
+      required: true
+  - type: textarea
+    id: environment
+    attributes:
+      label: Environment
+      description: OS, Python version, Node version if it's the dashboard, and how you deployed (local / Docker).
+      placeholder: |
+        OS: Ubuntu 24.04
+        Python: 3.12
+        Deployed: docker compose
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs or output
+      description: |
+        **Redact before pasting.** Remove hostnames, usernames, IP addresses, API keys, JWTs and anything else from a real system. Replace them with placeholders (for example `alice.demo`, `192.0.2.10`).
+      render: text

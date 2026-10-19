@@ -155,7 +155,9 @@ docs/               Documentation tree
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, Discord notifications
+.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
+.github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -176,7 +178,7 @@ Contributions are welcome! Read the [Contributing Guide](CONTRIBUTING.md) for th
 3. Sign off your commits (`git commit -s`) — this project uses the [DCO](https://developercertificate.org/) rather than a CLA, and it is enforced: the DCO check is a required status check, so an unsigned commit blocks the merge. See [CONTRIBUTING.md](CONTRIBUTING.md#sign-off-dco).
 4. Open a **pull request** against `main` with a clear description.
 
-`main` is protected and the only long-lived branch — **everything lands through a pull request**, including maintainer work. Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. Bug reports and feature ideas are welcome in [Issues](https://github.com/tsmanral/lsadra/issues).
+`main` is protected and the only long-lived branch — **everything lands through a pull request**, including maintainer work. Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. Bug reports and feature ideas are welcome in [Issues](https://github.com/tsmanral/lsadra/issues), through the bug and feature forms; new contributors can start with issues labelled [`good first issue`](https://github.com/tsmanral/lsadra/labels/good%20first%20issue).
 
 Changes to user-facing behavior, environment variables, endpoints, or project structure must update this README **in the same PR** — the PR template has a checkbox for it.
 
