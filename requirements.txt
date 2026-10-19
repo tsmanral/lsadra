@@ -11,7 +11,7 @@ pydantic>=2.13.5
 
 # Dashboard
 streamlit>=1.30.0
-plotly>=5.14.0
+plotly>=7.1.0
 
 # ML & Deep Learning
 torch --index-url https://download.pytorch.org/whl/cpu
