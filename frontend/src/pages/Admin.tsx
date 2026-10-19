@@ -82,7 +82,6 @@ const Admin = () => {
     setTesting(true); setTestResults([]);
     const role = localStorage.getItem('sentinel_role') || 'UNKNOWN';
     const user = localStorage.getItem('sentinel_username') || 'UNKNOWN';
-    const mockCreds = (() => { try { return JSON.parse(localStorage.getItem('sentinel_mock_creds') || '{}'); } catch { return {}; } })();
 
     const tests = [
       {
@@ -92,37 +91,6 @@ const Admin = () => {
         warnDetail: 'FastAPI backend at http://localhost:8000 is unreachable.',
         warnImpact: 'All live API calls will fail. Dashboard is running in Mock/Demo mode.',
         warnFix: '1. Run: cd lsadra && python main.py\n2. Ensure port 8000 is not blocked\n3. Check .env for correct HOST/PORT settings',
-      },
-      {
-        name: 'Mock Auth — admin',
-        category: 'Authentication',
-        fn: async () => {
-          const cred = mockCreds['admin'] || { password:'admin' };
-          if (cred.password !== 'admin' && !mockCreds['admin']) throw new Error('Seed cred used (admin/admin)');
-          return { data: { ok: true, resolved: cred.password ? 'override' : 'seed', role: cred.role || 'ADMIN' } };
-        },
-        warnDetail: 'admin credentials not found in mock store — using seed default.',
-        warnFix: 'Expected: login as admin / admin. If changed, use new password.',
-      },
-      {
-        name: 'Mock Auth — testuser',
-        category: 'Authentication',
-        fn: async () => {
-          const cred = mockCreds['testuser'] || { password:'testuser' };
-          return { data: { ok: true, password_source: mockCreds['testuser'] ? 'override' : 'seed' } };
-        },
-        warnDetail: 'testuser not found in mock store.',
-        warnFix: 'Login with testuser / testuser to access full mock data mode.',
-      },
-      {
-        name: 'Mock Auth — jsmith',
-        category: 'Authentication',
-        fn: async () => {
-          const cred = mockCreds['jsmith'];
-          return { data: { ok: true, password_source: cred ? `override: "${cred.password}"` : 'seed: "jsmith"' } };
-        },
-        warnDetail: 'Password override for jsmith not found.',
-        warnFix: 'If you changed jsmith password in Admin, the new password is stored locally. Login with the new password.',
       },
       {
         name: 'LocalStorage RBAC',

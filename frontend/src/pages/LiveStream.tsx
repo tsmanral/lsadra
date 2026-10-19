@@ -1,6 +1,7 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { Filter, Play, Pause, AlertOctagon } from 'lucide-react';
 import { getAnomalies, getEvents } from '../services/api';
+import { subscribeAlerts, alertAsAnomaly } from '../services/alertStream';
 
 import { useNavigate } from 'react-router-dom';
 
@@ -50,6 +51,16 @@ const LiveStream = () => {
       return () => clearInterval(interval);
     }
   }, [isPaused, events.length]);
+
+  // Real alerts are pushed over /ws/alerts; a paused console drops them.
+  const pausedRef = useRef(isPaused);
+  useEffect(() => { pausedRef.current = isPaused; }, [isPaused]);
+  useEffect(() => subscribeAlerts({
+    onAlert: (alert) => {
+      if (pausedRef.current) return;
+      setEvents(prev => [alertAsAnomaly(alert), ...prev].slice(0, 50));
+    },
+  }), []);
 
   return (
     <div className="flex flex-col h-screen -m-6 bg-[#03060a] relative overflow-hidden">

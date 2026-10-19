@@ -1,94 +1,79 @@
-"""Regression test for §6 #11 — Client-side mock credentials seeded in production.
+"""Regression test for §6 #11 — Client-side mock credentials and offline login.
 
 Attacker story: A production SPA build shipped an offline `login()` fallback whose
 `SEED_CREDS` table unconditionally contained `admin`/`admin` (plus demo users). When
 the backend was offline, the browser authenticated `admin`/`admin` client-side and
 granted an ADMIN session with no server involvement at all.
 
-The fix (commit c78e30a) gates the default seed behind a build-time DEV guard:
-`SEED_CREDS` is a ternary on `import.meta.env.DEV` — the real credential object in dev
-builds, and `{}` (empty) in production builds. In prod, `resolveCred('admin')` returns
-null, so the offline `login()` fallback cannot authenticate admin client-side.
+Commit c78e30a gated the seed behind `import.meta.env.DEV`, but the fallback itself
+stayed: `login()` still fell back to `resolveCred()` on any backend error, reading
+passwords that `setMockCred` wrote to `sentinel_mock_creds` in localStorage in every
+build. At M3 the whole path is deleted: the browser never resolves credentials or
+mints a token, and only the server's `POST /api/auth/login` response sets one.
 
-There is no JS/TS runtime in this Python harness, so this is a SOURCE-TEXT INVARIANT
-check: open frontend/src/services/api.ts and assert the seed declaration is DEV-gated
-and that no unconditional admin/admin seeding remains. A straight revert (restoring the
-ungated object literal) drops the `import.meta.env.DEV` token from the declaration and
-FAILS this test. No DB/app/TestClient plumbing is needed here.
+There is no JS/TS runtime in this Python harness, so these are SOURCE-TEXT INVARIANT
+checks over frontend/src. Restoring any part of the offline login (the seed table, the
+credential store, the client-minted `mock-` token) FAILS them.
 """
 
 import pathlib
+import re
 
 # tests/security/test_s6_11_mock_creds.py -> parents[2] == repo root
 REPO_ROOT = pathlib.Path(__file__).resolve().parents[2]
-API_TS = REPO_ROOT / "frontend" / "src" / "services" / "api.ts"
+FRONTEND_SRC = REPO_ROOT / "frontend" / "src"
+API_TS = FRONTEND_SRC / "services" / "api.ts"
 
-# Build-time guard token the fix relies on. If the seed is reverted to an
-# unconditional object literal, this token is no longer wrapped around the
-# SEED_CREDS declaration.
-DEV_GUARD = "import.meta.env.DEV"
-
-# Pre-fix shape: SEED_CREDS assigned a direct object literal (no DEV ternary),
-# with admin/admin as the first entry. The exact pre-fix source (commit c78e30a)
-# indents the object entries with two spaces directly after `= {`. Its presence
-# means the fix was reverted.
-PREFIX_UNCONDITIONAL_SEED = (
-    "= {\n  admin: { password: 'admin', role: 'ADMIN' }"
-)
+# Identifiers of the deleted offline-login path.
+OFFLINE_LOGIN_SYMBOLS = ("SEED_CREDS", "resolveCred", "getMockCreds", "setMockCred", "setMockRole")
 
 
-def _read_api_ts() -> str:
-    assert API_TS.is_file(), f"expected frontend source at {API_TS}"
-    return API_TS.read_text(encoding="utf-8")
+def _sources() -> dict:
+    files = sorted(FRONTEND_SRC.rglob("*.ts")) + sorted(FRONTEND_SRC.rglob("*.tsx"))
+    assert API_TS in files, f"expected frontend source at {API_TS}"
+    return {path: path.read_text(encoding="utf-8") for path in files}
 
 
-def _seed_creds_declaration(source: str) -> str:
-    """Slice the SEED_CREDS declaration window: from `const SEED_CREDS` up to and
-    including its terminating `};`."""
-    start = source.find("const SEED_CREDS")
-    assert start != -1, "could not locate `const SEED_CREDS` declaration in api.ts"
-    end = source.find("};", start)
-    assert end != -1, "could not locate terminator `};` for SEED_CREDS declaration"
-    return source[start : end + 2]
+def test_no_client_side_credential_resolution():
+    """None of the offline-login helpers or the seed table may exist anywhere."""
+    for path, source in _sources().items():
+        for symbol in OFFLINE_LOGIN_SYMBOLS:
+            assert not re.search(rf"\b{symbol}\b", source), (
+                f"{path.relative_to(REPO_ROOT)} contains `{symbol}` — the offline "
+                "mock login is back (§6 #11 regression)."
+            )
 
 
-def test_seed_creds_declaration_is_dev_gated():
-    """The SEED_CREDS default seed must be wrapped by the build-time DEV guard,
-    so production builds seed nothing."""
-    source = _read_api_ts()
-    declaration = _seed_creds_declaration(source)
-    assert DEV_GUARD in declaration, (
-        "SEED_CREDS default mock-credential seed is not gated behind "
-        f"`{DEV_GUARD}` — production builds would seed admin/admin and "
-        "authenticate client-side offline (§6 #11 regression)."
-    )
-
-
-def test_no_unconditional_admin_seeding():
-    """No ungated `admin: { password: 'admin', role: 'ADMIN' }` object-literal seed
-    may remain — that is the exact pre-fix shape that granted ADMIN in prod."""
-    source = _read_api_ts()
-    assert PREFIX_UNCONDITIONAL_SEED not in source, (
-        "Found pre-fix unconditional SEED_CREDS object literal seeding "
-        "admin/admin with no DEV ternary — the §6 #11 fix has been reverted."
-    )
-
-
-def test_offline_login_admin_seed_requires_dev_build():
-    """End-to-end source invariant: the admin/admin seed and its DEV guard must
-    co-occur inside the same declaration window (the seed only exists in the
-    dev branch of the ternary), never as a standalone unconditional assignment."""
-    source = _read_api_ts()
-    declaration = _seed_creds_declaration(source)
-
-    if "admin: { password: 'admin', role: 'ADMIN' }" in declaration:
-        # If the admin seed is present at all, it MUST be inside the DEV branch.
-        assert DEV_GUARD in declaration, (
-            "admin/admin seed present but not DEV-gated — production builds "
-            "would authenticate admin client-side (§6 #11)."
+def test_no_seeded_admin_password():
+    """No default admin/admin credential may be shipped in the SPA, gated or not."""
+    for path, source in _sources().items():
+        assert not re.search(r"admin\s*:\s*\{\s*password\s*:", source), (
+            f"{path.relative_to(REPO_ROOT)} seeds an admin password client-side (§6 #11)."
         )
-    # And regardless, the prod branch must collapse the seed to empty.
-    assert ": {}" in declaration, (
-        "SEED_CREDS declaration lacks the production-empty `: {}` branch — "
-        "production builds must seed no mock credentials (§6 #11)."
+
+
+def test_stored_mock_credentials_are_never_read():
+    """`sentinel_mock_creds` may only be cleared (old builds left plaintext
+    passwords there), never read back."""
+    for path, source in _sources().items():
+        for match in re.finditer(r"sentinel_mock_creds", source):
+            line = source[source.rfind("\n", 0, match.start()) + 1 : source.find("\n", match.end())]
+            assert "removeItem" in line, (
+                f"{path.relative_to(REPO_ROOT)} uses `sentinel_mock_creds` other than "
+                f"to clear it: {line.strip()!r} (§6 #11)."
+            )
+
+
+def test_login_never_mints_a_token():
+    """`login()` must not fabricate a session token when the backend fails."""
+    source = API_TS.read_text(encoding="utf-8")
+    start = source.find("export const login")
+    assert start != -1, "could not locate `login` in api.ts"
+    end = source.find("\n};", start)
+    assert end != -1, "could not locate the end of `login` in api.ts"
+    body = source[start:end]
+    assert "sentinel_token" not in body, (
+        "login() writes sentinel_token itself; only the server's response may "
+        "supply a token (§6 #11)."
     )
+    assert "mock-" not in body, "login() builds a client-side `mock-` token (§6 #11)."
