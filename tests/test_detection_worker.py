@@ -315,3 +315,18 @@ def test_bench_skip_detection_bypasses_the_queue():
         response = _client().post("/api/events/batch", json=BATCH, headers=headers)
     assert response.status_code == 200, response.text   # full queue never consulted
     assert full.stats == {"admitted": 1, "coalesced": 0, "rejected": 0, "runs": 0, "failures": 0}
+
+
+def test_server_shortens_the_thread_switch_interval_while_running(monkeypatch):
+    """Detection is CPU-bound Python in this process; the server must hand the GIL
+    back to request threads sooner than CPython's 5 ms default, and restore it."""
+    from fastapi.testclient import TestClient
+
+    from lsadra import config
+    from server import app
+
+    monkeypatch.setattr(config, "THREAD_SWITCH_INTERVAL_MS", 0.5)
+    before = sys.getswitchinterval()
+    with TestClient(app):
+        assert sys.getswitchinterval() == pytest.approx(0.0005)
+    assert sys.getswitchinterval() == pytest.approx(before)
