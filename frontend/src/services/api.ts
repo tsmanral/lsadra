@@ -1,8 +1,14 @@
 import axios from 'axios';
 
+export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
+
+// Earlier builds kept plaintext passwords here for an offline login. That
+// login is gone; clear what it left behind.
+localStorage.removeItem('sentinel_mock_creds');
+
 // Create an Axios instance
 const api = axios.create({
-  baseURL: 'http://localhost:8000', // Update this based on where your FastAPI runs
+  baseURL: API_BASE_URL,
   headers: {
     'Content-Type': 'application/json',
   },
@@ -231,7 +237,6 @@ Object.assign(MOCK_ENTITIES, EXTRA_ENTITIES);
 
 // Incident status persistence (overrides mock/real data)
 const INCIDENT_STATUS_KEY = 'sentinel_incident_status';
-const MOCK_CREDS_KEY = 'sentinel_mock_creds';
 
 
 const getIncidentStatus = (id: string, fallback: string) => {
@@ -482,66 +487,21 @@ END OF REPORT
   return null;
 };
 
-// Lets admin password changes work offline without a backend
-
-const getMockCreds = (): Record<string, { password: string; role: string }> => {
-  try { return JSON.parse(localStorage.getItem(MOCK_CREDS_KEY) || '{}'); } catch { return {}; }
-};
-
-const setMockCred = (username: string, password: string, role?: string) => {
-  const store = getMockCreds();
-  store[username] = { password, role: role || store[username]?.role || 'ANALYST' };
-  localStorage.setItem(MOCK_CREDS_KEY, JSON.stringify(store));
-};
-
-const setMockRole = (username: string, role: string) => {
-  const store = getMockCreds();
-  if (store[username]) store[username].role = role;
-  else store[username] = { password: '', role };
-  localStorage.setItem(MOCK_CREDS_KEY, JSON.stringify(store));
-};
-
-// Default mock credentials, dev builds only — production builds seed nothing
-// and never authenticate client-side.
-const SEED_CREDS: Record<string, { password: string; role: string }> = import.meta.env.DEV
-  ? {
-      admin: { password: 'admin', role: 'ADMIN' },
-      testuser: { password: 'testuser', role: 'ANALYST' },
-      jsmith: { password: 'jsmith', role: 'ANALYST' },
-      jdoe: { password: 'jdoe', role: 'VIEWER' },
-    }
-  : {};
-
-const resolveCred = (username: string) => {
-  const store = getMockCreds();
-  // localStorage overrides take priority over seed
-  return store[username] || SEED_CREDS[username] || null;
-};
-
 export const isTestUser = () => {
   const user = localStorage.getItem('sentinel_username');
   return user === 'testuser'; // STRICT: Only testuser gets mock data
 };
 // Existing Endpoints wrapped with mock logic
 export const login = async (credentials: { username: string; password: string }) => {
-  // 1. Try the real backend first
   try {
     const res = await api.post('/api/auth/login', credentials);
     localStorage.setItem('sentinel_username', credentials.username);
     if (res.data?.role) localStorage.setItem('sentinel_role', res.data.role);
     return res;
-  } catch {
-    // 2. Backend offline — check mock credential store
-    const cred = resolveCred(credentials.username);
-    if (cred && cred.password === credentials.password) {
-      const role = cred.role;
-      const token = `mock-${credentials.username}-${Date.now()}`;
-      localStorage.setItem('sentinel_token', token);
-      localStorage.setItem('sentinel_username', credentials.username);
-      localStorage.setItem('sentinel_role', role);
-      return { data: { access_token: token, role } };
-    }
-    throw new Error('Invalid credentials');
+  } catch (err) {
+    // No offline fallback: only the server issues tokens.
+    const res = axios.isAxiosError(err) ? err.response : undefined;
+    throw new Error(res?.data?.detail || (res ? 'Invalid credentials' : 'Backend unreachable'), { cause: err });
   }
 };
 
@@ -561,13 +521,7 @@ export const updateIncidentStatus = async (id: string | number, status: string) 
   }
 };
 
-export const register = async (credentials: any) => {
-  try { return await api.post('/api/auth/register', credentials); }
-  catch (e) {
-    setMockCred(credentials.username, credentials.password, credentials.role || 'ANALYST');
-    return { data: { ok: true, message: 'Saved offline' } };
-  }
-};
+export const register = async (credentials: any) => api.post('/api/auth/register', credentials);
 
 export const getHealth = async () => api.get('/api/health');
 
@@ -754,51 +708,14 @@ export const getDrift = async () => {
 };
 export const getEntityTimeline = async (params: any) => api.get('/api/entity-timeline', { params });
 export const getUsers = async () => {
-  try {
-    const r = await api.get('/api/dashboard/users');
-    if (Array.isArray(r.data) && r.data.length) return r;
-  } catch { }
-
-  // Offline fallback only for testuser
-  if (isTestUser()) {
-    const store = (() => { try { return JSON.parse(localStorage.getItem(MOCK_CREDS_KEY) || '{}'); } catch { return {}; } })();
-    const merged = { ...SEED_CREDS, ...store };
-    const mockUsers = Object.entries(merged).map(([username, info], i) => ({
-      id: `usr_offline_${i}`,
-      username,
-      role: (info as any).role || 'ANALYST',
-      created_at: new Date().toISOString()
-    }));
-    return { data: mockUsers };
-  }
-  return { data: [] };
+  try { return await api.get('/api/dashboard/users'); } catch { return { data: [] }; }
 };
 export const updateUserRole = async (user_id: string, role: string) => {
-  const knownUsers: Record<string, string> = { 'usr_001': 'admin', 'usr_002': 'testuser', 'usr_003': 'jsmith', 'usr_004': 'jdoe' };
-  const username = knownUsers[user_id] || user_id;
-  setMockRole(username, role);
-
-  // If editing self, update active session role immediately
-  if (username === localStorage.getItem('sentinel_username')) {
-    localStorage.setItem('sentinel_role', role);
-  }
-
-  try { return await api.post('/api/dashboard/users/role', { user_id, role }); }
-  catch { return { data: { ok: true, note: 'Saved locally' } }; }
+  return api.post('/api/dashboard/users/role', { user_id, role });
 };
 export const updateUserPassword = async (user_id: string, password: string) => {
-  // Always persist locally so offline logins work immediately
-  // user_id is the db id (usr_001) — resolve to username from mock users
-  const knownUsers: Record<string, string> = {
-    'usr_001': 'admin', 'usr_002': 'testuser', 'usr_003': 'jsmith', 'usr_004': 'jdoe'
-  };
-  const username = knownUsers[user_id] || user_id;
-  setMockCred(username, password);
-  try { return await api.post('/api/dashboard/users/password', { user_id, password }); }
-  catch { return { data: { ok: true, note: 'Saved locally — backend offline' } }; }
+  return api.post('/api/dashboard/users/password', { user_id, password });
 };
-
-export const updateUserRoleLocal = (username: string, role: string) => setMockRole(username, role);
 
 export const getStats = async () => {
   const isAdmin = localStorage.getItem('sentinel_role') === 'ADMIN';

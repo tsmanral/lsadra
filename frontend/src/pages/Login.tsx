@@ -18,7 +18,7 @@ const Login = () => {
       navigate('/app/dashboard');
     } catch (err: any) {
       const msg = err?.message || err?.response?.data?.detail || 'Invalid credentials';
-      alert(`Login failed: ${msg}\n\nDefault credentials:\n• admin / admin\n• testuser / testuser\n• jsmith / jsmith (or your changed password)\n• jdoe / jdoe`);
+      alert(`Login failed: ${msg}`);
     }
   };
 

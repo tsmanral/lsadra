@@ -1,6 +1,8 @@
 import React, { useEffect, useState, useRef, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getIncidents, getIngestionStats, getAnomalies, getKpis } from '../services/api';
+import { getIncidents, getIngestionStats, getAnomalies, getKpis, isTestUser } from '../services/api';
+import { subscribeAlerts, alertAsAnomaly } from '../services/alertStream';
+import type { AlertStreamStatus } from '../services/alertStream';
 import { ShieldAlert, Activity, Cpu, Crosshair, Zap, Globe, ChevronDown, Search } from 'lucide-react';
 import DataDrawer from '../components/DataDrawer'; import type { DrawerType } from '../components/DataDrawer';
 
@@ -22,34 +24,63 @@ const CommandCenter = () => {
   const [incidents, setIncidents] = useState<any[]>([]);
   const [stats,     setStats]     = useState<any>({});
   const [kpis,      setKpis]      = useState<any>({});
-  const [liveFeed,  setLiveFeed]  = useState<any[]>([]);
   const [anomalies, setAnomalies] = useState<any[]>([]);
+  const [streamStatus, setStreamStatus] = useState<AlertStreamStatus>('connecting');
   const [drawer, setDrawer] = useState<{type: DrawerType, status?: string}|null>(null);
   const alive = useRef(true);
 
   useEffect(() => {
     alive.current = true;
-    const poll = async () => {
+    // Alerts arrive over /ws/alerts. REST fills the list on load, after each
+    // (re)connect, and every few seconds while the socket is down.
+    const loadAnomalies = async () => {
+      try {
+        const aR = await getAnomalies();
+        if (alive.current && Array.isArray(aR?.data)) setAnomalies(aR.data);
+      } catch{ /* keep what is shown */ }
+    };
+    // Incidents, KPIs and ingestion health have no push channel yet.
+    const loadSummary = async () => {
       if (!alive.current) return;
       try {
-        const [iR, sR, aR, kR] = await Promise.all([getIncidents(), getIngestionStats(), getAnomalies(), getKpis()]);
+        const [iR, sR, kR] = await Promise.all([getIncidents(), getIngestionStats(), getKpis()]);
         if (!alive.current) return;
         if (iR?.data?.incidents) setIncidents(iR.data.incidents.slice(0,15)); // Increased to 15
         if (sR?.data)            setStats(sR.data);
         if (kR?.data)            setKpis(kR.data);
-        if (Array.isArray(aR?.data)) { setLiveFeed(aR.data.slice(0,14)); setAnomalies(aR.data); }
-      } catch {}
+      } catch{ /* keep what is shown */ }
     };
-    poll();
-    const iv = setInterval(poll, 2000);
-    
+
+    let streamLive = false;
+    let summaryTimer: ReturnType<typeof setTimeout> | undefined;
+    const unsubscribe = subscribeAlerts({
+      onStatus: (status) => { streamLive = status === 'live'; setStreamStatus(status); },
+      onResync: () => { loadAnomalies(); loadSummary(); },
+      onAlert: (alert) => {
+        const row = alertAsAnomaly(alert);
+        setAnomalies(prev => [row, ...prev.filter(a => row.id == null || a.id !== row.id)].slice(0, 50));
+        // A new alert usually moves the counts; refresh them once a burst settles.
+        clearTimeout(summaryTimer);
+        summaryTimer = setTimeout(loadSummary, 1000);
+      },
+    });
+
+    loadAnomalies();
+    loadSummary();
+    const summaryIv = setInterval(loadSummary, 10000);
+    // The demo account's alerts are generated client-side, so it keeps polling.
+    const fallbackIv = setInterval(() => { if (!streamLive || isTestUser()) loadAnomalies(); }, 5000);
+
     // Listen for manual status changes or filter updates
-    const onStateChange = () => poll();
+    const onStateChange = () => { loadAnomalies(); loadSummary(); };
     window.addEventListener('sentinel_state_change', onStateChange);
 
-    return () => { 
-      alive.current = false; 
-      clearInterval(iv);
+    return () => {
+      alive.current = false;
+      unsubscribe();
+      clearTimeout(summaryTimer);
+      clearInterval(summaryIv);
+      clearInterval(fallbackIv);
       window.removeEventListener('sentinel_state_change', onStateChange);
     };
   }, []);
@@ -77,10 +108,7 @@ const CommandCenter = () => {
     return anomalies.filter(a => deviceFilter.has(a.device_id));
   }, [anomalies, deviceFilter]);
 
-  const filteredFeed = useMemo(() => {
-    if (!deviceFilter || deviceFilter.size === 0) return liveFeed;
-    return liveFeed.filter(a => deviceFilter.has(a.device_id));
-  }, [liveFeed, deviceFilter]);
+  const filteredFeed = useMemo(() => filteredAnomalies.slice(0,14), [filteredAnomalies]);
 
   const sevStyle = (s:string) => s==='CRITICAL'?'bg-[#FF4444] text-black font-bold':s==='HIGH'?'bg-[#FF8C00] text-black font-bold':'border border-[rgba(255,255,255,0.2)] text-[var(--color-muted)]';
   const feedColor= (s:string) => s==='CRITICAL'?'text-[#FF4444]':s==='HIGH'?'text-[#FF8C00]':'text-[#FFD700]';
@@ -92,7 +120,7 @@ const CommandCenter = () => {
       <header className="flex justify-between items-end border-b border-[rgba(0,240,255,0.3)] pb-4 shrink-0">
         <div>
           <h2 className="text-3xl font-display font-bold text-white tracking-widest uppercase">Command Center</h2>
-          <p className="text-[var(--color-primary)] font-mono text-sm mt-1">SOC_OVERVIEW_HUD · Live refresh every 2s · Click tiles to drill down</p>
+          <p className="text-[var(--color-primary)] font-mono text-sm mt-1">SOC_OVERVIEW_HUD · {streamStatus==='live' ? 'Alerts streaming live' : streamStatus==='connecting' ? 'Connecting to alert stream…' : 'Alert stream offline, retrying'} · Click tiles to drill down</p>
         </div>
         <div className="text-right">
           <div className="text-[10px] font-mono text-[var(--color-muted)] uppercase">System Status</div>
