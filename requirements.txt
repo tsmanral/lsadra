@@ -6,7 +6,7 @@ numpy>=2.5.3
 
 # Web framework
 fastapi>=0.100.0
-uvicorn[standard]>=0.51.0
+uvicorn[standard]>=0.54.0
 pydantic>=2.13.5
 
 # Dashboard
