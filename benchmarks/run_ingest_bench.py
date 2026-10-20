@@ -143,7 +143,10 @@ def git_commit() -> Dict[str, Any]:
             ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False
         ).stdout.strip()
 
-    return {"sha": _git("rev-parse", "HEAD") or None, "dirty": bool(_git("status", "--porcelain"))}
+    # Tracked changes only: an untracked file (a stray worktree copy, a result
+    # JSON) does not change the code under test.
+    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
+    return {"sha": _git("rev-parse", "HEAD") or None, "dirty": dirty}
 
 
 # ── server lifecycle ─────────────────────────────────────────────────────
