@@ -161,7 +161,8 @@ def _free_port() -> int:
 class BenchServer:
     """The real core in a subprocess on a throwaway data dir."""
 
-    def __init__(self, skip_detection: bool, boot_timeout: float = 180.0) -> None:
+    def __init__(self, skip_detection: bool, boot_timeout: float = 180.0,
+                 trace: bool = False) -> None:
         self.skip_detection = skip_detection
         self.boot_timeout = boot_timeout
         self.port = _free_port()
@@ -171,6 +172,19 @@ class BenchServer:
         self.proc: Optional[subprocess.Popen] = None
         self.boot_s: Optional[float] = None
         self._log = None
+        self.trace_path: Optional[Path] = self.data_dir / "trace.jsonl" if trace else None
+        self._trace_offset = 0
+
+    def read_trace(self) -> List[Dict[str, Any]]:
+        """Trace records written since the previous call (``--trace`` only)."""
+        if self.trace_path is None or not self.trace_path.exists():
+            return []
+        with open(self.trace_path, "rb") as fh:
+            fh.seek(self._trace_offset)
+            data = fh.read()
+        end = data.rfind(b"\n") + 1  # leave a half-written last line for next time
+        self._trace_offset += end
+        return [json.loads(line) for line in data[:end].splitlines() if line.strip()]
 
     def start(self) -> None:
         env = dict(os.environ)
@@ -192,6 +206,7 @@ class BenchServer:
                 str(self.port),
                 "--data-dir",
                 str(self.data_dir),
+                *(["--trace-file", str(self.trace_path)] if self.trace_path else []),
             ],
             cwd=self.data_dir,
             env=env,
@@ -313,11 +328,14 @@ async def _drive_with_rss(
     rate: float,
     duration: float,
     rss: List[int],
+    request_id_prefix: Optional[str] = None,
 ) -> seed_demo.RateResult:
     stop = asyncio.Event()
     sampler = asyncio.create_task(_sample_rss(server, rss, stop))
     try:
-        return await seed_demo.drive_rate(server.url, creds, cycler, rate, duration)
+        return await seed_demo.drive_rate(
+            server.url, creds, cycler, rate, duration, request_id_prefix=request_id_prefix
+        )
     finally:
         stop.set()
         await sampler
@@ -334,8 +352,10 @@ def run_step(
     # between runs on this one thread's event loop.
     seq_before = server.health()["benchmark"]["loop_lag_seq"]
     rss: List[int] = []
+    server.read_trace()  # drop records from before the step (re-warm, settle)
+    prefix = secrets.token_hex(4) if server.trace_path else None
     cpu_before, wall_before = server.cpu_seconds(), time.perf_counter()
-    result = asyncio.run(_drive_with_rss(server, creds, cycler, rate, duration, rss))
+    result = asyncio.run(_drive_with_rss(server, creds, cycler, rate, duration, rss, prefix))
     cpu_used, wall = server.cpu_seconds() - cpu_before, time.perf_counter() - wall_before
     health = server.health()
     step = seed_demo.summarize_rate(result)
@@ -346,7 +366,99 @@ def run_step(
         "end": round(server.rss_bytes() / 2**20, 1),
     }
     step["db_mb_end"] = round(server.db_bytes() / 2**20, 1)
+    if server.trace_path:
+        step["trace"] = summarize_trace(result, server.read_trace())
     return step
+
+
+TRACE_SLOW_MS = 150.0  # a request at least this slow gets a cause in the trace summary
+TRACE_TOP = 5
+
+
+def _overlap_ms(t0: float, t1: float, spans: List[Dict[str, Any]]) -> float:
+    return sum(max(0.0, min(t1, s["t1"]) - max(t0, s["t0"])) for s in spans) * 1000.0
+
+
+def summarize_trace(result: seed_demo.RateResult, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Line each request up with what the server was doing while it ran.
+
+    Per request: server time (ASGI start to response start), time in device
+    lookup, inline bcrypt and storage, time before storage started (body parse,
+    auth, threadpool queue), garbage collection and detection running at the
+    same time, and the part of the client's latency spent outside the server
+    (connect, send, receive, client loop). The slowest requests are listed.
+    """
+    by_id = {r["id"]: r for r in records if r["kind"] == "request" and r.get("id")}
+    gcs = [r for r in records if r["kind"] == "gc"]
+    runs = [r for r in records if r["kind"] == "detection"]
+
+    rows = []
+    for rec in result.records:
+        srv = by_id.get(rec.request_id)
+        row: Dict[str, Any] = {"id": rec.request_id, "latency_ms": round(rec.latency_s * 1e3, 1)}
+        if srv is not None:
+            calls = srv.get("calls", [])
+
+            def spent(name: str) -> float:
+                return sum(c[2] - c[1] for c in calls if c[0] == name) * 1e3
+
+            store = [c for c in calls if c[0] == "store"]
+            server_ms = (srv["t1"] - srv["t0"]) * 1e3
+            row.update({
+                "server_ms": round(server_ms, 1),
+                "outside_server_ms": round(rec.latency_s * 1e3 - server_ms, 1),
+                "get_device_ms": round(spent("get_device"), 1),
+                "bcrypt_inline_ms": round(spent("checkpw"), 1),
+                "before_store_ms": round((store[0][1] - srv["t0"]) * 1e3, 1) if store else None,
+                "store_ms": round(spent("store"), 1),
+                "gc_ms": round(_overlap_ms(srv["t0"], srv["t1"], gcs), 1),
+                "gc_gen2_ms": round(_overlap_ms(
+                    srv["t0"], srv["t1"], [g for g in gcs if g.get("gen") == 2]), 1),
+                "detection_overlap_ms": round(_overlap_ms(srv["t0"], srv["t1"], runs), 1),
+            })
+        rows.append(row)
+    rows.sort(key=lambda r: r["latency_ms"], reverse=True)
+
+    def cause(row: Dict[str, Any]) -> str:
+        if "server_ms" not in row:
+            return "untraced"
+        parts = {
+            "bcrypt_inline": row["bcrypt_inline_ms"],
+            "gc": row["gc_ms"],
+            "outside_server": row["outside_server_ms"],
+            "store": row["store_ms"],
+            "get_device": row["get_device_ms"],
+        }
+        name, value = max(parts.items(), key=lambda kv: kv[1])
+        if value < 0.5 * row["latency_ms"]:
+            return "detection_overlap" if row["detection_overlap_ms"] > 0 else "mixed"
+        return name
+
+    slow = [r for r in rows if r["latency_ms"] >= TRACE_SLOW_MS]
+    causes: Dict[str, int] = {}
+    for row in slow:
+        causes[cause(row)] = causes.get(cause(row), 0) + 1
+    gc_ms = [(g["t1"] - g["t0"]) * 1e3 for g in gcs]
+    run_ms = [(r["t1"] - r["t0"]) * 1e3 for r in runs]
+    return {
+        "requests_traced": sum(1 for r in rows if "server_ms" in r),
+        "slow_requests": len(slow),
+        "slow_causes": causes,
+        "slowest": [dict(r, cause=cause(r)) for r in rows[:TRACE_TOP]],
+        "gc": {
+            "collections": len(gcs),
+            "gen2": sum(1 for g in gcs if g.get("gen") == 2),
+            "max_ms": round(max(gc_ms), 1) if gc_ms else None,
+            "total_ms": round(sum(gc_ms), 1),
+        },
+        "detection": {
+            "runs": len(runs),
+            "busy_ms": round(sum(run_ms), 1),
+            "max_run_ms": round(max(run_ms), 1) if run_ms else None,
+        },
+        "auth_refreshes": sum(1 for r in records if r["kind"] == "refresh"),
+    }
 
 
 def degraded_reasons(step: Dict[str, Any], stop_p99_ms: float, stop_lag_ms: float) -> List[str]:
@@ -472,7 +584,7 @@ def wait_for_refreshable_auth() -> float:
 def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict[str, Any]:
     label = f"detection={'on' if detection else 'off'} rep={repetition}"
     print(f"[{label}] starting server", flush=True)
-    server = BenchServer(skip_detection=not detection)
+    server = BenchServer(skip_detection=not detection, trace=args.trace)
     run: Dict[str, Any] = {"detection": "on" if detection else "off", "repetition": repetition}
     try:
         server.start()
@@ -576,6 +688,11 @@ def build_parser() -> argparse.ArgumentParser:
             "past the point where latency already failed"
         ),
     )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help="record per-request server timings, detection runs and garbage collections, "
+             "and add a per-step summary of what the slowest requests waited on",
+    )
     parser.add_argument("--stop-p99-ms", type=float, default=DEFAULT_STOP_P99_MS)
     parser.add_argument("--stop-loop-lag-ms", type=float, default=DEFAULT_STOP_LOOP_LAG_P99_MS)
     parser.add_argument(
@@ -608,6 +725,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "devices": args.devices,
             "rates": args.rates,
             "step_duration_s": args.duration,
+            "trace": args.trace,
             "min_requests_per_step": args.min_requests,
             "batch_size": seed_demo.SERVER_MAX_EVENTS_PER_BATCH,
             "pace": DEFAULT_PACE,

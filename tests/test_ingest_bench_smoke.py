@@ -138,3 +138,33 @@ def test_rewarm_after_the_wait_keeps_a_sparse_device_off_inline_bcrypt():
 
     assert not next_batch_hits(0.0)  # before: inline bcrypt on that batch
     assert next_batch_hits(ttl * bench.AUTH_REFRESH_AFTER_FRACTION + 1.0)
+
+
+def test_trace_summary_names_what_a_slow_request_waited_on():
+    import seed_demo
+
+    bench = _load_harness()
+    result = seed_demo.RateResult(
+        offered_rate=100, devices=1, batch_size=100, scheduled_batches=2, nominal_duration_s=2
+    )
+    result.records = [
+        seed_demo.RequestRecord(0.0, 0.300, 200, 100, 100, request_id="r-0"),
+        seed_demo.RequestRecord(1.0, 0.020, 200, 100, 100, request_id="r-1"),
+    ]
+    records = [
+        {"kind": "request", "id": "r-0", "t0": 10.0, "t1": 10.290,
+         "calls": [["get_device", 10.001, 10.002, "t"], ["store", 10.010, 10.020, "t"]]},
+        {"kind": "request", "id": "r-1", "t0": 11.0, "t1": 11.015,
+         "calls": [["store", 11.002, 11.012, "t"]]},
+        {"kind": "gc", "gen": 2, "t0": 10.030, "t1": 10.280},
+        {"kind": "detection", "t0": 9.0, "t1": 10.5},
+    ]
+    summary = bench.summarize_trace(result, records)
+    assert summary["requests_traced"] == 2
+    assert summary["slow_requests"] == 1
+    assert summary["slow_causes"] == {"gc": 1}
+    slowest = summary["slowest"][0]
+    assert slowest["id"] == "r-0" and slowest["cause"] == "gc"
+    assert slowest["gc_gen2_ms"] == 250.0
+    assert slowest["detection_overlap_ms"] == 290.0
+    assert summary["gc"] == {"collections": 1, "gen2": 1, "max_ms": 250.0, "total_ms": 250.0}

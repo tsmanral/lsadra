@@ -6,6 +6,7 @@ async work is measured against.
 
 - [`run_ingest_bench.py`](run_ingest_bench.py) — the harness.
 - [`_bench_server.py`](_bench_server.py) — starts the unmodified `server:app` on a throwaway data directory.
+- [`_bench_trace.py`](_bench_trace.py) — opt-in per-request tracing for `--trace` runs.
 - [`baseline-2026-09-30.json`](baseline-2026-09-30.json) — the committed baseline (detection on and off, 1/10/20 devices, two runs each).
 - [`baseline-2026-09-30-detection-ceiling.json`](baseline-2026-09-30-detection-ceiling.json) — supplementary: detection-on throughput ceiling (10/20 devices, two runs).
 - Load generator: `scripts/seed_demo.py --rate/--duration/--devices` (rate mode), which the harness imports.
@@ -20,6 +21,14 @@ python benchmarks/run_ingest_bench.py --detection on --devices 10 20 \
 python benchmarks/run_ingest_bench.py --detection off --devices 1 --rates 50 \
     --duration 5 --min-requests 1 --repeats 1 --output /tmp/check.json   # 30 s sanity check
 ```
+
+`--trace` adds a `trace` block to every step: for each request, the server's
+own time split into device lookup, inline bcrypt and storage, plus garbage
+collection and detection running at the same time and the part spent outside
+the server; the five slowest requests and a count of what each slow (≥ 150 ms)
+request mostly waited on. It wraps the core from outside
+([`_bench_trace.py`](_bench_trace.py)) and is off by default, so committed
+runs measure the untraced server.
 
 Run on an otherwise idle machine. The harness never touches `data/`: each run
 gets a fresh temp directory with its own database and model store.
