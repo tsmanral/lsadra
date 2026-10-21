@@ -81,8 +81,14 @@ part of any step.
 | `server_cpu_cores_avg` | server CPU seconds ÷ wall seconds |
 
 Before each step the harness waits until the server is idle (CPU < 25 % of a
-core and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does not
-leak into the next.
+core, no detection queued or running per the dev-mode `detection_pending`
+telemetry, and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does
+not leak into the next. Without the detection check, a gap between two long
+detection runs could pass for idle; the settle after the auth re-warm then
+waited out the rest of the backlog while the re-warmed cache entries expired,
+and every device paid bcrypt at the start of the step (the PC trace on
+4324c5a). If that settle still takes longer than 10 s, the harness re-warms
+again, up to 3 rounds (`auth_rewarm_rounds`).
 After that settle, and before measuring, every device in the step makes one
 authenticated `GET /api/events/stats` (`auth_rewarm_s` in the JSON). Settling
 can take longer than the device-auth cache TTL (60 s), which would otherwise
