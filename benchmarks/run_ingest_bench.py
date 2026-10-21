@@ -21,6 +21,8 @@ For each detection mode (on / off) and repetition it:
    than the device-auth cache TTL does not start the step on a cold cache; the
    server then settles again, so the background re-verifies those reads may
    queue finish before the step starts.
+   Where each device in a step sends less often than every half cache TTL,
+   the harness first waits half a TTL so every re-warm read renews its entry.
 
 Detection-off runs set ``LSADRA_BENCH_SKIP_DETECTION=true`` (dev-mode-only
 switch) so storage cost and detection cost can be told apart.
@@ -85,6 +87,17 @@ IDLE_LAG_SECONDS = 5.0  # no-load loop-lag sample taken after warm-up
 SETTLE_TIMEOUT_S = 600.0  # max wait for a backlog to drain between steps
 SETTLE_LAG_MS = 50.0
 SETTLE_CPU_PCT = 25.0  # server process CPU (% of one core) considered idle
+# Must match the server's LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS (lsadra/config.py);
+# the server subprocess inherits this environment, so both read the same value.
+AUTH_CACHE_TTL_S = float(os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60"))
+# A cache hit past this fraction of the TTL queues a background re-verify
+# (REFRESH_AFTER_FRACTION in lsadra/ingestion/credential_cache.py).
+AUTH_REFRESH_AFTER_FRACTION = 0.5
+# The settle after a re-warm normally only waits out its background re-verifies
+# (a few seconds). Longer than this and the step re-warms again, at most
+# AUTH_REWARM_MAX_ROUNDS times in all.
+AUTH_REWARM_MAX_SETTLE_S = 10.0
+AUTH_REWARM_MAX_ROUNDS = 3
 LOG_MARKERS = ["Online detection:", "Auto-training models", "all layers trained", "Traceback"]
 
 
@@ -135,7 +148,10 @@ def git_commit() -> Dict[str, Any]:
             ["git", *args], cwd=REPO_ROOT, capture_output=True, text=True, check=False
         ).stdout.strip()
 
-    return {"sha": _git("rev-parse", "HEAD") or None, "dirty": bool(_git("status", "--porcelain"))}
+    # Tracked changes only: an untracked file (a stray worktree copy, a result
+    # JSON) does not change the code under test.
+    dirty = bool(_git("status", "--porcelain", "--untracked-files=no"))
+    return {"sha": _git("rev-parse", "HEAD") or None, "dirty": dirty}
 
 
 # ── server lifecycle ─────────────────────────────────────────────────────
@@ -150,7 +166,8 @@ def _free_port() -> int:
 class BenchServer:
     """The real core in a subprocess on a throwaway data dir."""
 
-    def __init__(self, skip_detection: bool, boot_timeout: float = 180.0) -> None:
+    def __init__(self, skip_detection: bool, boot_timeout: float = 180.0,
+                 trace: bool = False) -> None:
         self.skip_detection = skip_detection
         self.boot_timeout = boot_timeout
         self.port = _free_port()
@@ -160,6 +177,19 @@ class BenchServer:
         self.proc: Optional[subprocess.Popen] = None
         self.boot_s: Optional[float] = None
         self._log = None
+        self.trace_path: Optional[Path] = self.data_dir / "trace.jsonl" if trace else None
+        self._trace_offset = 0
+
+    def read_trace(self) -> List[Dict[str, Any]]:
+        """Trace records written since the previous call (``--trace`` only)."""
+        if self.trace_path is None or not self.trace_path.exists():
+            return []
+        with open(self.trace_path, "rb") as fh:
+            fh.seek(self._trace_offset)
+            data = fh.read()
+        end = data.rfind(b"\n") + 1  # leave a half-written last line for next time
+        self._trace_offset += end
+        return [json.loads(line) for line in data[:end].splitlines() if line.strip()]
 
     def start(self) -> None:
         env = dict(os.environ)
@@ -181,6 +211,7 @@ class BenchServer:
                 str(self.port),
                 "--data-dir",
                 str(self.data_dir),
+                *(["--trace-file", str(self.trace_path)] if self.trace_path else []),
             ],
             cwd=self.data_dir,
             env=env,
@@ -302,11 +333,14 @@ async def _drive_with_rss(
     rate: float,
     duration: float,
     rss: List[int],
+    request_id_prefix: Optional[str] = None,
 ) -> seed_demo.RateResult:
     stop = asyncio.Event()
     sampler = asyncio.create_task(_sample_rss(server, rss, stop))
     try:
-        return await seed_demo.drive_rate(server.url, creds, cycler, rate, duration)
+        return await seed_demo.drive_rate(
+            server.url, creds, cycler, rate, duration, request_id_prefix=request_id_prefix
+        )
     finally:
         stop.set()
         await sampler
@@ -323,8 +357,10 @@ def run_step(
     # between runs on this one thread's event loop.
     seq_before = server.health()["benchmark"]["loop_lag_seq"]
     rss: List[int] = []
+    server.read_trace()  # drop records from before the step (re-warm, settle)
+    prefix = secrets.token_hex(4) if server.trace_path else None
     cpu_before, wall_before = server.cpu_seconds(), time.perf_counter()
-    result = asyncio.run(_drive_with_rss(server, creds, cycler, rate, duration, rss))
+    result = asyncio.run(_drive_with_rss(server, creds, cycler, rate, duration, rss, prefix))
     cpu_used, wall = server.cpu_seconds() - cpu_before, time.perf_counter() - wall_before
     health = server.health()
     step = seed_demo.summarize_rate(result)
@@ -335,7 +371,99 @@ def run_step(
         "end": round(server.rss_bytes() / 2**20, 1),
     }
     step["db_mb_end"] = round(server.db_bytes() / 2**20, 1)
+    if server.trace_path:
+        step["trace"] = summarize_trace(result, server.read_trace())
     return step
+
+
+TRACE_SLOW_MS = 150.0  # a request at least this slow gets a cause in the trace summary
+TRACE_TOP = 5
+
+
+def _overlap_ms(t0: float, t1: float, spans: List[Dict[str, Any]]) -> float:
+    return sum(max(0.0, min(t1, s["t1"]) - max(t0, s["t0"])) for s in spans) * 1000.0
+
+
+def summarize_trace(result: seed_demo.RateResult, records: List[Dict[str, Any]]) -> Dict[str, Any]:
+    """
+    Line each request up with what the server was doing while it ran.
+
+    Per request: server time (ASGI start to response start), time in device
+    lookup, inline bcrypt and storage, time before storage started (body parse,
+    auth, threadpool queue), garbage collection and detection running at the
+    same time, and the part of the client's latency spent outside the server
+    (connect, send, receive, client loop). The slowest requests are listed.
+    """
+    by_id = {r["id"]: r for r in records if r["kind"] == "request" and r.get("id")}
+    gcs = [r for r in records if r["kind"] == "gc"]
+    runs = [r for r in records if r["kind"] == "detection"]
+
+    rows = []
+    for rec in result.records:
+        srv = by_id.get(rec.request_id)
+        row: Dict[str, Any] = {"id": rec.request_id, "latency_ms": round(rec.latency_s * 1e3, 1)}
+        if srv is not None:
+            calls = srv.get("calls", [])
+
+            def spent(name: str) -> float:
+                return sum(c[2] - c[1] for c in calls if c[0] == name) * 1e3
+
+            store = [c for c in calls if c[0] == "store"]
+            server_ms = (srv["t1"] - srv["t0"]) * 1e3
+            row.update({
+                "server_ms": round(server_ms, 1),
+                "outside_server_ms": round(rec.latency_s * 1e3 - server_ms, 1),
+                "get_device_ms": round(spent("get_device"), 1),
+                "bcrypt_inline_ms": round(spent("checkpw"), 1),
+                "before_store_ms": round((store[0][1] - srv["t0"]) * 1e3, 1) if store else None,
+                "store_ms": round(spent("store"), 1),
+                "gc_ms": round(_overlap_ms(srv["t0"], srv["t1"], gcs), 1),
+                "gc_gen2_ms": round(_overlap_ms(
+                    srv["t0"], srv["t1"], [g for g in gcs if g.get("gen") == 2]), 1),
+                "detection_overlap_ms": round(_overlap_ms(srv["t0"], srv["t1"], runs), 1),
+            })
+        rows.append(row)
+    rows.sort(key=lambda r: r["latency_ms"], reverse=True)
+
+    def cause(row: Dict[str, Any]) -> str:
+        if "server_ms" not in row:
+            return "untraced"
+        parts = {
+            "bcrypt_inline": row["bcrypt_inline_ms"],
+            "gc": row["gc_ms"],
+            "outside_server": row["outside_server_ms"],
+            "store": row["store_ms"],
+            "get_device": row["get_device_ms"],
+        }
+        name, value = max(parts.items(), key=lambda kv: kv[1])
+        if value < 0.5 * row["latency_ms"]:
+            return "detection_overlap" if row["detection_overlap_ms"] > 0 else "mixed"
+        return name
+
+    slow = [r for r in rows if r["latency_ms"] >= TRACE_SLOW_MS]
+    causes: Dict[str, int] = {}
+    for row in slow:
+        causes[cause(row)] = causes.get(cause(row), 0) + 1
+    gc_ms = [(g["t1"] - g["t0"]) * 1e3 for g in gcs]
+    run_ms = [(r["t1"] - r["t0"]) * 1e3 for r in runs]
+    return {
+        "requests_traced": sum(1 for r in rows if "server_ms" in r),
+        "slow_requests": len(slow),
+        "slow_causes": causes,
+        "slowest": [dict(r, cause=cause(r)) for r in rows[:TRACE_TOP]],
+        "gc": {
+            "collections": len(gcs),
+            "gen2": sum(1 for g in gcs if g.get("gen") == 2),
+            "max_ms": round(max(gc_ms), 1) if gc_ms else None,
+            "total_ms": round(sum(gc_ms), 1),
+        },
+        "detection": {
+            "runs": len(runs),
+            "busy_ms": round(sum(run_ms), 1),
+            "max_run_ms": round(max(run_ms), 1) if run_ms else None,
+        },
+        "auth_refreshes": sum(1 for r in records if r["kind"] == "refresh"),
+    }
 
 
 def degraded_reasons(step: Dict[str, Any], stop_p99_ms: float, stop_lag_ms: float) -> List[str]:
@@ -368,14 +496,20 @@ def settle(server: BenchServer, timeout: float = SETTLE_TIMEOUT_S) -> float:
 
     A client-side timeout does not stop the server processing that request, so
     after a degraded step the next one would otherwise start against a busy
-    core. Quiet = the last ~2 s of loop-lag samples all under SETTLE_LAG_MS.
+    core. Quiet = server CPU under SETTLE_CPU_PCT, no detection queued or running,
+    and the last ~2 s of loop-lag samples all under SETTLE_LAG_MS.
     """
     started = time.perf_counter()
     while time.perf_counter() - started < timeout:
         # CPU catches backlog the loop never sees (bcrypt auth runs in the threadpool).
         busy = server.cpu_percent(1.0)
-        recent = server.health()["benchmark"]["loop_lag_ms"][-20:]
-        if busy < SETTLE_CPU_PCT and len(recent) == 20 and max(recent) < SETTLE_LAG_MS:
+        bench = server.health()["benchmark"]
+        recent = bench["loop_lag_ms"][-20:]
+        # Detection can pause between runs long enough to look idle; wait until
+        # the server reports none queued or running.
+        detecting = bench.get("detection_pending", 0) > 0
+        if (busy < SETTLE_CPU_PCT and not detecting
+                and len(recent) == 20 and max(recent) < SETTLE_LAG_MS):
             break
     return round(time.perf_counter() - started, 2)
 
@@ -426,10 +560,42 @@ def rewarm_auth(server: BenchServer, creds: List[seed_demo.DeviceCred]) -> float
     return time.perf_counter() - started
 
 
+def needs_fresh_auth(devices: int, rate: float) -> bool:
+    """
+    True when each device in the step sends less often than every half cache TTL.
+
+    Then a re-warm read can land on an entry younger than half its TTL (no
+    background re-verify is queued) and the device's next batch, more than half
+    a TTL later, can find it expired and pay bcrypt inline. Which devices hit
+    that depends only on where the previous step left each entry's age, so the
+    step would measure that phase, not ingestion. Steady agents (every few
+    seconds) never see it: their hits past half the TTL renew the entry.
+    """
+    if AUTH_CACHE_TTL_S <= 0:
+        return False
+    interval_s = devices * seed_demo.SERVER_MAX_EVENTS_PER_BATCH / rate
+    return interval_s > AUTH_CACHE_TTL_S * AUTH_REFRESH_AFTER_FRACTION
+
+
+def wait_for_refreshable_auth() -> float:
+    """
+    Right after a settle, sleep until every cached device entry is past half its TTL.
+
+    No device request runs during a settle, and the settle waits out any
+    background re-verify, so no entry was verified later than the moment it
+    ended. Half a TTL (plus a margin) later, the re-warm read either queues a
+    background re-verify for each entry or finds it expired and verifies it
+    inline; either way every entry starts the step freshly verified.
+    """
+    wait = AUTH_CACHE_TTL_S * AUTH_REFRESH_AFTER_FRACTION + 1.0
+    time.sleep(wait)
+    return wait
+
+
 def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict[str, Any]:
     label = f"detection={'on' if detection else 'off'} rep={repetition}"
     print(f"[{label}] starting server", flush=True)
-    server = BenchServer(skip_detection=not detection)
+    server = BenchServer(skip_detection=not detection, trace=args.trace)
     run: Dict[str, Any] = {"detection": "on" if detection else "off", "repetition": repetition}
     try:
         server.start()
@@ -469,13 +635,25 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 # percentile rests on at least --min-requests samples.
                 batch = seed_demo.SERVER_MAX_EVENTS_PER_BATCH
                 duration = max(args.duration, args.min_requests * batch / rate)
-                rewarm_s = rewarm_auth(server, creds[:devices])
-                # A re-warm hit past half the cache TTL queues a background
-                # bcrypt re-verify; let those finish before measuring.
-                settle_s += settle(server)
+                fresh_wait_s = rewarm_s = 0.0
+                for rewarm_round in range(1, AUTH_REWARM_MAX_ROUNDS + 1):
+                    if needs_fresh_auth(devices, rate):
+                        fresh_wait_s += wait_for_refreshable_auth()
+                    rewarm_s += rewarm_auth(server, creds[:devices])
+                    # A re-warm hit past half the cache TTL queues a background
+                    # bcrypt re-verify; let those finish before measuring.
+                    after_rewarm_s = settle(server)
+                    settle_s += after_rewarm_s
+                    # A long settle here lets the re-warmed entries age, or expire,
+                    # before the step: re-warm again.
+                    if (after_rewarm_s <= AUTH_REWARM_MAX_SETTLE_S
+                            or after_rewarm_s >= SETTLE_TIMEOUT_S):  # a stuck backlog: move on
+                        break
                 step = run_step(server, creds[:devices], cycler, rate, duration)
                 step["settle_before_s"] = round(settle_s, 2)
                 step["auth_rewarm_s"] = round(rewarm_s, 2)
+                step["auth_fresh_wait_s"] = round(fresh_wait_s, 2)
+                step["auth_rewarm_rounds"] = rewarm_round
                 step["degraded"] = degraded_reasons(step, args.stop_p99_ms, args.stop_loop_lag_ms)
                 config["steps"].append(step)
                 lat, lag = step["latency_ms"], step["loop_lag_ms"]
@@ -529,6 +707,11 @@ def build_parser() -> argparse.ArgumentParser:
             "past the point where latency already failed"
         ),
     )
+    parser.add_argument(
+        "--trace", action="store_true",
+        help="record per-request server timings, detection runs and garbage collections, "
+             "and add a per-step summary of what the slowest requests waited on",
+    )
     parser.add_argument("--stop-p99-ms", type=float, default=DEFAULT_STOP_P99_MS)
     parser.add_argument("--stop-loop-lag-ms", type=float, default=DEFAULT_STOP_LOOP_LAG_P99_MS)
     parser.add_argument(
@@ -561,6 +744,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "devices": args.devices,
             "rates": args.rates,
             "step_duration_s": args.duration,
+            "trace": args.trace,
             "min_requests_per_step": args.min_requests,
             "batch_size": seed_demo.SERVER_MAX_EVENTS_PER_BATCH,
             "pace": DEFAULT_PACE,

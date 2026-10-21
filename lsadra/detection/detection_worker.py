@@ -58,6 +58,7 @@ class DetectionQueue:
         # Key presence == the device holds a slot.
         self._slots: Dict[str, int] = {}
         self._queued: Set[str] = set()  # devices in _queue, not yet taken
+        self._in_flight: Optional[str] = None  # device whose run is on the thread now
         self._task: Optional["asyncio.Task[None]"] = None
         self._executor: Optional[ThreadPoolExecutor] = None
         self.stats: Dict[str, int] = {
@@ -110,6 +111,11 @@ class DetectionQueue:
         return len(self._queued)
 
     @property
+    def pending(self) -> int:
+        """Detection work not yet finished: devices waiting plus the run in flight."""
+        return len(self._queued) + (1 if self._in_flight is not None else 0)
+
+    @property
     def running(self) -> bool:
         return self._task is not None and not self._task.done()
 
@@ -158,6 +164,7 @@ class DetectionQueue:
         while True:
             device_id = await self._queue.get()
             self._take(device_id)
+            self._in_flight = device_id
             try:
                 await loop.run_in_executor(executor, run, device_id)
                 self.stats["runs"] += 1
@@ -165,6 +172,8 @@ class DetectionQueue:
                 # One device's failure must never stop detection for the rest.
                 self.stats["failures"] += 1
                 logger.exception("Online detection failed for device %s", device_id)
+            finally:
+                self._in_flight = None
 
     # ── tests ────────────────────────────────────────────────────────────
 
@@ -175,6 +184,7 @@ class DetectionQueue:
         self._queue = asyncio.Queue(self.maxsize)
         self._slots.clear()
         self._queued.clear()
+        self._in_flight = None
         for key in self.stats:
             self.stats[key] = 0
 
