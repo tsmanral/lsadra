@@ -93,6 +93,11 @@ AUTH_CACHE_TTL_S = float(os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60")
 # A cache hit past this fraction of the TTL queues a background re-verify
 # (REFRESH_AFTER_FRACTION in lsadra/ingestion/credential_cache.py).
 AUTH_REFRESH_AFTER_FRACTION = 0.5
+# The settle after a re-warm normally only waits out its background re-verifies
+# (a few seconds). Longer than this and the step re-warms again, at most
+# AUTH_REWARM_MAX_ROUNDS times in all.
+AUTH_REWARM_MAX_SETTLE_S = 10.0
+AUTH_REWARM_MAX_ROUNDS = 3
 LOG_MARKERS = ["Online detection:", "Auto-training models", "all layers trained", "Traceback"]
 
 
@@ -491,14 +496,20 @@ def settle(server: BenchServer, timeout: float = SETTLE_TIMEOUT_S) -> float:
 
     A client-side timeout does not stop the server processing that request, so
     after a degraded step the next one would otherwise start against a busy
-    core. Quiet = the last ~2 s of loop-lag samples all under SETTLE_LAG_MS.
+    core. Quiet = server CPU under SETTLE_CPU_PCT, no detection queued or running,
+    and the last ~2 s of loop-lag samples all under SETTLE_LAG_MS.
     """
     started = time.perf_counter()
     while time.perf_counter() - started < timeout:
         # CPU catches backlog the loop never sees (bcrypt auth runs in the threadpool).
         busy = server.cpu_percent(1.0)
-        recent = server.health()["benchmark"]["loop_lag_ms"][-20:]
-        if busy < SETTLE_CPU_PCT and len(recent) == 20 and max(recent) < SETTLE_LAG_MS:
+        bench = server.health()["benchmark"]
+        recent = bench["loop_lag_ms"][-20:]
+        # Detection can pause between runs long enough to look idle; wait until
+        # the server reports none queued or running.
+        detecting = bench.get("detection_pending", 0) > 0
+        if (busy < SETTLE_CPU_PCT and not detecting
+                and len(recent) == 20 and max(recent) < SETTLE_LAG_MS):
             break
     return round(time.perf_counter() - started, 2)
 
@@ -624,17 +635,25 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                 # percentile rests on at least --min-requests samples.
                 batch = seed_demo.SERVER_MAX_EVENTS_PER_BATCH
                 duration = max(args.duration, args.min_requests * batch / rate)
-                fresh_wait_s = 0.0
-                if needs_fresh_auth(devices, rate):
-                    fresh_wait_s = wait_for_refreshable_auth()
-                rewarm_s = rewarm_auth(server, creds[:devices])
-                # A re-warm hit past half the cache TTL queues a background
-                # bcrypt re-verify; let those finish before measuring.
-                settle_s += settle(server)
+                fresh_wait_s = rewarm_s = 0.0
+                for rewarm_round in range(1, AUTH_REWARM_MAX_ROUNDS + 1):
+                    if needs_fresh_auth(devices, rate):
+                        fresh_wait_s += wait_for_refreshable_auth()
+                    rewarm_s += rewarm_auth(server, creds[:devices])
+                    # A re-warm hit past half the cache TTL queues a background
+                    # bcrypt re-verify; let those finish before measuring.
+                    after_rewarm_s = settle(server)
+                    settle_s += after_rewarm_s
+                    # A long settle here lets the re-warmed entries age, or expire,
+                    # before the step: re-warm again.
+                    if (after_rewarm_s <= AUTH_REWARM_MAX_SETTLE_S
+                            or after_rewarm_s >= SETTLE_TIMEOUT_S):  # a stuck backlog: move on
+                        break
                 step = run_step(server, creds[:devices], cycler, rate, duration)
                 step["settle_before_s"] = round(settle_s, 2)
                 step["auth_rewarm_s"] = round(rewarm_s, 2)
                 step["auth_fresh_wait_s"] = round(fresh_wait_s, 2)
+                step["auth_rewarm_rounds"] = rewarm_round
                 step["degraded"] = degraded_reasons(step, args.stop_p99_ms, args.stop_loop_lag_ms)
                 config["steps"].append(step)
                 lat, lag = step["latency_ms"], step["loop_lag_ms"]

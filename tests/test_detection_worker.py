@@ -149,6 +149,30 @@ def test_worker_runs_once_per_device_per_drain_on_its_own_thread():
     assert q.depth == 0
 
 
+def test_pending_counts_the_run_in_flight_until_it_finishes():
+    started, finish = threading.Event(), threading.Event()
+
+    def run(device_id):
+        started.set()
+        finish.wait(5)
+
+    async def scenario():
+        q = DetectionQueue(8)
+        _enqueue(q, "a")
+        _enqueue(q, "b")
+        assert q.pending == 2
+        q.start(run)
+        await _until(started.is_set)
+        # "a" is off the queue but still running: depth alone would read 1.
+        assert q.depth == 1 and q.pending == 2
+        finish.set()
+        await _until(lambda: q.stats["runs"] == 2)
+        await _until(lambda: q.pending == 0)
+        await q.stop()
+
+    asyncio.run(scenario())
+
+
 def test_worker_survives_an_orchestrator_exception(caplog):
     calls = []
 

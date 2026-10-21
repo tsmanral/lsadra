@@ -159,6 +159,7 @@ async def api_health():
             "loop_lag_seq": _loop_lag_seq,
             "loop_lag_ms": list(_LOOP_LAG_SAMPLES),
             "detection_skipped": BENCH_SKIP_DETECTION,
+            "detection_pending": detection_queue.pending,
         }
     return body
 
