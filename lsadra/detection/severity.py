@@ -81,6 +81,24 @@ def _score_to_label(score: float) -> str:
     return "LOW"
 
 
+_LABEL_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def apply_rule_floor(score: float, label: str, rule_severity: Optional[str]) -> Tuple[float, str]:
+    """
+    Raise a layer-based severity to at least the matched rule's severity.
+
+    A brute force burst is HIGH whatever the anomaly layers think of it, so the
+    rule's level sets a floor; it never lowers what the layers found.
+    """
+    if not rule_severity or rule_severity not in _LABEL_ORDER:
+        return score, label
+    if _LABEL_ORDER.index(rule_severity) <= _LABEL_ORDER.index(label):
+        return score, label
+    floor = SEVERITY_THRESHOLDS.get(rule_severity, 0.0) if rule_severity != "LOW" else 0.0
+    return max(score, floor), rule_severity
+
+
 def severity_context(score: float, label: str) -> Dict[str, Any]:
     """
     Build a severity context dict for use in narratives and SHAP.
