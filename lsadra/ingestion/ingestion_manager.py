@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Generator, Iterator, List, Optional
 
+from lsadra.detection.event_types import canonical_event_type, is_success
 from lsadra.ingestion.base_parser import BaseParser
 from lsadra.ingestion.syslog_parser import SyslogParser
 from lsadra.ingestion.windows_event_parser import WindowsEventParser
@@ -69,8 +70,8 @@ class _SSHParserAdapter(BaseParser):
             "source_ip":   v3.get("source_ip"),
             "dest_ip":     None,
             "username":    v3.get("effective_username"),
-            "event_type":  v3.get("event_type", "unknown"),
-            "success":     "accepted" in str(v3.get("event_type", "")).lower(),
+            "event_type":  v3.get("event_type", "other"),
+            "success":     is_success(canonical_event_type(v3.get("event_type"))),
             "raw":         v3.get("raw_message", raw_line)[:2048],
             "device_id":   device_id,
             "host":        v3.get("host", ""),  # syslog hostname, not the device ID
@@ -159,6 +160,11 @@ class IngestionManager:
                 if event is not None:
                     if parser.validate_output(event):
                         self._record_success(parser.source_type)
+                        # One closed vocabulary for storage and detection
+                        # (lsadra/detection/event_types.py, audit G-15).
+                        event["event_type"] = canonical_event_type(
+                            event.get("event_type"), event.get("success")
+                        )
                         return event
                     else:
                         logger.debug(

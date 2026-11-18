@@ -124,14 +124,17 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         return {
             "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
-            "event_type": f"ssh_{status.lower()}_{method}",
+            # Canonical event types (lsadra/detection/event_types.py)
+            "event_type": "auth_failure" if status == "Failed" else "auth_success",
             "host": host,
             "effective_username": user[:_MAX_USERNAME],
             "source_ip": _ip_or_none(src_ip),
             "raw_message": f"{status} {method} for {user} from {src_ip}:{port}"[:_MAX_RAW],
             "attributes": {
                 "severity": "HIGH" if status == "Failed" else "INFO",
-                "port": port
+                "port": port,
+                "auth_method": method,
+                "service": "sshd",
             }
         }
 
@@ -142,7 +145,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         return {
             "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
-            "event_type": "sudo_command",
+            "event_type": "sudo_exec",
             "host": host,
             "effective_username": user[:_MAX_USERNAME],
             "raw_message": f"User {user} executed sudo: {cmd}"[:_MAX_RAW],

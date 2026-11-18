@@ -75,7 +75,7 @@ class LinuxSSHParser:
             "user_id": user_id,
             "effective_username": None,
             "source_ip": None,
-            "event_type": "unknown",
+            "event_type": "other",
             "raw_message": g["message"],
             "attributes": {"process": g["process"], "pid": int(g["pid"])},
         }
@@ -87,7 +87,9 @@ class LinuxSSHParser:
         if auth:
             status = auth.group(1).lower()
             method = auth.group(2).lower()
-            event["event_type"] = f"ssh_{status}_{method}"
+            # Canonical event types (lsadra/detection/event_types.py)
+            event["event_type"] = "auth_failure" if status == "failed" else "auth_success"
+            event["attributes"]["auth_method"] = method
             event["effective_username"] = auth.group(3)
             event["source_ip"] = auth.group(4)
             event["attributes"]["src_port"] = int(auth.group(5))
@@ -96,16 +98,16 @@ class LinuxSSHParser:
         # Session open / close
         sess = _SESSION_RE.search(msg)
         if sess:
-            event["event_type"] = f"session_{sess.group(1)}"
+            event["event_type"] = "session_open" if sess.group(1) == "opened" else "session_close"
             event["effective_username"] = sess.group(2)
             return event
 
         # Sudo command execution
         sudo = _SUDO_RE.match(msg)
         if sudo:
-            event["event_type"] = "sudo_command"
+            event["event_type"] = "sudo_exec"
             event["effective_username"] = sudo.group(1)
             event["attributes"]["command"] = sudo.group(2).strip()
             return event
 
-        return event  # return as 'unknown' type
+        return event  # return as 'other' type

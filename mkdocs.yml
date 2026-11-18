@@ -24,4 +24,5 @@ nav:
       - Incident runbook: security/incident-runbook.md
       - SSDF and CRA: security/ssdf-cra.md
       - Release security review: security/release-security-review.md
+  - Detection scorecard: detection/scorecard.md
   - Contributing: contributing/README.md

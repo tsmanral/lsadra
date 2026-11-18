@@ -67,6 +67,13 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 
 ## Development Setup
 
+**Fastest start:** open the repository in a dev container (VS Code "Reopen in Container", or GitHub
+Codespaces opened in VS Code). [`.devcontainer/`](.devcontainer/) installs Python 3.12, Node 24 and
+every dependency, sets local dev mode, runs the smoke test, and prints the commands to start the API
+and dashboard. The dashboard calls the API at `http://localhost:8000`, so in a browser-only Codespace
+it can't reach the API yet; use VS Code desktop, which forwards `localhost`. The manual setup below
+works everywhere.
+
 You need **Python 3.12+**, **Node.js 22+** (CI uses Node 24) and **git**. Commands below use the
 Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` instead.
 
@@ -196,7 +203,7 @@ git push --force-with-lease                     # then update the PR
 ## Pull Request Process
 
 1. Keep PRs focused — one logical change per PR
-2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`)
+2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`). CI checks every commit message with commitlint (`commitlint.config.js`)
 3. **Sign off every commit** (`git commit -s`) — see [Sign-off (DCO)](#sign-off-dco). This is a required check; an unsigned commit blocks the merge.
 4. Run the smoke test and any tests relevant to your change
 5. Update documentation if your change affects setup or architecture. Changes to user-facing behavior, environment variables, endpoints, or project structure must update `README.md` **in the same PR**

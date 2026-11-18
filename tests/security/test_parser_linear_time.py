@@ -79,7 +79,7 @@ def test_agent_sudo_pattern_is_linear():
 )
 def test_ssh_parser_still_reads_sudo_lines(line, user, command):
     event = LinuxSSHParser.parse(line)
-    assert event["event_type"] == "sudo_command"
+    assert event["event_type"] == "sudo_exec"
     assert event["effective_username"] == user
     assert event["attributes"]["command"] == command
 
