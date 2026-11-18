@@ -73,6 +73,36 @@ jobs:
         # script above and exits at import, so pytest must not collect it).
         run: python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q
 
+  test-newer-python:
+    # README promises Python 3.12 or newer; this keeps 3.13 and 3.14 honest.
+    # Separate job name so the required `test (<os>)` checks stay unchanged;
+    # not a required check.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+    runs-on: ubuntu-latest
+    env:
+      LSADRA_DEV_MODE: "true"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt \
+            || pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
+          pip install pytest
+      - name: Smoke gate
+        run: python tests/test_v4_smoke.py
+      - name: Security regression gate
+        run: python -m pytest tests/security/ -q
+      - name: Full backend suite
+        run: python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
