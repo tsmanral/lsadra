@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { MessageSquare, ThumbsUp, ThumbsDown, CheckCircle2, AlertTriangle, Clock, BarChart3, RefreshCw } from 'lucide-react';
-import { getAnomalies, getIncidents } from '../services/api';
+import { getAnomalies, getIncidents, isTestUser } from '../services/api';
 
 const FEEDBACK_MOCK = [
   { id: 'fb_001', anomaly_id: 'anom_1', analyst: 'admin', label: 'TRUE_POSITIVE',  note: 'Confirmed ransomware — WKS-112-X isolated, playbook executed.', ts: new Date(Date.now()-3600000).toISOString() },
@@ -17,7 +17,7 @@ const LABEL_COLORS: Record<string, string> = {
 };
 
 const FeedbackLoop = () => {
-  const [feedback, setFeedback] = useState<any[]>(FEEDBACK_MOCK);
+  const [feedback, setFeedback] = useState<any[]>(() => (isTestUser() ? FEEDBACK_MOCK : []));
   const [anomalies, setAnomalies] = useState<any[]>([]);
   const [incidents, setIncidents] = useState<any[]>([]);
   const [newNote, setNewNote]   = useState('');
