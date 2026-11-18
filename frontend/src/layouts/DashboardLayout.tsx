@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Outlet, Link, useLocation, useNavigate } from 'react-router-dom';
 import { Shield, Activity, Search, AlertOctagon, Settings, Database, LogOut, User, X, Eye, EyeOff, FileText } from 'lucide-react';
-import { exportReport } from '../services/api';
+import { exportReport, logout } from '../services/api';
 
 const DashboardLayout = () => {
   const location = useLocation();
@@ -30,7 +30,8 @@ const DashboardLayout = () => {
     ...(role === 'ADMIN' ? [{ name: 'Admin', path: '/app/admin', icon: <Settings size={18}/> }] : []),
   ];
 
-  const handleSignOut = () => {
+  const handleSignOut = async () => {
+    await logout();  // ends the session on the server too (G-9)
     localStorage.clear();
     navigate('/login');
   };
