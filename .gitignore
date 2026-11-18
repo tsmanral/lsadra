@@ -100,3 +100,7 @@ vault/
 LAUNCH_PACKAGE.md
 PART_B_SYSTEM_PROMPT.md
 fable_handover.md
+
+# Bundled intel tier (ADR 0004): the signed SQLite bundle is the one database
+# the repo ships on purpose. Everything else above stays ignored.
+!lsadra/intel/data/intel-*.sqlite

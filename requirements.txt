@@ -46,8 +46,9 @@ fpdf2>=2.8.7
 # Image export for Plotly charts in reports
 kaleido>=0.2.1
 
-# Geolocation
-geopy>=2.5.0
+# Threat intel (ADR 0004): Ed25519 bundle signatures, local .mmdb geolocation
+cryptography>=44.0.0
+maxminddb>=2.6.0
 
 # Testing
 pytest>=9.1.1

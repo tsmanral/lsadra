@@ -8,6 +8,7 @@ guards themselves (they are exercised in dedicated subprocess tests).
 
 import os
 import sys
+import tempfile
 
 import pytest
 
@@ -15,6 +16,11 @@ os.environ.setdefault("LSADRA_DEV_MODE", "true")
 # The background scheduler would run real jobs against whatever database a
 # test's lifespan points at; tests that need it start it explicitly.
 os.environ.setdefault("LSADRA_SCHEDULER_ENABLED", "false")
+# Keep the runtime intel DB (ADR 0004) out of the working tree's data/ folder.
+os.environ.setdefault(
+    "LSADRA_INTEL_RUNTIME_DB",
+    os.path.join(tempfile.mkdtemp(prefix="lsadra-intel-"), "intel_runtime.db"),
+)
 
 # test_v4_smoke.py is a standalone script (`python tests/test_v4_smoke.py`) that
 # exits at import time; keep a bare `pytest` from crashing while collecting it.

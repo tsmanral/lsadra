@@ -46,6 +46,7 @@ from lsadra.storage.database import (
 from lsadra.tls_middleware import TLSEnforcementMiddleware
 from lsadra.ui.alert_stream import router as alert_stream_router
 from lsadra.ui.api_dashboard import router as dashboard_router
+from lsadra.ui.api_intel import router as intel_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -134,6 +135,7 @@ if AGENT_DIR.exists():
 app.include_router(events_router, prefix="/api/events")
 app.include_router(devices_router, prefix="/api/devices")
 app.include_router(dashboard_router, prefix="/api/dashboard")
+app.include_router(intel_router, prefix="/api/intel")
 app.include_router(alert_stream_router)  # /ws/alerts
 
 
