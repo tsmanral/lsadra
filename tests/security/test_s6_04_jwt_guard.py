@@ -45,7 +45,7 @@ def test_refuses_boot_without_secret_outside_dev_mode():
 
 def test_boots_with_explicit_secret():
     """An explicit stable secret satisfies the guard even outside dev mode."""
-    r = _boot({"LSADRA_JWT_SECRET": "test-stable-secret-not-real"})
+    r = _boot({"LSADRA_JWT_SECRET": "test-stable-secret-not-real-0123456789abcdef"})
     assert r.returncode == 0, r.stderr
 
 

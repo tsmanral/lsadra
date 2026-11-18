@@ -92,17 +92,17 @@ jobs:
         run: npm run build
       - name: ESLint (report)
         run: npx eslint . -f json -o eslint.json || true
-      - name: ESLint baseline gate (fail only if errors exceed 164)
+      - name: ESLint baseline gate (fail only if errors exceed 157)
         # Lint debt is being paid down in dedicated PRs; this gate only blocks
-        # regressions above the recorded baseline (164 errors / 5 warnings).
+        # regressions above the recorded baseline (157 errors).
         run: |
           node -e '
             const r = require("./eslint.json");
             const errors = r.reduce((n, f) => n + f.errorCount, 0);
             const warnings = r.reduce((n, f) => n + f.warningCount, 0);
-            console.log(`eslint: ${errors} errors, ${warnings} warnings (baseline: 164 errors)`);
-            if (errors > 164) {
-              console.log(`::error::eslint errors ${errors} exceed baseline 164`);
+            console.log(`eslint: ${errors} errors, ${warnings} warnings (baseline: 157 errors)`);
+            if (errors > 157) {
+              console.log(`::error::eslint errors ${errors} exceed baseline 157`);
               process.exit(1);
             }
           '
