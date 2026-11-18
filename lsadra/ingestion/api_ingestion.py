@@ -495,7 +495,7 @@ async def ingest_raw_batch(
     loop) and schedules online detection on the detection worker.
 
     [V4 ENHANCEMENT — gap: multi-source ingestion]
-    [GLASSWING ALIGNMENT — central ingestion orchestrator]
+    [Capability: central ingestion orchestrator]
 
     Args:
         batch:  Batch of raw log lines with optional source_hint.

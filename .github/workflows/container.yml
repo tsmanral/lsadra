@@ -1,0 +1,62 @@
+name: container
+
+# Builds the image on PRs that touch it, so a broken Dockerfile or lock is
+# caught before a release tag (release.yml builds and publishes).
+on:
+  pull_request:
+    paths:
+      - "Dockerfile"
+      - ".dockerignore"
+      - "requirements/**"
+      - "requirements.txt"
+      - "frontend/Dockerfile"
+      - "frontend/nginx.conf"
+      - "frontend/package-lock.json"
+      - ".github/workflows/container.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: container-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build
+        run: docker build -t lsadra:ci .
+      - name: Runs as non-root
+        run: |
+          uid="$(docker run --rm lsadra:ci id -u)"
+          echo "container uid: ${uid}"
+          test "${uid}" != "0"
+      - name: Starts and passes its health check
+        run: |
+          docker run -d --name lsadra-ci -e LSADRA_DEV_MODE=true lsadra:ci
+          for _ in $(seq 1 30); do
+            status="$(docker inspect -f '{{.State.Health.Status}}' lsadra-ci)"
+            echo "health: ${status}"
+            [ "${status}" = "healthy" ] && exit 0
+            sleep 5
+          done
+          docker logs lsadra-ci
+          exit 1
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Build the dashboard image
+        run: docker build -t lsadra-web:ci frontend
+      - name: Runs as non-root
+        run: |
+          uid="$(docker run --rm --entrypoint id lsadra-web:ci -u)"
+          echo "container uid: ${uid}"
+          test "${uid}" != "0"
