@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { pickHealth, type IngestionHealth } from './health';
 
 export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
 
@@ -550,23 +551,18 @@ export const submitFeedback = async (alert_id: number, label: 'true_positive' | 
   api.post('/api/feedback', { alert_id, label, note });
 
 export const getIngestionStats = async () => {
+  let body: IngestionHealth | undefined;
   try {
-    const res = await api.get('/api/dashboard/health');
-    if (res.data?.events_per_second > 0) return res;
-  } catch { }
+    body = (await api.get('/api/dashboard/health')).data;
+  } catch { /* unreachable: pickHealth reports it */ }
 
+  let mock: IngestionHealth | undefined;
   if (DEMO_MOCKS_ENABLED && isTestUser()) {
-    // Provide "pulsing" mock stats for demo
+    // "Pulsing" demo stats, dev server only
     const pulse = Math.sin(Date.now() / 2000) * 2;
-    return {
-      data: {
-        events_per_second: 12.5 + pulse,
-        avg_latency_ms: 4.2 + (pulse * 0.1),
-        drop_rate_pct: 0.0
-      }
-    };
+    mock = { status: 'HEALTHY', events_per_second: 12.5 + pulse, avg_latency_ms: 4.2 + (pulse * 0.1), drop_rate_pct: 0.0 };
   }
-  return { data: { events_per_second: 0, avg_latency_ms: null, drop_rate_pct: null } };
+  return { data: pickHealth(body, mock) };
 };
 
 export const getAnomalies = async () => {

@@ -90,6 +90,8 @@ jobs:
         run: npx tsc -b --noEmit
       - name: Build
         run: npm run build
+      - name: Unit tests
+        run: npm test
       - name: ESLint (report)
         run: npx eslint . -f json -o eslint.json || true
       - name: ESLint baseline gate (fail only if errors exceed 157)

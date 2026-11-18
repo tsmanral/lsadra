@@ -131,7 +131,7 @@ These are the same checks CI runs. Run the ones that match what you changed:
 | Anything in Python | `venv/Scripts/ruff check .` | 1 s |
 | Parsers, detection, storage, API | `venv/Scripts/python -m pytest tests/ -q` (full suite) | 1-2 min |
 | One area only | `venv/Scripts/python -m pytest tests/storage -q`, `tests/test_detection_pipeline.py`, ... | seconds |
-| `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npx eslint .` | 30 s |
+| `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npm test && npx eslint .` | 30 s |
 
 The frontend ESLint check in CI fails when the error count goes **above** a recorded baseline
 (lint debt is being paid down file by file). If your PR lowers the count, lower the baseline in
