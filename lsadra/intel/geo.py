@@ -76,8 +76,8 @@ def _get_reader():
         if _reader is not None:
             try:
                 _reader.close()
-            except Exception:
-                pass
+            except Exception as exc:
+                logger.debug("Closing the previous geolocation reader failed: %s", exc)
         try:
             _reader = maxminddb.open_database(str(path))
         except Exception as exc:

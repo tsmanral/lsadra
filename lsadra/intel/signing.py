@@ -17,6 +17,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import json
+import logging
 from pathlib import Path
 from typing import Dict, Tuple
 
@@ -26,6 +27,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import (
     Ed25519PrivateKey,
     Ed25519PublicKey,
 )
+
+logger = logging.getLogger(__name__)
 
 TRUSTED_KEYS_PATH = Path(__file__).resolve().parent / "trusted_keys.json"
 
@@ -79,7 +82,8 @@ def load_trusted_keys(path: Path | None = None) -> Dict[str, Ed25519PublicKey]:
     for entry in data.get("keys", []):
         try:
             pub = Ed25519PublicKey.from_public_bytes(base64.b64decode(entry["public_key"]))
-        except Exception:
+        except Exception as exc:
+            logger.warning("Skipping unreadable trusted intel key %r: %s", entry.get("key_id"), exc)
             continue
         if key_id_for(pub) == entry.get("key_id"):
             keys[entry["key_id"]] = pub
