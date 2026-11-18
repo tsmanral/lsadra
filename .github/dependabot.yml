@@ -1,3 +1,6 @@
+# Minor and patch bumps are grouped into one PR per ecosystem so the queue stays short and
+# contributors' PRs don't keep landing on top of a dozen dependency PRs. Major bumps still
+# arrive one PR each, since they are the ones that need a real look.
 version: 2
 updates:
   # Hash-locked requirement files (requirements/*.txt, compiled from *.in
@@ -15,6 +18,9 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      pip-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -28,6 +34,9 @@ updates:
       default-days: 7
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: "/frontend"
@@ -42,10 +51,15 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
 
-  # Base image digest in Dockerfile (both stages pin the same digest).
+  # Base image digests: Dockerfile (API) and frontend/Dockerfile (dashboard).
   - package-ecosystem: docker
-    directory: "/"
+    directories:
+      - "/"
+      - "/frontend"
     schedule:
       interval: weekly
       day: monday
