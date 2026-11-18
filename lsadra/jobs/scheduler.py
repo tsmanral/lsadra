@@ -13,8 +13,8 @@ V3 jobs (preserved):
     after start; bounded batches, see storage.database.cleanup_old_data)
 
 V4 jobs (new — added after V3 jobs):
-  - Cross-source correlation check (every 5 min)    [GLASSWING ALIGNMENT]
-  - Lateral movement scan (every 10 min)            [GLASSWING ALIGNMENT]
+  - Cross-source correlation check (every 5 min)    [Capability: cross-source correlation]
+  - Lateral movement scan (every 10 min)            [Capability: lateral movement detection]
   - Ingestion health check (every 15 min)           [V4 ENHANCEMENT]
 
 Started and stopped by server.py's lifespan (LSADRA_SCHEDULER_ENABLED). Every
@@ -115,7 +115,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 7: Cross-source correlation check (every 5 min) ──────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: cross-source correlation]
     _scheduler.add_job(
         _run_cross_source_correlation,
@@ -126,7 +126,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 8: Lateral movement scan (every 10 min) ──────────────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: relationship modeling]
     _scheduler.add_job(
         _run_lateral_movement_scan,
@@ -270,7 +270,7 @@ def _run_data_cleanup() -> None:
 # ============================================================================
 
 # [V4 ENHANCEMENT — gap: cross-source correlation]
-# [GLASSWING ALIGNMENT — lateral movement detection]
+# [Capability: lateral movement detection]
 
 def _run_cross_source_correlation() -> None:
     """
@@ -278,7 +278,7 @@ def _run_cross_source_correlation() -> None:
 
     If found, log the correlation and update incident severity.
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: cross-source correlation]
     """
     try:
@@ -323,7 +323,7 @@ def _run_lateral_movement_scan() -> None:
 
     Stores any new lateral movement alerts to the database.
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: relationship modeling]
     """
     try:

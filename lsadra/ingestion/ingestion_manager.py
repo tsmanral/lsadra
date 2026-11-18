@@ -10,7 +10,7 @@ in thin adapter classes and loaded first to preserve V3 behaviour.
 
 Integrates with the FastAPI ingest endpoint and APScheduler health jobs.
 
-[GLASSWING ALIGNMENT — central ingestion orchestrator]
+[Capability: central ingestion orchestrator]
 [V4 ENHANCEMENT — gap: multi-source ingestion]
 """
 
@@ -100,7 +100,7 @@ class IngestionManager:
 
     Statistics are tracked per source_type for the health dashboard.
 
-    [GLASSWING ALIGNMENT — central ingestion orchestrator]
+    [Capability: central ingestion orchestrator]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 
@@ -136,7 +136,7 @@ class IngestionManager:
         Auto-detects format by trying each parser in chain order.
         If *hint* is provided it narrows the search to the matching parser.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             raw_line:  A single raw log line from any supported source.
@@ -179,7 +179,7 @@ class IngestionManager:
         """
         Read and parse an entire log file.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             filepath:  Path to the log file on disk.
@@ -207,7 +207,7 @@ class IngestionManager:
         """
         Yield unified events from a file-like stream, one line at a time.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             stream:    Any iterable producing raw log lines.

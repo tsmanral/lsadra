@@ -9,7 +9,7 @@ Detects security-relevant syslog events beyond SSH:
   - network interface events
 
 [V4 ENHANCEMENT — gap: multi-source ingestion]
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 """
 
 import re
@@ -49,7 +49,7 @@ class SyslogParser(BaseParser):
     Extracts security signals: sudo, cron, service changes, kernel module
     loading, and network interface events.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 

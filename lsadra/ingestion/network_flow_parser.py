@@ -13,7 +13,7 @@ Enriches events with flags:
   - internal_to_internal (RFC 1918 → RFC 1918)
 
 [V4 ENHANCEMENT — gap: multi-source ingestion]
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 """
 
 import re
@@ -66,7 +66,7 @@ class NetworkFlowParser(BaseParser):
     Normalises NetFlow CSV, simple connection logs, and firewall deny logs
     into the unified V4 event schema with enriched flow indicators.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 

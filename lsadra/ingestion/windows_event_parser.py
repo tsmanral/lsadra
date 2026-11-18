@@ -17,7 +17,7 @@ Supports XML-format and pipe-delimited flat log lines.
 Outputs unified V4 event schema.
 
 [V4 ENHANCEMENT — gap: multi-source ingestion]
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 """
 
 import re
@@ -61,7 +61,7 @@ class WindowsEventParser(BaseParser):
     Handles XML-format and pipe-delimited Windows event logs, normalising
     event data to the unified V4 schema for downstream ML and rule engines.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 
