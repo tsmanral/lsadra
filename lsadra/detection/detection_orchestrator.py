@@ -30,8 +30,10 @@ from lsadra.detection import model_lifecycle as lifecycle
 from lsadra.detection.incident_manager import IncidentManager
 from lsadra.detection.severity import apply_rule_floor, compute_severity_score, severity_context
 from lsadra.features.feature_extractor import FEATURE_COLS, build_features
+from lsadra.features.model_features import model_feature_matrix
 from lsadra.features.rule_features import RULE_LOOKBACK_MINUTES, build_rule_features
 from lsadra.models.autoencoder_model import AutoencoderModel
+from lsadra.models.ecod_model import ECODModel
 from lsadra.models.ensemble_model import EnsembleModel
 from lsadra.models.integrity import ModelIntegrityError
 from lsadra.models.statistical_baseline import StatisticalBaselineModel
@@ -119,6 +121,14 @@ class DetectionOrchestrator:
             self._trained = False
             logger.exception("Failed to load the persisted ensemble — will train from scratch.")
 
+        self.shadow_ecod = None
+        if (self.model_dir / lifecycle.ECOD_FILE).exists():
+            try:
+                self.shadow_ecod = ECODModel.from_dict(store.load_json(lifecycle.ECOD_FILE))
+                logger.info("Loaded the ECOD shadow scorer.")
+            except (ModelIntegrityError, ValueError, KeyError, OSError) as exc:
+                logger.warning("Not loading the ECOD shadow scorer: %s", exc)
+
         autoencoder = AutoencoderModel()
         if autoencoder.load(self.model_dir / lifecycle.AUTOENCODER_FILE):
             logger.info("Loaded persisted autoencoder model.")
@@ -167,6 +177,7 @@ class DetectionOrchestrator:
         cand_baseline.train(df)
         cand_ensemble.train(df)
         cand_autoencoder.train(df)
+        cand_ecod = fit_shadow_ecod(df)
 
         canary = lifecycle.run_canary(cand_ensemble, cand_autoencoder)
         summary: Dict[str, Any] = {
@@ -185,7 +196,7 @@ class DetectionOrchestrator:
             return summary
 
         self._promote(df, cand_baseline, cand_ensemble, cand_autoencoder,
-                      selection, canary, trigger)
+                      selection, canary, trigger, ecod=cand_ecod)
         self._record_run(trigger, requested_by, "promoted", selection, canary, "")
         logger.info("DetectionOrchestrator: candidate promoted; all layers active.")
         return summary
@@ -199,6 +210,7 @@ class DetectionOrchestrator:
         selection: Dict[str, Any],
         canary: Dict[str, Any],
         trigger: str,
+        ecod: Optional[ECODModel] = None,
     ) -> None:
         """Snapshot the current files to previous/, write the candidate, swap it in."""
         store = lifecycle.current_store(self.model_dir)
@@ -213,6 +225,10 @@ class DetectionOrchestrator:
             else:
                 store.remove(lifecycle.AUTOENCODER_FILE)
             store.save_json(lifecycle.BASELINE_FILE, baseline.to_dict())
+            if ecod is not None:
+                store.save_json(lifecycle.ECOD_FILE, ecod.to_dict())
+            else:
+                store.remove(lifecycle.ECOD_FILE)
             store.save_json(lifecycle.REFERENCE_FILE, lifecycle.reference_quantiles(df))
             self._register_and_card(store, selection, canary, trigger)
         except Exception:
@@ -224,6 +240,7 @@ class DetectionOrchestrator:
         self.baseline = baseline
         self.ensemble = ensemble
         self.autoencoder = autoencoder
+        self.shadow_ecod = ecod
         self._trained = True
         self._generation = lifecycle.bump_generation()
 
@@ -239,6 +256,7 @@ class DetectionOrchestrator:
             "ensemble": lifecycle.ENSEMBLE_FILE,
             "autoencoder": lifecycle.AUTOENCODER_FILE,
             "baseline": lifecycle.BASELINE_FILE,
+            "ecod": lifecycle.ECOD_FILE,
         }
         for name, fname in files.items():
             sha = store.sha256(fname)
@@ -427,6 +445,7 @@ class DetectionOrchestrator:
 
         # Run full detection pipeline
         results = self._run_layers(df)
+        _log_shadow(device_id, results)
 
         # Persist anomalies and create incidents
         for res in results:
@@ -514,6 +533,14 @@ class DetectionOrchestrator:
         # Layer 3 — autoencoder
         l3 = self.autoencoder.score(df)
 
+        # Shadow (ADR 0007, Phase 1): ECOD over the wider feature set. Its score
+        # and verdict are reported next to the live ones and never change them.
+        shadow = getattr(self, "shadow_ecod", None)
+        if shadow is not None and shadow.is_fitted:
+            ls = shadow.predict(model_feature_matrix(df))
+        else:
+            ls = [{"ecod_score": None, "is_ecod_anomaly": None}] * n
+
         # Merge and apply Layer 4 (rules + narrative + severity)
         merged: List[Dict[str, Any]] = []
         for i in range(n):
@@ -595,6 +622,8 @@ class DetectionOrchestrator:
                 # named the technique.
                 "mitre_confidence": best.rule.confidence if labelled else 0.0,
                 "mitre_tactics": best.tactics if labelled else [],
+                "shadow_ecod_score": ls[i]["ecod_score"],
+                "shadow_ecod_anomaly": ls[i]["is_ecod_anomaly"],
                 "rule_id": best.rule.id if labelled else None,
                 "rule_version": best.rule.version if labelled else None,
                 "rule_level": best.level if labelled else None,
@@ -607,3 +636,27 @@ class DetectionOrchestrator:
             })
 
         return merged
+
+
+def fit_shadow_ecod(df: pd.DataFrame) -> Optional[ECODModel]:
+    """Fit the ECOD shadow scorer on a training frame; never blocks training."""
+    try:
+        return ECODModel(target_fpr=config.SHADOW_ECOD_TARGET_FPR).fit(model_feature_matrix(df))
+    except Exception:
+        logger.exception("Training the ECOD shadow scorer failed; continuing without it.")
+        return None
+
+
+def _log_shadow(device_id: str, results: List[Dict[str, Any]]) -> None:
+    """One line per run when shadow and live verdicts differ (shadow mode, ADR 0007)."""
+    scored = [r for r in results if r.get("shadow_ecod_anomaly") is not None]
+    if not scored:
+        return
+    shadow_only = sum(1 for r in scored if r["shadow_ecod_anomaly"] and not r.get("is_anomaly"))
+    live_only = sum(1 for r in scored if r.get("is_anomaly") and not r["shadow_ecod_anomaly"])
+    both = sum(1 for r in scored if r.get("is_anomaly") and r["shadow_ecod_anomaly"])
+    if shadow_only or live_only:
+        logger.info(
+            "Shadow ECOD on device %s: %d events, both flagged %d, shadow only %d, live only %d.",
+            device_id, len(scored), both, shadow_only, live_only,
+        )

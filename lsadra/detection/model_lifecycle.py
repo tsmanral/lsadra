@@ -41,6 +41,7 @@ import pandas as pd
 
 from lsadra import config
 from lsadra.features.feature_extractor import FEATURE_COLS
+from lsadra.features.model_features import MODEL_FEATURE_NAMES
 from lsadra.models.integrity import ModelIntegrityError, ModelStore
 
 logger = logging.getLogger(__name__)
@@ -48,9 +49,10 @@ logger = logging.getLogger(__name__)
 ENSEMBLE_FILE = "ensemble.joblib"
 AUTOENCODER_FILE = "autoencoder.pt"
 BASELINE_FILE = "baseline.json"
+ECOD_FILE = "ecod.json"
 REFERENCE_FILE = "reference.json"
 PREVIOUS_DIR = "previous"
-MODEL_NAMES = ("ensemble", "autoencoder", "baseline")
+MODEL_NAMES = ("ensemble", "autoencoder", "baseline", "ecod")
 
 
 def card_file(model_name: str) -> str:
@@ -429,6 +431,12 @@ _MODEL_DESCRIPTIONS = {
         "format": "plain JSON",
         "file": BASELINE_FILE,
     },
+    "ecod": {
+        "type": "ECOD empirical-CDF tail scorer, shadow mode (reported, never alerts)",
+        "format": "plain JSON (distinct values and cumulative counts per feature)",
+        "file": ECOD_FILE,
+        "features": "model",
+    },
 }
 
 
@@ -450,7 +458,7 @@ def build_model_card(
         "sha256": sha256,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,
-        "features": list(FEATURE_COLS),
+        "features": list(MODEL_FEATURE_NAMES) if desc.get("features") == "model" else list(FEATURE_COLS),
         "training_data": {
             k: selection.get(k)
             for k in (
