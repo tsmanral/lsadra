@@ -1,153 +1,211 @@
-import React from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, Link } from 'react-router-dom';
-import { AlertTriangle, Clock, Database, Crosshair, Network, FileTerminal, ShieldOff } from 'lucide-react';
+import { Clock, Crosshair, FileTerminal, ShieldCheck, AlertTriangle, Globe, Search } from 'lucide-react';
+import { getIncidentDetail, updateIncidentStatus } from '../services/api';
+import Markdown from '../components/Markdown';
+import { SEVERITY_COLOR, STATUSES, fmtTime, apiError as errorText, httpStatus } from '../utils/incident';
+import type { IncidentDetail } from '../types/investigation';
+
+const Chip = ({ label, color }: { label: string; color: string }) => (
+  <span className="text-xs font-bold font-mono px-2 py-0.5 border" style={{ color, borderColor: color }}>{label}</span>
+);
+
+interface Loaded { key: string; detail?: IncidentDetail; error?: string }
 
 const IncidentDrilldown = () => {
   const { id } = useParams<{ id: string }>();
+  const [reload, setReload] = useState(0);
+  const [loaded, setLoaded] = useState<Loaded | null>(null);
+  const [status, setStatus] = useState('OPEN');
+  const [notes, setNotes] = useState('');
+  const [saveMsg, setSaveMsg] = useState<string | null>(null);
+  const [saving, setSaving] = useState(false);
+
+  useEffect(() => {
+    if (!id) return;
+    let live = true;
+    const key = `${id}:${reload}`;
+    getIncidentDetail(id).then(
+      r => {
+        if (!live) return;
+        const d = r.data as IncidentDetail;
+        setLoaded({ key, detail: d });
+        setStatus(d.incident.status || 'OPEN');
+        setNotes(d.incident.notes || '');
+      },
+      e => {
+        if (!live) return;
+        setLoaded({ key, error: httpStatus(e) === 404 ? `Incident ${id} was not found, or it belongs to another account.` : errorText(e, 'Could not load the incident.') });
+      },
+    );
+    return () => { live = false; };
+  }, [id, reload]);
+
+  const save = async () => {
+    if (!id) return;
+    setSaving(true);
+    setSaveMsg(null);
+    try {
+      await updateIncidentStatus(id, status, notes);
+      setSaveMsg('Saved.');
+      setReload(n => n + 1);
+    } catch (e) {
+      setSaveMsg(errorText(e, 'Save failed.'));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Keep showing the previous load of the same incident while a reload runs.
+  const current = loaded && loaded.key.startsWith(`${id}:`) ? loaded : null;
+  const detail = current?.detail;
+
+  if (!current) {
+    return <p role="status" className="p-6 font-mono text-sm text-[var(--color-muted)]">Loading incident {id}…</p>;
+  }
+  if (!detail) {
+    return (
+      <div className="p-6 space-y-3" role="alert">
+        <h2 className="text-2xl font-display font-bold text-white">Incident {id}</h2>
+        <p className="font-mono text-sm text-[var(--color-muted)]">{current.error}</p>
+        <Link to="/app/dashboard" className="text-[var(--color-primary)] underline font-mono text-sm">Back to the dashboard</Link>
+      </div>
+    );
+  }
+
+  const inc = detail.incident;
+  const sev = (inc.severity_label || 'LOW').toUpperCase();
+  const sevColor = SEVERITY_COLOR[sev] || SEVERITY_COLOR.LOW;
+  const ents = detail.entities;
 
   return (
-    <div className="flex flex-col h-full space-y-6 overflow-y-auto">
-      <header className="flex justify-between items-start border-b border-[rgba(0,240,255,0.3)] pb-4">
+    <div className="flex flex-col h-full space-y-6 overflow-y-auto pb-10 pr-2">
+      <header className="flex flex-wrap gap-4 justify-between items-start border-b border-[rgba(0,240,255,0.3)] pb-4">
         <div>
-          <div className="flex items-center space-x-3 mb-2">
-            <h2 className="text-3xl font-display font-bold text-white tracking-widest uppercase">{id || 'INC-4092'}</h2>
-            <span className="hud-chip-critical text-xl px-3">CRITICAL</span>
-            <span className="border border-[var(--color-primary)] text-[var(--color-primary)] font-display font-bold uppercase px-3 py-1 bg-[rgba(0,240,255,0.1)]">IN-PROGRESS</span>
+          <div className="flex flex-wrap items-center gap-3 mb-2">
+            <h2 className="text-3xl font-display font-bold text-white tracking-widest uppercase">INC-{inc.id}</h2>
+            <Chip label={sev} color={sevColor} />
+            <Chip label={inc.status} color={inc.status === 'RESOLVED' || inc.status === 'FALSE_POSITIVE' ? '#05FFA1' : '#00F0FF'} />
           </div>
-          <p className="text-[var(--color-muted)] font-mono text-sm">Unauthorized AD Admin Elevation detected via multiple anomalies.</p>
+          <p className="text-white font-mono text-sm">{inc.attack_type}</p>
+          <p className="text-[var(--color-muted)] font-mono text-xs mt-1">
+            First seen {fmtTime(inc.first_seen)} · last seen {fmtTime(inc.last_seen)} · device {inc.device_hostname || inc.device_id || '—'}
+          </p>
         </div>
-        <div className="flex space-x-3">
-          <Link to={`/incident/${id || 'INC-4092'}/playbook`} className="hud-button flex items-center">
-            <FileTerminal size={16} className="mr-2" /> Launch Playbook
-          </Link>
-        </div>
+        <Link to={`/app/response?incident=${inc.id}`} className="hud-button flex items-center">
+          <FileTerminal size={16} className="mr-2" aria-hidden="true" /> Open playbook
+        </Link>
       </header>
 
-      <div className="grid grid-cols-12 gap-6">
-        {/* Left Col: Entity Details & Actions */}
-        <div className="col-span-4 space-y-6">
-          <div className="hud-panel p-5">
-            <h3 className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center"><Crosshair className="mr-2" size={18}/> Entity Details</h3>
-            
-            <div className="space-y-4 font-mono text-sm">
-              <div>
-                <p className="text-[var(--color-muted)] text-xs mb-1">SOURCE IP</p>
-                <p className="text-white">192.168.1.105 <span className="text-[var(--color-critical)] ml-2">(High Risk)</span></p>
+      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
+        <div className="lg:col-span-4 space-y-6">
+          <section className="grid grid-cols-3 gap-3" aria-label="Incident figures">
+            {[
+              { label: 'Alerts', value: detail.alert_total },
+              { label: 'Risk', value: detail.risk_score ?? '—' },
+              { label: 'Techniques', value: ents.mitre_techniques?.length || 0 },
+            ].map(s => (
+              <div key={s.label} className="hud-panel p-3 text-center">
+                <div className="text-xs font-mono text-[var(--color-muted)] uppercase">{s.label}</div>
+                <div className="text-2xl font-display font-bold text-white">{s.value}</div>
               </div>
-              <div>
-                <p className="text-[var(--color-muted)] text-xs mb-1">DESTINATION</p>
-                <p className="text-white">DC-01.corp.local (Active Directory)</p>
-              </div>
-              <div>
-                <p className="text-[var(--color-muted)] text-xs mb-1">USER ACCOUNT</p>
-                <p className="text-white">jdoe_admin</p>
-              </div>
-              <div>
-                <p className="text-[var(--color-muted)] text-xs mb-1">MITRE TACTIC</p>
-                <p className="text-[var(--color-warning)]">TA0004 (Privilege Escalation)</p>
-              </div>
-            </div>
-          </div>
+            ))}
+          </section>
 
-          <div className="hud-panel p-5 border-[var(--color-critical)]">
-            <h3 className="font-display text-lg text-[var(--color-critical)] mb-4 border-b border-[rgba(255,42,109,0.15)] pb-2 flex items-center"><ShieldOff className="mr-2" size={18}/> Quick Actions</h3>
-            <div className="space-y-3">
-              <button className="w-full text-left px-4 py-2 bg-[rgba(255,42,109,0.1)] border border-[var(--color-critical)] text-white font-display uppercase tracking-widest hover:bg-[var(--color-critical)] hover:text-black transition-colors">
-                Isolate Asset
-              </button>
-              <button className="w-full text-left px-4 py-2 bg-[rgba(255,214,0,0.1)] border border-[var(--color-warning)] text-white font-display uppercase tracking-widest hover:bg-[var(--color-warning)] hover:text-black transition-colors">
-                Revoke Credentials
-              </button>
-              <button className="w-full text-left px-4 py-2 border border-[var(--color-primary)] text-[var(--color-primary)] font-display uppercase tracking-widest hover:bg-[rgba(0,240,255,0.1)] transition-colors">
-                Escalate to Tier 3
-              </button>
-            </div>
-          </div>
+          <section className="hud-panel p-5" aria-labelledby="ent-h">
+            <h3 id="ent-h" className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center">
+              <Crosshair className="mr-2" size={18} aria-hidden="true" /> Entities
+            </h3>
+            <dl className="space-y-4 font-mono text-sm">
+              {[
+                { label: 'Source IPs', items: ents.source_ips, intel: true },
+                { label: 'Users', items: ents.users },
+                { label: 'Hosts', items: ents.hosts },
+              ].map(group => (
+                <div key={group.label}>
+                  <dt className="text-[var(--color-muted)] text-xs mb-1 uppercase">{group.label}</dt>
+                  <dd className="flex flex-wrap gap-2">
+                    {group.items?.length ? group.items.map(v => (
+                      <span key={v} className="inline-flex items-center gap-1">
+                        <Link to={`/app/investigate?entity=${encodeURIComponent(v)}`} className="text-white underline decoration-dotted hover:text-[var(--color-primary)]">
+                          {v}
+                        </Link>
+                        {group.intel && (
+                          <Link to={`/app/intel?ip=${encodeURIComponent(v)}`} aria-label={`Threat intel for ${v}`} className="text-[var(--color-primary)]">
+                            <Globe size={12} aria-hidden="true" />
+                          </Link>
+                        )}
+                      </span>
+                    )) : <span className="text-[var(--color-muted)]">none recorded</span>}
+                  </dd>
+                </div>
+              ))}
+              <div>
+                <dt className="text-[var(--color-muted)] text-xs mb-1 uppercase">MITRE ATT&amp;CK</dt>
+                <dd className="text-[var(--color-warning)]">{ents.mitre_techniques?.join(', ') || 'none recorded'}</dd>
+              </div>
+            </dl>
+          </section>
 
-          <div className="grid grid-cols-2 gap-4">
-            <div className="hud-panel p-4 flex flex-col justify-center items-center relative overflow-hidden">
-              <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-[var(--color-warning)] to-transparent opacity-50"></div>
-              <span className="text-xs font-display text-[var(--color-muted)] tracking-widest text-center uppercase">Traffic Trend</span>
-              <span className="text-xl font-display font-bold text-[var(--color-warning)] mt-1 drop-shadow-[0_0_8px_rgba(255,214,0,0.5)]">1.2 GB/s</span>
-            </div>
-            <div className="hud-panel p-4 flex flex-col justify-center items-center relative overflow-hidden">
-              <div className="absolute top-0 w-full h-1 bg-gradient-to-r from-transparent via-[var(--color-critical)] to-transparent opacity-50"></div>
-              <span className="text-xs font-display text-[var(--color-muted)] tracking-widest text-center uppercase">Attack Surface Reach</span>
-              <span className="text-xl font-display font-bold text-[var(--color-critical)] mt-1 drop-shadow-[0_0_8px_rgba(255,42,109,0.5)]">94% PROBABILITY</span>
-            </div>
-          </div>
+          <section className="hud-panel p-5" aria-labelledby="status-h">
+            <h3 id="status-h" className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center">
+              <ShieldCheck className="mr-2" size={18} aria-hidden="true" /> Status
+            </h3>
+            <label htmlFor="inc-status" className="block text-xs font-mono text-[var(--color-muted)] uppercase mb-1">Status</label>
+            <select id="inc-status" value={status} onChange={e => setStatus(e.target.value)} className="w-full text-sm font-mono px-3 py-2 mb-3">
+              {STATUSES.map(s => <option key={s} value={s}>{s.replace('_', ' ')}</option>)}
+            </select>
+            <label htmlFor="inc-notes" className="block text-xs font-mono text-[var(--color-muted)] uppercase mb-1">Notes</label>
+            <textarea id="inc-notes" value={notes} onChange={e => setNotes(e.target.value)} rows={3}
+              className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(0,240,255,0.3)] text-white text-sm font-mono px-3 py-2 mb-3" />
+            <button onClick={save} disabled={saving} className="hud-button w-full disabled:opacity-60">{saving ? 'Saving…' : 'Save'}</button>
+            <p role="status" aria-live="polite" className="text-xs font-mono mt-2 text-[var(--color-muted)]">{saveMsg}</p>
+            {inc.assigned_username && <p className="text-xs font-mono text-[var(--color-muted)]">Assigned to {inc.assigned_username}</p>}
+          </section>
         </div>
 
-        {/* Right Col: Timeline & Forensics */}
-        <div className="col-span-8 space-y-6">
-          <div className="hud-panel p-5">
-            <h3 className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center"><Clock className="mr-2" size={18}/> Attack Timeline</h3>
-            
-            <div className="space-y-4 relative before:absolute before:inset-0 before:ml-5 before:-translate-x-px md:before:mx-auto md:before:translate-x-0 before:h-full before:w-0.5 before:bg-gradient-to-b before:from-transparent before:via-[var(--color-primary)] before:to-transparent mt-6">
-              
-              <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group is-active">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-surface-dim)] group-[.is-active]:bg-[var(--color-primary)] text-[var(--color-surface-dim)] group-[.is-active]:text-black shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 shadow-[0_0_10px_var(--color-primary)] z-10">
-                  <Database size={16} />
-                </div>
-                <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 hud-panel border-[var(--color-critical)]">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-display font-bold text-[var(--color-critical)] uppercase tracking-wider">Privilege Escalation</span>
-                    <span className="text-xs text-[var(--color-muted)] font-mono">10:04:12 UTC</span>
+        <section className="lg:col-span-8 hud-panel p-5" aria-labelledby="tl-h">
+          <h3 id="tl-h" className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center">
+            <Clock className="mr-2" size={18} aria-hidden="true" /> Alert timeline
+            <span className="ml-2 text-xs font-mono text-[var(--color-muted)]">
+              ({detail.alerts.length}{detail.alerts_truncated ? ` of ${detail.alert_total}` : ''}, oldest first)
+            </span>
+          </h3>
+          {detail.alerts.length === 0 && <p className="font-mono text-sm text-[var(--color-muted)]">No alerts are linked to this incident.</p>}
+          <ol className="space-y-3">
+            {detail.alerts.map(a => {
+              const c = SEVERITY_COLOR[(a.severity_label || '').toUpperCase()] || '#00F0FF';
+              return (
+                <li key={a.id} className="border-l-4 bg-[rgba(255,255,255,0.02)] p-4" style={{ borderLeftColor: c }}>
+                  <div className="flex flex-wrap justify-between gap-2 mb-2">
+                    <span className="font-display font-bold uppercase tracking-wider" style={{ color: c }}>
+                      {a.severity_label === 'CRITICAL' && <AlertTriangle size={14} className="inline mr-1" aria-hidden="true" />}
+                      {a.threat_type || a.attack_type || 'Alert'} <span className="text-xs font-mono">({a.severity_label || 'n/a'}{a.risk_score != null ? `, risk ${a.risk_score}` : ''})</span>
+                    </span>
+                    <span className="text-xs text-[var(--color-muted)] font-mono">{fmtTime(a.created_at)}</span>
                   </div>
-                  <p className="text-sm font-mono text-gray-300">User jdoe_admin added to Domain Admins group via script execution.</p>
-                </div>
-              </div>
-
-              <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-surface-dim)] text-[var(--color-primary)] shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                  <Network size={16} />
-                </div>
-                <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 hud-panel">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-display font-bold text-[var(--color-warning)] uppercase tracking-wider">Lateral Movement</span>
-                    <span className="text-xs text-[var(--color-muted)] font-mono">10:02:45 UTC</span>
+                  <div className="text-xs font-mono text-[var(--color-muted)] mb-2">
+                    Alert #{a.id}{a.mitre_technique ? ` · ${a.mitre_technique}` : ''}{a.source_ip ? ` · from ${a.source_ip}` : ''}{a.effective_username ? ` · user ${a.effective_username}` : ''}{a.host ? ` · host ${a.host}` : ''}
                   </div>
-                  <p className="text-sm font-mono text-gray-300">RDP session established from 192.168.1.105 to DC-01.corp.local.</p>
-                </div>
-              </div>
-
-              <div className="relative flex items-center justify-between md:justify-normal md:odd:flex-row-reverse group">
-                <div className="flex items-center justify-center w-10 h-10 rounded-full border-2 border-[var(--color-primary)] bg-[var(--color-surface-dim)] text-[var(--color-primary)] shrink-0 md:order-1 md:group-odd:-translate-x-1/2 md:group-even:translate-x-1/2 z-10">
-                  <AlertTriangle size={16} />
-                </div>
-                <div className="w-[calc(100%-4rem)] md:w-[calc(50%-2.5rem)] p-4 hud-panel">
-                  <div className="flex justify-between items-center mb-1">
-                    <span className="font-display font-bold text-[var(--color-primary)] uppercase tracking-wider">Initial Access</span>
-                    <span className="text-xs text-[var(--color-muted)] font-mono">09:45:10 UTC</span>
-                  </div>
-                  <p className="text-sm font-mono text-gray-300">Anomalous login for user jdoe_admin outside normal working hours.</p>
-                </div>
-              </div>
-            </div>
+                  {a.narrative
+                    ? <Markdown text={a.narrative} className="text-sm text-[var(--color-text)]" />
+                    : <p className="text-sm text-[var(--color-muted)]">No narrative was generated for this alert.</p>}
+                  {a.raw_message && (
+                    <details className="mt-2">
+                      <summary className="cursor-pointer text-xs font-mono text-[var(--color-primary)]">Raw log line</summary>
+                      <pre className="mt-2 bg-black border border-[rgba(255,255,255,0.1)] p-3 text-xs text-[#9EF0C4] whitespace-pre-wrap break-all">{a.raw_message}</pre>
+                    </details>
+                  )}
+                </li>
+              );
+            })}
+          </ol>
+          <div className="mt-4 flex gap-3 text-xs font-mono">
+            <Link to={`/app/feedback?alert=${detail.alerts[0]?.id ?? ''}`} className="text-[var(--color-primary)] underline inline-flex items-center gap-1">
+              <Search size={12} aria-hidden="true" /> Label these alerts in Feedback
+            </Link>
           </div>
-
-          <div className="hud-panel p-5">
-            <h3 className="font-display text-lg text-[var(--color-primary)] mb-4 border-b border-[rgba(0,240,255,0.15)] pb-2 flex items-center"><FileTerminal className="mr-2" size={18}/> Forensics (Raw Log)</h3>
-            <div className="bg-black border border-[rgba(255,255,255,0.1)] p-4 font-mono text-xs overflow-x-auto text-green-400">
-              <pre>
-{`[2026-04-17T10:04:12Z] EVENT_ID: 4728 (Security)
-SOURCE: DC-01.corp.local
-MESSAGE: A member was added to a security-enabled global group.
-SUBJECT:
-  Security ID: SYSTEM
-  Account Name: DC-01$
-  Account Domain: CORP
-MEMBER:
-  Security ID: CORP\\jdoe_admin
-  Account Name: jdoe_admin
-GROUP:
-  Security ID: S-1-5-21-34234-34234-3423-512
-  Group Name: Domain Admins
-`}
-              </pre>
-            </div>
-          </div>
-        </div>
+        </section>
       </div>
     </div>
   );

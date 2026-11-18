@@ -134,6 +134,19 @@ The dashboard signs in only through `POST /api/auth/login`. There is no offline 
 
 The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
+## Investigating Incidents
+
+Every investigation page in the dashboard reads real data from these endpoints. An ADMIN sees everything; other roles see only data from their own devices, and anything else answers `404`.
+
+| Endpoint | Used by | Returns |
+|---|---|---|
+| `GET /api/incidents/{id}` | Incident drill-down, Response | The incident, every alert in it oldest first (narrative, MITRE technique, raw log line), the IPs, users and hosts involved, and its response playbook. |
+| `GET /api/entity?q=...` | Investigate | Profile of an IP, user name or host: risk (highest alert severity, 0 to 100), alerts, related incidents and entities, latest raw events. An incident id (`12`, `inc_12`, `INC-12`) resolves to that incident. Nothing on record is a `404`, never a made-up profile. |
+| `GET /api/feedback` | Feedback | Analyst labels with totals and the share confirmed as real threats. |
+| `POST /api/feedback` | Feedback, drill-down | Labels one alert `true_positive` or `false_positive` with a note (ADMIN or ANALYST). |
+
+Playbooks are guidance: LSADRA does not run their commands. Commands use placeholders such as `<SOURCE_IP>` and `<USERNAME>` that the analyst fills in, and are never filled in from log text, which an attacker controls. Narratives render as a small, link-free markdown subset in the dashboard.
+
 ## Architecture
 
 ```mermaid

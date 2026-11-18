@@ -47,6 +47,7 @@ from lsadra.storage.database import (
 from lsadra.tls_middleware import TLSEnforcementMiddleware
 from lsadra.ui.alert_stream import router as alert_stream_router
 from lsadra.ui.api_dashboard import router as dashboard_router
+from lsadra.ui.api_investigation import router as investigation_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -151,6 +152,7 @@ app.include_router(events_router, prefix="/api/events")
 app.include_router(devices_router, prefix="/api/devices")
 app.include_router(dashboard_router, prefix="/api/dashboard")
 app.include_router(alert_stream_router)  # /ws/alerts
+app.include_router(investigation_router, prefix="/api")  # incident detail, entity, feedback
 
 
 # ── Utility endpoints ───────────────────────────────────────────────────
