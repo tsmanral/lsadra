@@ -126,7 +126,7 @@ The dashboard only ever shows data from the API. Front-end developers who want c
 
 ### 5. Create an admin
 
-Accounts created with **Register**, including `demo.admin`, get the `ANALYST` role, which sees only its own data and cannot open the **Admin** page. Admins are made from a shell on the server, with the same settings as the API (here, dev mode):
+Accounts created with **Register**, including `demo.admin`, get the `ANALYST` role, which sees only its own data and cannot open the **Admin** page. **Register** works here because dev mode turns self-service sign-up on; outside dev mode it is off unless you set `LSADRA_ALLOW_SIGNUP=true`. Admins are made from a shell on the server, with the same settings as the API (here, dev mode); without them the command stops with a message naming `LSADRA_JWT_SECRET` and `LSADRA_DEV_MODE`:
 
 ```bash
 # Linux / macOS: promote the demo account, or create a new admin (prompts for a password of 12+ characters)
@@ -139,7 +139,7 @@ LSADRA_DEV_MODE=true venv/bin/python -m lsadra.admin_cli create-admin --username
 venv\Scripts\python -m lsadra.admin_cli promote --username demo.admin
 ```
 
-Sign out and back in for the new role to apply. After that, admins can manage users and roles from the **Admin** page. For scripts and containers, `create-admin --password-stdin` reads the password from standard input instead of prompting.
+Sign out and back in for the new role to apply. After that, admins create accounts and change roles from the **Admin** page, or with `POST /api/dashboard/users` (`{"username", "password", "role"}`, password 12+ characters, role `ADMIN`, `ANALYST` or `VIEWER`). For scripts and containers, `create-admin --password-stdin` reads the password from standard input instead of prompting.
 
 > The dashboard calls the API at `http://localhost:8000`, which is set in [`frontend/src/services/api.ts`](frontend/src/services/api.ts). If you run the API elsewhere, change it there and add the dashboard's origin to `LSADRA_CORS_ORIGINS`.
 
@@ -151,7 +151,7 @@ venv/bin/python tests/test_v4_smoke.py        # expected: 27/27 passed
 
 ## Dashboard tour
 
-The screenshots below were taken by following the quick start above, signed in as `demo.admin` after promoting it to admin: one demo device, 217 replayed events, 1440×900 window. `ADMIN` sees every user's data; `ANALYST` and `VIEWER` see only their own.
+The screenshots below were taken by following the quick start above, signed in as `demo.admin` after promoting it to admin, with the demo corpus replayed (plus a second replay of its benign background scenario from another device), in a 1440×900 window. `ADMIN` sees every user's data; `ANALYST` and `VIEWER` see only their own.
 
 ### Sign in
 
@@ -216,7 +216,7 @@ Some screens are designed but not yet wired to the API. They render, but parts o
 | Incident drill-down (`/app/incident/:id`) and its playbook | The whole page: entity details, attack timeline and raw log are the same sample incident, whichever incident you open |
 | Investigate | The API has no entity endpoint yet (`GET /api/entity/{id}` returns 404), so every search shows a generic profile with a fixed risk score of 42 |
 | Threat Intel | The lookup box does not call the API yet, so it returns nothing; the server-side AbuseIPDB cache (`LSADRA_ABUSEIPDB_API_KEY`) is not shown here |
-| Response | Playbook steps, the console and the response metrics |
+| Response | Playbook steps, the console and the response metrics are simulated, and labelled as dry-run |
 | Live Alerts header and footer | The ingestion rate, uptime and status line |
 | Sources | The average latency tile |
 | Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours |
@@ -224,13 +224,15 @@ Some screens are designed but not yet wired to the API. They render, but parts o
 
 ## Connect a real device
 
-**Linux.** Open **Connect Device**, click **Generate new token**, and run the command it shows on the host you want to monitor:
+**Linux.** Open **Connect Device**, click **Generate new token**, and copy the command it shows to the host you want to monitor. It looks like this, with the token and hashes filled in:
 
 ```bash
-curl -s http://<your-server>:8000/static/installer_linux.sh | sudo bash -s -- --token <TOKEN> --server http://<your-server>:8000
+curl -fsSLo lsadra-install.sh https://<your-server>/static/installer_linux.sh \
+  && echo '<installer-sha256>  lsadra-install.sh' | sha256sum -c - \
+  && sudo bash lsadra-install.sh --token <TOKEN> --server https://<your-server> --agent-sha256 <agent-sha256>
 ```
 
-The installer registers the device with the token, installs the Python agent as a systemd service, and picks `/var/log/auth.log` or `journalctl` automatically. Tokens are single-use. Use `https://` for anything beyond a lab: the agent sends its API key on every request.
+The command saves the installer to a file and checks its SHA-256 before running it with `sudo`; the installer then checks the agent's SHA-256 before installing it as a systemd service, and picks `/var/log/auth.log` or `journalctl` automatically. Tokens are single-use. The installer refuses a plain-HTTP server unless `--allow-insecure-http` is added, which the page does (with a warning) when the API is on `http://`; use that only on a trusted local network, because the agent sends its API key on every request.
 
 **Windows (test agent).** `python windows_agent_simulator.py` starts a local API, registers a simulated Windows device and streams events from a dummy log file. `windows_live_agent.py` reads the live Windows event log.
 
@@ -238,15 +240,17 @@ The installer registers the device with the token, installs the Python agent as 
 
 ## Run with Docker
 
-The Compose stack runs the API (`:8000`), the legacy Streamlit dashboard (`:8501`) and an idle agent simulator. The React dashboard is not part of the stack yet; run it as in the quick start, or build it with `cd frontend && npm ci && npm run build` and serve `frontend/dist` with any static file server.
+The Compose stack runs the API (`:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), the legacy Streamlit dashboard (`:8501`) and an idle agent simulator.
 
 ```bash
 cp .env.example .env
-# Edit .env: set LSADRA_JWT_SECRET to a long random value, for example the output of
-#   python -c "import secrets; print(secrets.token_urlsafe(32))"
+# Edit .env: set LSADRA_JWT_SECRET to your own random value of at least 32 bytes, e.g. the output of
+#   python -c "import secrets; print(secrets.token_urlsafe(48))"
 docker compose -f docker-compose.yml up -d --build
 docker compose -f docker-compose.yml exec api python -m lsadra.admin_cli create-admin --username alice
 ```
+
+Outside dev mode the server refuses to start with a JWT secret shorter than 32 bytes or a documented placeholder, and self-service sign-up is off, so create the first admin as above and add other accounts from the **Admin** page. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match.
 
 Name `docker-compose.yml` explicitly as above. A plain `docker compose up` also loads [`docker-compose.override.yml`](docker-compose.override.yml), the development override: it mounts the source tree, turns on hot reload and forces TLS off.
 
@@ -259,8 +263,9 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | Variable | Default | What it does |
 | --- | --- | --- |
 | `LSADRA_DEV_MODE` | `false` | Local development only: per-boot JWT secret, TLS optional |
-| `LSADRA_JWT_SECRET` | none | Required outside dev mode; the server will not start without it |
-| `LSADRA_CORS_ORIGINS` | empty | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173` |
+| `LSADRA_JWT_SECRET` | none | Required outside dev mode: your own random value of at least 32 bytes |
+| `LSADRA_ALLOW_SIGNUP` | `false` (on in dev mode) | Lets anyone who reaches the API create an `ANALYST` account with **Register** |
+| `LSADRA_CORS_ORIGINS` | empty (Compose: `http://localhost:8080`) | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173` |
 | `LSADRA_REQUIRE_TLS` | `true` (`false` in dev mode) | Reject plain-HTTP requests |
 | `LSADRA_TRUSTED_PROXY_IPS` | empty | Reverse proxies whose `X-Forwarded-Proto` is trusted |
 | `LSADRA_ABUSEIPDB_API_KEY` | empty | Enables IP reputation lookups on Threat Intel |
@@ -328,6 +333,8 @@ curl -X POST http://localhost:8000/api/events/raw \
 
 Per-source ingestion health is available at `GET /api/events/stats`.
 
+Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
+
 ## Live alert stream (WebSocket)
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -372,7 +379,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
-frontend/           React (Vite + TypeScript) SOC dashboard
+frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
@@ -386,7 +393,7 @@ docs/               Documentation tree
   screenshots/      Dashboard screenshots used in this README
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, DCO, commitlint, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
@@ -445,7 +452,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 **Where the project is now**
 
 - **Security remediation complete.** Every finding from two rounds of automated security review is fixed and pinned by regression tests in [`tests/security/`](tests/security/). One item remains deferred by design: signed agent distribution (lands with release engineering). The `/ws/alerts` live feed authenticates at the handshake (see [Live alerts](#live-alert-stream-websocket)).
-- **CI on every PR:** the smoke, security-regression and full backend suites across Ubuntu, Windows and macOS; a frontend job that type-checks and builds the dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning and a DCO check. A weekly job re-scans full history for secrets.
+- **CI on every PR:** the smoke, security-regression and full backend suites across Ubuntu, Windows and macOS; a frontend job that type-checks and builds the dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, a DCO check and a commitlint check of every commit message. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work, maintainer included, lands through pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.

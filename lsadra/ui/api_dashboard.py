@@ -6,7 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from lsadra.auth import require_role
+from lsadra.auth import hash_password, require_role
+from lsadra.authz import owns_device, visible_device_ids
 from lsadra.ui.data_layer import (
     get_dashboard_kpis,
     get_dashboard_recent_anomalies,
@@ -54,9 +55,43 @@ async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(_recent_events, uid, limit)
 
+def _scoped_metrics(user: dict, device_id: Optional[str], start: str, end: str) -> List[Dict]:
+    """Metrics the caller may see: one owned device, or the sum over theirs."""
+    if device_id:
+        if not owns_device(user, device_id):
+            raise HTTPException(status_code=404, detail="Device not found or access denied.")
+        return get_dashboard_metrics(device_id, start, end)
+    device_ids = visible_device_ids(user)
+    if device_ids is None:  # ADMIN: every device
+        return get_dashboard_metrics(None, start, end)
+    if not device_ids:
+        return []
+    placeholders = ",".join("?" for _ in device_ids)
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"""SELECT window_start,
+                      SUM(event_count) as event_count,
+                      SUM(anomaly_count) as anomaly_count,
+                      AVG(avg_severity) as avg_severity,
+                      MAX(max_severity) as max_severity,
+                      SUM(unique_ips) as unique_ips,
+                      SUM(unique_users) as unique_users
+               FROM metrics_5min
+               WHERE window_start BETWEEN ? AND ?
+                 AND device_id IN ({placeholders})
+               GROUP BY window_start
+               ORDER BY window_start ASC""",
+            (start, end, *device_ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
 @router.get("/metrics")
 async def api_metrics(start: str, end: str, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
-    return await run_in_threadpool(get_dashboard_metrics, device_id, start, end)
+    return await run_in_threadpool(_scoped_metrics, user, device_id, start, end)
 
 @router.get("/health")
 async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
@@ -192,8 +227,19 @@ async def api_export(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEW
         headers={"Content-Disposition": "attachment; filename=report.pdf"}
     )
 
-from lsadra.storage.database import list_users, update_user_role, get_connection
-from pydantic import BaseModel
+from lsadra.storage.database import (
+    create_user,
+    get_connection,
+    get_user_by_username,
+    list_users,
+    update_user_role,
+)
+from pydantic import BaseModel, Field
+from typing import Literal
+import sqlite3
+import uuid
+
+Role = Literal["ADMIN", "ANALYST", "VIEWER"]
 
 @router.get("/users")
 async def api_users(user: dict = Depends(require_role("ADMIN"))):
@@ -201,12 +247,39 @@ async def api_users(user: dict = Depends(require_role("ADMIN"))):
 
 class RoleUpdate(BaseModel):
     user_id: str
-    role: str
+    role: Role
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
     await run_in_threadpool(update_user_role, req.user_id, req.role)
     return {"status": "ok"}
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=12, max_length=128)
+    role: Role = "ANALYST"
+
+
+def _create_user_account(req: "UserCreate") -> Optional[Dict[str, str]]:
+    if get_user_by_username(req.username):
+        return None
+    uid = str(uuid.uuid4())
+    try:
+        create_user(uid, req.username, hash_password(req.password), req.role)
+    except sqlite3.IntegrityError:
+        return None
+    return {"user_id": uid, "role": req.role}
+
+
+@router.post("/users")
+async def api_create_user(req: UserCreate, user: dict = Depends(require_role("ADMIN"))):
+    """Create an account. With sign-up off (the default outside dev mode) this,
+    and ``python -m lsadra.admin_cli``, are how accounts are made."""
+    account = await run_in_threadpool(_create_user_account, req)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Username already taken.")
+    return {"status": "ok", **account}
+
 
 def _table_counts() -> Dict[str, int]:
     conn = get_connection()
@@ -260,9 +333,10 @@ async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWE
     return await run_in_threadpool(_drift_records)
 
 @router.post("/run-drift")
-async def api_run_drift(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+async def api_run_drift(user: dict = Depends(require_role("ADMIN"))):
+    # Drift runs over every device's data, so it is an admin action.
     from lsadra.detection.drift_detector import run as run_drift
-    run_drift()
+    await run_in_threadpool(run_drift)
     return {"status": "ok"}
 
 def _retrain() -> Dict[str, Any]:
@@ -284,13 +358,19 @@ def _retrain() -> Dict[str, Any]:
 
 
 @router.post("/retrain")
-async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+async def api_retrain(user: dict = Depends(require_role("ADMIN"))):
+    # Retraining reads every device's events and rewrites the shared models, so
+    # only an admin may trigger it (same rule as POST /admin/retrain).
     return await run_in_threadpool(_retrain)
 
+from lsadra.onboarding.agent_files import install_hashes
 from lsadra.onboarding.token_manager import generate_token
 
 @router.post("/generate-token")
-async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    # Enrolling a device adds a data source, so VIEWER (read-only) may not.
     user_id = user["user_id"]
     token = await run_in_threadpool(generate_token, user_id)
-    return {"token": token}
+    # Hashes for the install command: the command checks the installer and the
+    # installer checks the agent before anything runs as root.
+    return {"token": token, **await run_in_threadpool(install_hashes)}
