@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDevices, getAnomalies, deleteDevice } from '../services/api';
+import { getDevices, getAnomalies, deleteDevice, isTestUser } from '../services/api';
 import { Database, Plus, Trash2, Power, PowerOff, MonitorSmartphone } from 'lucide-react';
 
 const SEED_AGENTS = [
@@ -12,7 +12,7 @@ const SEED_AGENTS = [
 
 const Sources = () => {
   const navigate = useNavigate();
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   // IMPORTANT: For real users like demouser001, we start with an EMPTY list.
   const [agents, setAgents] = useState<any[]>(isTest ? SEED_AGENTS : []);
   const [anomCounts, setAnomCounts] = useState<Record<string, number>>({});

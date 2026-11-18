@@ -2,6 +2,14 @@ import axios from 'axios';
 
 export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
 
+// Canned demo data is a development aid only. It is compiled in only for
+// `npm run dev` with VITE_DEMO_MOCKS=true, and then only for the `testuser`
+// account. Production builds never serve it: the condition below is a
+// build-time constant, so the mock branches are removed from the bundle.
+// For realistic demo data, use scripts/seed_demo.py against a real API.
+const DEMO_MOCKS_ENABLED = import.meta.env.DEV && import.meta.env.VITE_DEMO_MOCKS === 'true';
+
+
 // Earlier builds kept plaintext passwords here for an offline login. That
 // login is gone; clear what it left behind.
 localStorage.removeItem('sentinel_mock_creds');
@@ -46,7 +54,7 @@ const EVENT_TYPES = ['Failed Login', 'Port Scan', 'Lateral Movement', 'Data Exfi
 const SEVERITIES = ['CRITICAL', 'HIGH', 'HIGH', 'MEDIUM', 'MEDIUM', 'MEDIUM', 'LOW', 'LOW'];
 
 export const generateEventStream = (count = 200, deviceFilter?: string[]): any[] => {
-  if (!isTestUser()) return [];
+  if (!DEMO_MOCKS_ENABLED || !isTestUser()) return [];
   const rows: any[] = [];
   for (let i = 0; i < count; i++) {
     const sev = SEVERITIES[Math.floor(Math.random() * SEVERITIES.length)];
@@ -285,7 +293,8 @@ setInterval(() => {
   _liveAnomalies += 1;
 }, 5000);
 
-const getMockData = (endpoint: string) => {
+const getMockData = (endpoint: string): any => {
+  if (!DEMO_MOCKS_ENABLED) return undefined;
   const filterIds = getActiveDeviceFilter() || [];
 
   const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
@@ -488,8 +497,9 @@ END OF REPORT
 };
 
 export const isTestUser = () => {
+  if (!DEMO_MOCKS_ENABLED) return false;
   const user = localStorage.getItem('sentinel_username');
-  return user === 'testuser'; // STRICT: Only testuser gets mock data
+  return user === 'testuser';
 };
 // Existing Endpoints wrapped with mock logic
 export const login = async (credentials: { username: string; password: string }) => {
@@ -543,7 +553,7 @@ export const getIncidents = async () => {
   }
 
   // 2. Fallback to mock data for demo
-  if (isTestUser()) return getMockData('/api/incidents') || { data: { incidents: [] } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/incidents') || { data: { incidents: [] } };
   return { data: { incidents: [] } };
 };
 
@@ -555,7 +565,7 @@ export const getIngestionStats = async () => {
     if (res.data?.events_per_second > 0) return res;
   } catch { }
 
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     // Provide "pulsing" mock stats for demo
     const pulse = Math.sin(Date.now() / 2000) * 2;
     return {
@@ -566,7 +576,7 @@ export const getIngestionStats = async () => {
       }
     };
   }
-  return { data: { events_per_second: 0, avg_latency_ms: 0, drop_rate_pct: 0 } };
+  return { data: { events_per_second: 0, avg_latency_ms: null, drop_rate_pct: null } };
 };
 
 export const getAnomalies = async () => {
@@ -578,7 +588,7 @@ export const getAnomalies = async () => {
   } catch { }
 
   // 2. Fallback to mock ONLY for testuser
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     return getMockData('/api/dashboard/anomalies');
   }
 
@@ -609,7 +619,7 @@ export const getKpis = async () => {
   } catch { }
 
   // 4. Fallback to mock ONLY for testuser if real counts are zero
-  if (isTestUser() && kpis.total_events_24h === 0) {
+  if (DEMO_MOCKS_ENABLED && isTestUser() && kpis.total_events_24h === 0) {
     const mock = getMockData('/api/dashboard/kpis')?.data || {};
     return { data: { ...kpis, ...mock } };
   }
@@ -618,12 +628,12 @@ export const getKpis = async () => {
 };
 
 export const exportReport = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/export');
-  try { return await api.get('/api/dashboard/export', { responseType: 'blob' }); }
-  catch { return getMockData('/api/dashboard/export'); }
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/export');
+  // A failed export must surface as an error, never as a mock report.
+  return api.get('/api/dashboard/export', { responseType: 'blob' });
 };
 export const generateToken = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/generate-token') || api.post('/api/dashboard/generate-token');
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/generate-token') || api.post('/api/dashboard/generate-token');
   return api.post('/api/dashboard/generate-token');
 };
 export const getMetrics = async () => {
@@ -637,23 +647,23 @@ export const getMetrics = async () => {
   } catch { }
 
   // 2. Mock fallback for testuser
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     return getMockData('/api/dashboard/metrics');
   }
 
   return { data: [] };
 };
 export const getDevices = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/devices') || { data: [] };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/devices') || { data: [] };
   try { return await api.get('/api/dashboard/devices'); } catch { return { data: [] }; }
 };
 export const deleteDevice = async (id: string) => {
   // Only use mock success if specifically logged in as 'testuser'
-  if (isTestUser()) return { data: { status: 'ok' } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return { data: { status: 'ok' } };
   return api.delete(`/api/dashboard/devices/${id}`);
 };
 export const updateDeviceStatus = async (id: string, active: boolean) => {
-  if (isTestUser()) return { data: { status: 'ok' } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return { data: { status: 'ok' } };
   return api.post(`/api/dashboard/devices/${id}/status?active=${active}`);
 };
 export const retrainModel = async () => {
@@ -667,7 +677,7 @@ export const retrainModel = async () => {
   }
   catch (err) {
     // If TestUser is testing offline/broken backend, allow mock success
-    if (isTest) {
+    if (DEMO_MOCKS_ENABLED && isTest) {
       return new Promise(r => setTimeout(() => r({ data: { status: 'success', message: 'Model retraining started (Simulation)' } }), 1000));
     }
     return { data: { status: 'error', message: (err as any).message || 'Offline' } };
@@ -683,14 +693,14 @@ export const runDrift = async () => {
     throw new Error(res.data?.message || 'Drift detection returned non-ok status');
   }
   catch (err) {
-    if (isTest) {
+    if (DEMO_MOCKS_ENABLED && isTest) {
       return new Promise(r => setTimeout(() => r({ data: { status: 'success', message: 'Drift detection completed (Simulation)' } }), 1000));
     }
     return { data: { status: 'error', message: (err as any).message || 'Offline' } };
   }
 };
 export const getModelRegistry = async () => {
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     const res = await api.get('/api/dashboard/models').catch(() => null);
     if (res?.data && res.data.length > 0) return res;
     // Fallback to mock models if backend empty or offline for Test
@@ -719,7 +729,7 @@ export const updateUserPassword = async (user_id: string, password: string) => {
 
 export const getStats = async () => {
   const isAdmin = localStorage.getItem('sentinel_role') === 'ADMIN';
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     const res = await api.get('/api/dashboard/stats').catch(() => null);
     if (res?.data && Object.keys(res.data).length > 0) return res;
     // Mock stats fallback only for testuser
@@ -729,6 +739,6 @@ export const getStats = async () => {
 };
 
 export const getEntity = async (id: string) => {
-  if (isTestUser()) return getMockData(`/api/entity/${id}`) || api.get(`/api/entity/${id}`);
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData(`/api/entity/${id}`) || api.get(`/api/entity/${id}`);
   return api.get(`/api/entity/${id}`);
 };

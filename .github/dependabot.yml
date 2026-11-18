@@ -1,3 +1,6 @@
+# Minor and patch bumps are grouped into one PR per ecosystem so the queue stays short and
+# contributors' PRs don't keep landing on top of a dozen dependency PRs. Major bumps still
+# arrive one PR each, since they are the ones that need a real look.
 version: 2
 updates:
   - package-ecosystem: pip
@@ -9,6 +12,9 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      pip-minor-and-patch:
+        update-types: ["minor", "patch"]
 
   - package-ecosystem: github-actions
     directory: "/"
@@ -18,6 +24,9 @@ updates:
       time: "04:00"
     commit-message:
       prefix: "chore(ci)"
+    groups:
+      actions:
+        patterns: ["*"]
 
   - package-ecosystem: npm
     directory: "/frontend"
@@ -28,3 +37,6 @@ updates:
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
+    groups:
+      npm-minor-and-patch:
+        update-types: ["minor", "patch"]
