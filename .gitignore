@@ -100,3 +100,6 @@ vault/
 LAUNCH_PACKAGE.md
 PART_B_SYSTEM_PROMPT.md
 fable_handover.md
+
+# Detection bench: downloaded public datasets (never committed; EVTX samples are GPL-3.0, test only)
+benchmarks/detection/.cache/
