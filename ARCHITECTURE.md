@@ -8,7 +8,7 @@ LSADRA processing pipeline follows a tiered approach:
 1.  **Ingestion & Normalization:** High-throughput FastAPI layer for multi-source log ingestion.
 2.  **Feature Extraction:** Conversion of raw telemetry into structured behavioral features using Pandas.
 3.  **Heuristic & ML Detection:** Multi-layered detection stack using deterministic rules, statistical baselining, and ensemble ML.
-4.  **Explainability & Narrative:** Generation of human-readable narratives using SHAP values and MITRE ATT&CK mapping.
+4.  **Explainability & Narrative:** Generation of human-readable narratives from the per-layer detection scores and the rule engine's MITRE ATT&CK mapping. (The live pipeline does not compute SHAP values; `lsadra/explainability/shap_explainer.py` is not called by it.)
 5.  **Reactive UI & Automation:** Modern React/TypeScript dashboard with interactive playbooks and real-time state synchronization.
 
 ---
@@ -55,7 +55,7 @@ Built with React 18, Vite, and Tailwind CSS, the new UI provides a premium SOC e
 
 ## 4. Key Design Principles
 
-1.  **Explainability First**: Every alert must be accompanied by a "Why" narrative and SHAP importance values.
+1.  **Explainability First**: Every alert must be accompanied by a "Why" narrative built from the signals that raised it.
 2.  **Premium Aesthetics**: Modern dark-mode interface with glassmorphic elements and high-density data visualizations.
 3.  **Offline Autonomy**: Zero dependency on external LLMs or cloud APIs for core reasoning and narrative generation.
 4.  **Actionable Intelligence**: Shift from passive alerting to active remediation via the Playbook system.

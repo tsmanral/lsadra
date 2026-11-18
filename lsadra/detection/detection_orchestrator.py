@@ -8,7 +8,7 @@ Runs the full detection stack:
   4. Autoencoder
   5. Severity scoring
   6. Rules + MITRE mapping
-  7. SHAP explainability
+  7. (SHAP explainability is not wired in: shap_values stays empty)
   8. Narrative generation
   9. Incident management (grouping)
 """
