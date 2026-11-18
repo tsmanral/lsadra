@@ -15,6 +15,7 @@
 [![Smoke tests](https://img.shields.io/badge/smoke_tests-27%2F27_passing-brightgreen.svg?style=flat-square)](tests/test_v4_smoke.py)
 [![Security tests](https://img.shields.io/badge/security_regression_tests-passing-brightgreen.svg?style=flat-square)](tests/security/)
 [![CI](https://img.shields.io/github/actions/workflow/status/tsmanral/lsadra/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/tsmanral/lsadra/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tsmanral/lsadra/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/tsmanral/lsadra)
 [![GitHub Stars](https://img.shields.io/github/stars/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra/stargazers)
 
 <br/>
@@ -69,7 +70,7 @@ This runs the API and the React dashboard on your own machine, then fills them w
 
 | Tool | Version | Check |
 | --- | --- | --- |
-| Python | **3.12** (what CI uses; newer versions generally work) | `python3.12 --version`, or `py -0` on Windows |
+| Python | **3.12** or newer (CI runs 3.12 on Ubuntu, Windows and macOS, plus 3.13 and 3.14 on Ubuntu) | `python3.12 --version`, or `py -0` on Windows |
 | Node.js + npm | 20 or newer (22 is used for the screenshots) | `node -v` |
 | Git | any recent | `git --version` |
 
@@ -80,9 +81,11 @@ git clone https://github.com/tsmanral/lsadra.git
 cd lsadra
 python3.12 -m venv venv                        # Windows: py -3.12 -m venv venv
 venv/bin/pip install -r requirements.txt      # Windows: venv\Scripts\pip install -r requirements.txt
+# Optional: CPU PyTorch for the autoencoder layer (the server runs without it)
+venv/bin/pip install --no-deps -r requirements/torch.txt
 ```
 
-`requirements.txt` pulls the CPU-only PyTorch build. It is the largest download (a few hundred MB). PyTorch is optional at runtime: if it is missing, the server still starts and the autoencoder layer becomes a no-op, while the statistical and ensemble layers keep working.
+Every dependency is pinned and hash-checked ([`requirements/README.md`](requirements/README.md)); `requirements.txt` installs everything except PyTorch, and `requirements/base.txt` alone is enough for the API server. PyTorch (CPU build, a few hundred MB from the PyTorch index) is optional: without it the server still starts and the autoencoder layer becomes a no-op, while the statistical and ensemble layers keep working.
 
 ### 2. Start the API in dev mode
 
@@ -259,7 +262,16 @@ Outside dev mode the server refuses to start with a JWT secret shorter than 32 b
 
 Name `docker-compose.yml` explicitly as above. A plain `docker compose up` also loads [`docker-compose.override.yml`](docker-compose.override.yml), the development override: it mounts the source tree, turns on hot reload and forces TLS off.
 
-`.env.example` sets `LSADRA_REQUIRE_TLS=false` so a first run works over plain HTTP on loopback. To reach the API from other machines, put it behind HTTPS (set `LSADRA_REQUIRE_TLS=true` and list your proxy in `LSADRA_TRUSTED_PROXY_IPS`) or give it a certificate, as described below. A versioned image is published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+`.env.example` sets `LSADRA_REQUIRE_TLS=false` so a first run works over plain HTTP on loopback. To reach the API from other machines, put it behind HTTPS (set `LSADRA_REQUIRE_TLS=true` and list your proxy in `LSADRA_TRUSTED_PROXY_IPS`) or give it a certificate, as described below. The image builds in two stages from a digest-pinned `python:3.12-slim`, installs only hash-checked dependencies, and runs as an unprivileged user (uid 10001) that can write only `/app/data` and `/app/logs`.
+
+A versioned image is published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release, only after the full CI suite passes on the tagged commit. Each image carries an SBOM and SLSA provenance, a GitHub attestation and a keyless Sigstore signature. Verify one before you run it:
+
+```bash
+gh attestation verify oci://ghcr.io/tsmanral/lsadra:<version> --owner tsmanral
+cosign verify ghcr.io/tsmanral/lsadra:<version> \
+  --certificate-identity-regexp '^https://github.com/tsmanral/lsadra/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ### Network exposure and TLS
 
@@ -313,7 +325,7 @@ CI runs these on every pull request across Ubuntu, Windows and macOS. Run them b
 | Smoke gate | `python tests/test_v4_smoke.py` | `27/27 passed` | seconds |
 | Security regression gate | `python -m pytest tests/security/ -q` | 0 failures | ~10 s |
 | Full backend suite | `python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q` | 0 failures | ~1 min |
-| Lint | `ruff check .` (install with `pip install -r requirements-dev.txt`) | `All checks passed!` | seconds |
+| Lint | `ruff check .` (ruff comes with `requirements.txt`) | `All checks passed!` | seconds |
 | Dashboard type check + build | `cd frontend && npm ci && npm run build` | `✓ built` | ~1 min |
 | Dashboard lint | `cd frontend && npm run lint` | CI fails only if errors exceed the recorded baseline | seconds |
 
@@ -457,6 +469,8 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
 scripts/            Operator tooling (seed_demo.py replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus)
+requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools;
+                    see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
@@ -467,10 +481,10 @@ docs/               Documentation tree
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix, DCO, commitlint, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, DCO, commitlint, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff (not torch)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -506,7 +520,7 @@ LSADRA treats logs as **attacker-controlled input**: they reach parsers, the det
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by tests in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
-- **Supply chain:** every GitHub Action is pinned to a commit SHA, secret scanning runs on every PR diff plus a weekly full-history scan, Dependabot covers pip, npm and Actions, and release artifacts will be signed from M5 onward.
+- **Supply chain:** hash-locked Python dependencies ([`requirements/`](requirements/)) and SHA-pinned Actions; secret scanning on every PR diff plus a weekly full-history scan; dependency review, `pip-audit` and `npm audit` on every PR and weekly; CodeQL; `zizmor` on workflow changes; a ruff security-rule ratchet; OpenSSF Scorecard; Dependabot for pip/npm/Actions/Docker. Release images are built only after CI passes and ship with an SBOM, SLSA provenance, a GitHub attestation and a Sigstore signature (see [Run with Docker](#run-with-docker)).
 
 ## License
 
