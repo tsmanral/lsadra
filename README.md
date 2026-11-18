@@ -13,7 +13,7 @@
 [![FastAPI](https://img.shields.io/badge/FastAPI-API-009688.svg?style=flat-square&logo=fastapi&logoColor=white)](https://fastapi.tiangolo.com/)
 [![React](https://img.shields.io/badge/React-Dashboard-61DAFB.svg?style=flat-square&logo=react&logoColor=black)](frontend/)
 [![Smoke tests](https://img.shields.io/badge/smoke_tests-27%2F27_passing-brightgreen.svg?style=flat-square)](tests/test_v4_smoke.py)
-[![Security tests](https://img.shields.io/badge/security_regression_tests-492_passing-brightgreen.svg?style=flat-square)](tests/security/)
+[![Security tests](https://img.shields.io/badge/security_regression_tests-passing-brightgreen.svg?style=flat-square)](tests/security/)
 [![CI](https://img.shields.io/github/actions/workflow/status/tsmanral/lsadra/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/tsmanral/lsadra/actions/workflows/ci.yml)
 [![GitHub Stars](https://img.shields.io/github/stars/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra/stargazers)
 
@@ -276,9 +276,9 @@ CI runs these on every pull request across Ubuntu, Windows and macOS. Run them b
 | What | Command | Expected | Time |
 | --- | --- | --- | --- |
 | Smoke gate | `python tests/test_v4_smoke.py` | `27/27 passed` | seconds |
-| Security regression gate | `python -m pytest tests/security/ -q` | `492 passed` | ~10 s |
-| Full backend suite | `python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q` | `922 passed` | ~1 min |
-| Lint | `ruff check .` (install with `pip install ruff`) | `All checks passed!` | seconds |
+| Security regression gate | `python -m pytest tests/security/ -q` | 0 failures | ~10 s |
+| Full backend suite | `python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q` | 0 failures | ~1 min |
+| Lint | `ruff check .` (install with `pip install -r requirements-dev.txt`) | `All checks passed!` | seconds |
 | Dashboard type check + build | `cd frontend && npm ci && npm run build` | `✓ built` | ~1 min |
 | Dashboard lint | `cd frontend && npm run lint` | CI fails only if errors exceed the recorded baseline | seconds |
 
@@ -389,6 +389,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
+requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -423,7 +424,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 LSADRA treats logs as **attacker-controlled input**: they reach parsers, the detection pipeline, and (later) an LLM and a RAG index. The threat model is written down in [`docs/threat-models/`](docs/threat-models/).
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
-- **Regression suite:** every remediated finding is pinned by tests in [`tests/security/`](tests/security/), 492 tests run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Regression suite:** every remediated finding is pinned by tests in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
 - **Supply chain:** every GitHub Action is pinned to a commit SHA, secret scanning runs on every PR diff plus a weekly full-history scan, Dependabot covers pip, npm and Actions, and release artifacts will be signed from M5 onward.
 
 ## License
