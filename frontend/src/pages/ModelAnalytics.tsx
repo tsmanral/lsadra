@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { getModelRegistry, getDrift, retrainModel, runDrift, getStats } from '../services/api';
+import { getModelRegistry, getDrift, retrainModel, runDrift, getStats, isTestUser } from '../services/api';
 import { Brain, Activity, RefreshCw, BarChart2, Shield, Wrench, Clock, Database, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 
@@ -15,7 +15,7 @@ const ModelAnalytics = () => {
     fetchData();
   }, []);
 
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
 
   const MOCK_MODELS = [
     { model_name: 'ensemble',    model_type: 'Isolation Forest + LOF + OCSVM', event_count: 1543290, trained_at: new Date(Date.now()-86400000*2).toISOString(), version: 'v2.4.1', is_stale: false },
