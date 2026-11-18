@@ -68,31 +68,95 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 
 ## Development Setup
 
-### Backend (Python 3.12 required)
+You need **Python 3.12+**, **Node.js 22+** (CI uses Node 24) and **git**. Commands below use the
+Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` instead.
+
+### Backend
 
 ```bash
 py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
-venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
+venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
 venv/Scripts/pip install --no-deps -r requirements/torch.txt   # optional autoencoder (CPU torch)
-venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
+
+The optional torch line downloads the CPU build of PyTorch, so expect a few minutes. Every package
+is pinned and hash-checked; see [requirements/README.md](requirements/README.md).
+
+Start the API in **local dev mode**. Outside dev mode the server refuses to start without a
+`LSADRA_JWT_SECRET` and TLS, which is what you want in production and not what you want on your
+laptop. `LSADRA_CORS_ORIGINS` lets the dashboard on port 5173 call the API.
+
+```bash
+# bash / zsh
+export LSADRA_DEV_MODE=true LSADRA_CORS_ORIGINS=http://localhost:5173
+venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8000
+```
+
+```powershell
+# PowerShell
+$env:LSADRA_DEV_MODE="true"; $env:LSADRA_CORS_ORIGINS="http://localhost:5173"
+venv/Scripts/python -m uvicorn server:app --host 127.0.0.1 --port 8000
+```
+
+`http://127.0.0.1:8000/api/health` should answer `{"status":"ok", ...}` and the API docs are at
+`http://127.0.0.1:8000/docs`. Every other variable is documented in [`.env.example`](.env.example).
+
+### Demo data
+
+With the API running, replay the labeled synthetic corpus through the real ingestion API:
+
+```bash
+venv/Scripts/python scripts/seed_demo.py
+```
+
+It registers the dashboard user `demo.admin` (password `demo-only-not-a-secret`) and a
+`demo-host-01` device, then sends about 200 events that trigger alerts. Log in to the dashboard
+with that user. The data is synthetic by construction; never point the seeder at a real deployment.
 
 ### Frontend
 
 ```bash
 cd frontend
-npm install
-npm run dev        # dashboard at http://localhost:5173
+npm ci             # exact versions from package-lock.json
+npm run dev        # dashboard at http://localhost:5173, talks to the API on :8000
 ```
 
-### Running Tests
+The API address is set in `frontend/src/services/api.ts`. See [frontend/README.md](frontend/README.md).
+
+### Running the checks
+
+These are the same checks CI runs. Run the ones that match what you changed:
+
+| You changed | Run | Takes about |
+|---|---|---|
+| Anything in Python | `venv/Scripts/python tests/test_v4_smoke.py` (expect 27/27) | 5 s |
+| Anything in Python | `venv/Scripts/python -m pytest tests/security/ -q` (0 failures) | 15 s |
+| Anything in Python | `venv/Scripts/ruff check .` | 1 s |
+| Parsers, detection, storage, API | `venv/Scripts/python -m pytest tests/ -q` (full suite) | 1-2 min |
+| One area only | `venv/Scripts/python -m pytest tests/storage -q`, `tests/test_detection_pipeline.py`, ... | seconds |
+| `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npx eslint .` | 30 s |
+
+The frontend ESLint check in CI fails when the error count goes **above** a recorded baseline
+(lint debt is being paid down file by file). If your PR lowers the count, lower the baseline in
+`.github/workflows/ci.yml` too.
+
+Optional but handy: `pre-commit install && pre-commit install --hook-type commit-msg` runs lint,
+secret scanning and the Conventional Commit check before each commit.
+
+### Your first pull request, start to finish
 
 ```bash
-venv/Scripts/python -m pytest tests/           # unit + integration tests
-venv/Scripts/python tests/test_v4_smoke.py     # end-to-end smoke test (expected: 27/27)
+git checkout -b fix/short-description
+# ... make the change, add or update a test ...
+venv/Scripts/python tests/test_v4_smoke.py && venv/Scripts/python -m pytest tests/security/ -q
+venv/Scripts/ruff check .
+git commit -s -m "fix(parsers): handle empty syslog lines"
+git push -u origin fix/short-description
 ```
 
-Please make sure the smoke test passes before opening a PR.
+Then open a pull request against `main`. The template asks what changed, why, and what you ran.
+On a first PR from a fork, GitHub may hold the CI run until a maintainer approves it, so a short
+wait before the checks appear is normal.
 
 ## How to Contribute
 

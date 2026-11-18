@@ -94,7 +94,6 @@ async def _health_latency_while(request_coro, started: threading.Event):
 def _case(name):
     """(patch target, real callable, request coroutine factory) per handler."""
     import lsadra.ingestion.api_ingestion as ingestion
-    import lsadra.onboarding.device_registration as registration
     import lsadra.ui.api_dashboard as dashboard
     import server
 
@@ -107,9 +106,9 @@ def _case(name):
         return ("lsadra.ingestion.api_ingestion.store_batch_and_touch", ingestion.store_batch_and_touch,
                 lambda c: c.post("/api/events/raw", json=RAW, headers=headers))
     if name == "heartbeat":
-        device_id = _device()["X-Device-Id"]
+        headers = _device()
         return ("server.record_heartbeat", server.record_heartbeat,
-                lambda c: c.post("/heartbeat", json={"device_id": device_id}))
+                lambda c: c.post("/heartbeat", json={}, headers=headers))
     if name == "auth/login":
         return ("server.get_user_by_username", server.get_user_by_username,
                 lambda c: c.post("/api/auth/login", json={"username": "nobody", "password": "x"}))
@@ -123,9 +122,11 @@ def _case(name):
         return ("lsadra.ui.api_dashboard.get_dashboard_kpis", dashboard.get_dashboard_kpis,
                 lambda c: c.get("/api/dashboard/kpis", headers=headers))
     if name == "devices/config":
-        device_id = _device()["X-Device-Id"]
-        return ("lsadra.onboarding.device_registration.get_device", registration.get_device,
-                lambda c: c.get(f"/api/devices/config/{device_id}"))
+        # The route authenticates the device first; that lookup is the storage call.
+        headers = _device()
+        device_id = headers["X-Device-Id"]
+        return ("lsadra.ingestion.api_ingestion.get_device", ingestion.get_device,
+                lambda c: c.get(f"/api/devices/config/{device_id}", headers=headers))
     raise KeyError(name)
 
 

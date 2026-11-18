@@ -74,10 +74,10 @@ class TestHeartbeatEndpoint:
     """Tests for the heartbeat endpoint."""
 
     def test_heartbeat_unknown_device(self, client):
-        response = client.post("/heartbeat", json={
-            "device_id": "nonexistent",
+        response = client.post("/heartbeat", json={}, headers={
+            "X-Device-Id": "nonexistent", "X-Api-Key": "apikey",
         })
-        assert response.status_code == 404
+        assert response.status_code == 401
 
     def test_heartbeat_success(self, client):
         # Create user and device
@@ -86,7 +86,9 @@ class TestHeartbeatEndpoint:
         create_user("user-1", "testuser", "hash", "ANALYST")
         create_device("device-1", "user-1", "test-host", "linux", "apikey")
 
-        response = client.post("/heartbeat", json={
+        response = client.post("/heartbeat", headers={
+            "X-Device-Id": "device-1", "X-Api-Key": "apikey",
+        }, json={
             "device_id": "device-1",
             "cpu_pct": 45.2,
             "mem_pct": 67.8,

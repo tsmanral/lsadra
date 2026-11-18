@@ -19,12 +19,13 @@ compile() {
 extra=()
 [[ "${1:-}" == "--upgrade" ]] && extra+=(--upgrade)
 
-# base.txt first: ml/ui/dev are constrained to its pins (-c base.txt).
+# base.txt and ci-tools.txt first: ml/ui/dev are constrained to base's pins
+# (-c base.txt), and dev takes ruff at CI's version (-c ci-tools.txt).
 compile base.in "${extra[@]}"
+compile ci-tools.in "${extra[@]}"
 compile ml.in "${extra[@]}"
 compile ui.in "${extra[@]}"
 compile dev.in "${extra[@]}"
-compile ci-tools.in "${extra[@]}"
 # torch comes from the CPU wheel index only. --emit-index-url writes that
 # index into torch.txt so pip never looks at PyPI for it. --no-deps: its
 # dependencies are locked in ml.in from PyPI; install torch.txt with

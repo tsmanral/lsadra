@@ -78,6 +78,14 @@ def test_dockerfile_is_digest_pinned_and_non_root():
     assert "apt-get" not in runtime
 
 
+def test_frontend_image_is_digest_pinned():
+    text = (ROOT / "frontend" / "Dockerfile").read_text(encoding="utf-8")
+    froms = re.findall(r"^FROM\s+(\S+)", text, flags=re.MULTILINE)
+    assert froms
+    for image in froms:
+        assert re.search(r"@sha256:[0-9a-f]{64}$", image), f"base image not digest-pinned: {image}"
+
+
 def test_actions_are_pinned_to_commit_shas():
     for wf in sorted(WORKFLOWS.glob("*.yml")):
         for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", wf.read_text(encoding="utf-8"), flags=re.MULTILINE):
@@ -106,6 +114,8 @@ def test_release_is_gated_signed_and_attested():
 
 def test_ci_installs_dependencies_by_hash():
     ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
+    dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
+    assert [ln for ln in dev.splitlines() if ln.strip() and not ln.startswith("#")] == ["-r requirements/dev.txt"]
     for wf in sorted(WORKFLOWS.glob("*.yml")):
         for cmd in re.findall(r"pip install[^\n]*", wf.read_text(encoding="utf-8")):
             assert "--require-hashes" in cmd, f"{wf.name}: unhashed install: {cmd}"
