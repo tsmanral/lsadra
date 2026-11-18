@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDevices, saveActiveDeviceFilter, deleteDevice, updateDeviceStatus } from '../services/api';
+import { getDevices, saveActiveDeviceFilter, deleteDevice, updateDeviceStatus, isTestUser } from '../services/api';
 import { Monitor, Server, Plus, CheckSquare, Square, Save, RotateCcw, Info, Power, PowerOff, Trash2 } from 'lucide-react';
 
 const OS_GROUPS: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -27,7 +27,7 @@ const SEED: any[] = [
 
 const DeviceBehavior = () => {
   const navigate = useNavigate();
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   const [devices, setDevices]   = useState<any[]>([]); // Start empty, fill from API or SEED
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeGroup, setActiveGroup] = useState<string>('All');

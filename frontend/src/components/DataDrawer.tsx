@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { generateEventStream, getActiveDeviceFilter, getEvents } from '../services/api';
+import { generateEventStream, getActiveDeviceFilter, getEvents, isTestUser } from '../services/api';
 import { X, Search, Download, Crosshair, ChevronDown } from 'lucide-react';
 
 export type DrawerType = 'events' | 'threats' | 'incidents' | 'anomalies';
@@ -28,7 +28,7 @@ interface Props {
 
 const DataDrawer: React.FC<Props> = ({ type, statusFilter, onClose, incidents = [], anomalies = [], defaultTime = '24h' }) => {
   const navigate = useNavigate();
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   const [search,  setSearch]  = useState('');
   const [sevF,    setSevF]    = useState('All');
   const [timeF,   setTimeF]   = useState(defaultTime);
