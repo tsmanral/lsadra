@@ -262,3 +262,36 @@ machine is a cloud VM with a 4-core Intel Xeon @ 2.1 GHz, 15.7 GB RAM, Linux
 Every D8 criterion holds on Linux: at least 1 000 ev/s across 20 devices with
 detection on, 0 errors, loop lag p99 under 50 ms, request p99 under 250 ms,
 RSS at or under 600 MB, and two reproducible runs committed.
+
+## M1 close-out: D8 on Windows (2026-11-18)
+
+This ran on the same laptop as the 2026-09-30 baseline (Core Ultra 9 185H,
+31.4 GB, Windows 11, Python 3.14.3). Code `42d23b3`, clean tree, detection on.
+PyTorch was not installed: `requirements.txt` no longer lists it. Sleep was
+blocked and the PC was idle (under 10 % CPU) before each run.
+
+- [`m1-d8-windows-gate.json`](m1-d8-windows-gate.json):
+  `--detection on --devices 20 --rates 1000 1500 --repeats 2`
+
+  | Run | Offered ev/s | Sustained | p50 / p95 / p99 ms | Loop lag p99 ms | RSS MB | Errors |
+  |---|---|---|---|---|---|---|
+  | 1 | 1 000 | 1 000 | 34.5 / 72.2 / 110.6 | 13.6 | 256.2 | 0 |
+  | 1 | 1 500 | 1 500 | 34.4 / 59.6 / 69.9 | 15.2 | 263.3 | 0 |
+  | 2 | 1 000 | 1 000 | 33.6 / 57.2 / 70.5 | 14.1 | 256.2 | 0 |
+  | 2 | 1 500 | 1 500 | 36.7 / 74.9 / 171.5 | 15.3 | 262.2 | 0 |
+
+- Full default sweep (not committed; the JSON stays on the lab PC): every step
+  sustained its offered rate with 0 errors. Loop-lag p99 stayed between 11 and
+  18 ms and RSS between 256 and 273 MB. Every step's request p99 was under
+  100 ms except two. At 10 devices and 100 ev/s it was 89.6 ms. At 20 devices
+  and 1 000 ev/s it was **250.8 ms**, just over the 250 ms line, while the gate
+  run's two 1 000 ev/s steps on the same build measured 110.6 and 70.5 ms. Treat
+  that single step as noise to re-check, not a pass.
+
+On Windows `server_cpu_cores_avg` reads 0.0 for every step. Server CPU sampling
+does not work on that platform yet, so ignore that column there. The gate JSON
+was recorded before the log markers were updated for the model-lifecycle
+training messages, so its `Auto-training models` / `all layers trained` counts
+are stale names that read 0. Training does run: with the current markers a
+Linux run logs one `Auto-training after` and one `candidate promoted` per
+server.

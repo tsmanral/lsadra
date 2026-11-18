@@ -98,7 +98,13 @@ AUTH_REFRESH_AFTER_FRACTION = 0.5
 # AUTH_REWARM_MAX_ROUNDS times in all.
 AUTH_REWARM_MAX_SETTLE_S = 10.0
 AUTH_REWARM_MAX_ROUNDS = 3
-LOG_MARKERS = ["Online detection:", "Auto-training models", "all layers trained", "Traceback"]
+LOG_MARKERS = [
+    "Online detection:",
+    "Auto-training after",
+    "candidate promoted",
+    "rejected by the canary",
+    "Traceback",
+]
 
 
 # ── machine / environment ────────────────────────────────────────────────
