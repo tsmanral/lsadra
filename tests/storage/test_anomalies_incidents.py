@@ -36,6 +36,10 @@ ANOMALY_KEYS = {
     "incident_id",
     "is_synthetic",
     "created_at",
+    # Rule attribution (migration 005)
+    "rule_id",
+    "rule_version",
+    "mitre_tactics",
 }
 INCIDENT_KEYS = {
     "id",
@@ -97,6 +101,17 @@ def test_insert_anomaly_returns_id_and_round_trips(seeded):
     assert json.loads(a["shap_values"]) == {"failed_logins": 0.4}
     assert a["is_anomaly"] == 1 and a["is_synthetic"] == 0
     assert a["incident_id"] is None
+
+
+def test_insert_anomaly_stores_rule_attribution(seeded):
+    event_id = seeded.insert_event(make_event())
+    seeded.insert_anomaly(_anomaly(
+        event_id=event_id, mitre_technique="T1110.001", rule_id="lsadra-auth-brute-force",
+        rule_version=2, mitre_tactics=["Credential Access"],
+    ))
+    [a] = seeded.get_anomalies_for_device(DEVICE_ID)
+    assert a["rule_id"] == "lsadra-auth-brute-force" and a["rule_version"] == 2
+    assert json.loads(a["mitre_tactics"]) == ["Credential Access"]
 
 
 def test_insert_anomaly_empty_dict_stores_defaults(db, sql):

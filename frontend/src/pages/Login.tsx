@@ -1,22 +1,29 @@
 import React, { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Shield } from 'lucide-react';
-import { login, register } from '../services/api';
+import { login, register, LoginError } from '../services/api';
 
 const Login = () => {
   const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
+  const [totpCode, setTotpCode] = useState('');
+  const [needTotp, setNeedTotp] = useState(false);
   const navigate = useNavigate();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
     try {
-      const response = await login({ username, password });
+      const response = await login({ username, password, ...(needTotp ? { totp_code: totpCode } : {}) });
       const { access_token, role } = response.data;
       localStorage.setItem('sentinel_token', access_token);
       localStorage.setItem('sentinel_role',  role);
       navigate('/app/dashboard');
     } catch (err: any) {
+      if (err instanceof LoginError && err.code === 'totp_required') {
+        setNeedTotp(true);  // password accepted; ask for the authenticator code
+        return;
+      }
+      setTotpCode('');
       const msg = err?.message || err?.response?.data?.detail || 'Invalid credentials';
       alert(`Login failed: ${msg}`);
     }
@@ -81,7 +88,25 @@ const Login = () => {
               required
             />
           </div>
-          
+          {needTotp && (
+            <div>
+              <label className="block text-[var(--color-muted)] text-xs font-display uppercase tracking-widest mb-1">Authenticator Code</label>
+              <input
+                type="text"
+                inputMode="numeric"
+                autoComplete="one-time-code"
+                pattern="[0-9]{6}"
+                maxLength={6}
+                value={totpCode}
+                onChange={(e) => setTotpCode(e.target.value.replace(/[^0-9]/g, ''))}
+                className="w-full bg-[var(--color-surface-lowest)] border-b-2 border-[var(--color-outline-variant)] focus:border-[var(--color-primary)] outline-none text-white font-mono px-4 py-2 transition-colors"
+                placeholder="123456"
+                autoFocus
+                required
+              />
+            </div>
+          )}
+
           <div className="flex space-x-4 pt-4">
             <button 
               type="submit" 

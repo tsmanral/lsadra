@@ -41,9 +41,23 @@ PATH = "/ws/alerts"
 
 
 @pytest.fixture
-def client():
+def client(tmp_path):
     from fastapi.testclient import TestClient
+
+    from lsadra.storage.database import create_user
     from server import app
+    from tests.fixtures import setup_test_db
+
+    # G-9: the handshake re-reads the account behind a token (role, disabled,
+    # token_version), so every token below belongs to a real (synthetic) user.
+    setup_test_db(tmp_path)
+    for uid, name, role in (
+        ("u-1", "alice.demo", "ANALYST"),
+        ("u-alice", "alice.own.demo", "ANALYST"),
+        ("u-admin", "admin.demo", "ADMIN"),
+        ("u-agent", "agent.demo", "AGENT"),
+    ):
+        create_user(uid, name, "synthetic-not-a-real-hash", role)
     return TestClient(app)
 
 
@@ -100,7 +114,8 @@ def test_expired_token_rejected(client):
 
 
 def test_unknown_role_rejected(client):
-    _expect_rejected(client, headers=_bearer(create_access_token("u-1", "x.demo", "AGENT")))
+    # The role is the stored one (G-9), so the non-streaming role is on the account.
+    _expect_rejected(client, headers=_bearer(create_access_token("u-agent", "agent.demo", "AGENT")))
 
 
 def test_token_in_query_string_ignored(client):
@@ -183,7 +198,7 @@ def test_admin_receives_every_alert(client):
 def test_socket_closes_when_token_expires(client):
     exp = datetime.now(timezone.utc) + timedelta(seconds=2)
     token = jwt.encode(
-        {"sub": "u-1", "role": "ANALYST", "exp": exp}, JWT_SECRET, algorithm=TOKEN_ALGORITHM
+        {"sub": "u-1", "role": "ANALYST", "tv": 0, "exp": exp}, JWT_SECRET, algorithm=TOKEN_ALGORITHM
     )
     with client.websocket_connect(PATH, headers=_bearer(token)) as ws:
         assert ws.receive_json()["type"] == "ready"
