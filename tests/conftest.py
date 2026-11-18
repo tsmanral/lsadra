@@ -46,3 +46,17 @@ def _reset_device_credential_cache():
     ingestion = sys.modules.get("lsadra.ingestion.api_ingestion")
     if ingestion is not None:
         ingestion.device_credential_cache.invalidate()
+
+
+@pytest.fixture(autouse=True)
+def _reset_model_training_state():
+    """The training gate (single flight + cooldown) and the singleton
+    orchestrator are process-wide; reset them so one test's training run or
+    temporary models folder never leaks into the next test."""
+    yield
+    lifecycle = sys.modules.get("lsadra.detection.model_lifecycle")
+    if lifecycle is not None:
+        lifecycle.reset_training_gate()
+    ingestion = sys.modules.get("lsadra.ingestion.api_ingestion")
+    if ingestion is not None:
+        ingestion._orchestrator = None

@@ -1,7 +1,9 @@
 """
 LSADRA V3 — Abstract base class for anomaly detectors.
 
-Adds ``save()`` and ``load()`` methods for model persistence via joblib.
+Adds ``save()`` and ``load()`` methods for model persistence via joblib. Files
+go through :class:`lsadra.models.integrity.ModelStore`, so a load only
+deserializes bytes that match the folder's authenticated manifest (G-17).
 """
 
 import logging
@@ -49,7 +51,7 @@ class BaseAnomalyDetector(ABC):
 
     def save(self, path: Path | None = None) -> Path:
         """
-        Persist the model to disk using joblib.
+        Persist the model to disk using joblib, recording it in the manifest.
 
         Args:
             path: Optional custom path. Defaults to ``data/models/<name>.joblib``.
@@ -57,27 +59,33 @@ class BaseAnomalyDetector(ABC):
         Returns:
             The path the model was saved to.
         """
-        import joblib
+        from lsadra.models.integrity import ModelStore
 
         target = path or self._model_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-        joblib.dump(self, str(target))
+        ModelStore(target.parent).save_joblib(target.name, self)
         logger.info("Model '%s' saved to %s", self.name, target)
         return target
 
     @classmethod
     def load(cls, path: Path) -> "BaseAnomalyDetector":
         """
-        Load a persisted model from disk.
+        Load a persisted model from disk after verifying it against the manifest.
 
         Args:
             path: Path to the .joblib file.
 
         Returns:
             The deserialized model instance.
-        """
-        import joblib
 
-        model = joblib.load(str(path))
+        Raises:
+            ModelIntegrityError: the file is not listed in an authenticated
+                manifest or its hash does not match.
+        """
+        from lsadra.models.integrity import ModelStore
+
+        path = Path(path)
+        model = ModelStore(path.parent).load_joblib(path.name)
+        if not isinstance(model, cls):
+            raise TypeError(f"{path.name} does not hold a {cls.__name__}")
         logger.info("Model '%s' loaded from %s", model.name, path)
         return model
