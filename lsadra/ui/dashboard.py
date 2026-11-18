@@ -176,7 +176,10 @@ def page_login():
                     st.error("Invalid credentials.")
         with col2:
             if st.button("Register", use_container_width=True):
-                if username and password:
+                from lsadra.config import ALLOW_SIGNUP
+                if not ALLOW_SIGNUP:
+                    st.error("Sign-up is disabled. Ask an admin to create your account.")
+                elif username and password:
                     try:
                         from lsadra.auth import hash_password
                         uid = str(uuid.uuid4())
@@ -213,12 +216,18 @@ def page_connect():
         except Exception:
             local_ip = "127.0.0.1"
 
-        server_address = f"http://{local_ip}:8000"
+        from lsadra.config import REQUIRE_TLS
+        from lsadra.onboarding.agent_files import linux_install_command
+
+        scheme = "https" if REQUIRE_TLS else "http"
+        server_address = f"{scheme}://{local_ip}:8000"
 
         st.subheader("Linux")
-        st.code(
-            f'curl -s {server_address}/static/installer_linux.sh | sudo bash -s -- --token {token} --server {server_address}',
-            language="bash",
+        st.code(linux_install_command(server_address, token), language="bash")
+        st.caption(
+            "The command checks the installer's SHA-256 before running it, and the "
+            "installer checks the agent's. Over plain HTTP it needs "
+            "--allow-insecure-http: use that only on a trusted local network."
         )
 
         st.subheader("Windows")
