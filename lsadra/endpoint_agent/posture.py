@@ -210,11 +210,16 @@ def _check_file_regex(check: Dict[str, Any], root: str, _run: CommandRunner) -> 
     return (PASS if found == want else FAIL), f"pattern {'found' if found else 'not found'} in {check['path']}"
 
 
+def _mode_of(path: str) -> int:
+    """Permission bits of a file (a seam for tests)."""
+    return stat.S_IMODE(os.stat(path).st_mode)
+
+
 def _check_file_mode(check: Dict[str, Any], root: str, _run: CommandRunner) -> Result:
     full = _host_path(root, check["path"])
     if not os.path.exists(full):
         return NOT_APPLICABLE, f"{check['path']} not present"
-    mode = stat.S_IMODE(os.stat(full).st_mode)
+    mode = _mode_of(full)
     limit = int(str(check["max_mode"]), 8)
     extra = mode & ~limit
     detail = f"{check['path']} mode {mode:04o} (limit {limit:04o})"

@@ -26,11 +26,11 @@ def _no_commands(argv):
     return None  # every status command "not installed"
 
 
-def _write(root, path, text, mode=0o644):
+def _write(root, path, text):
     full = root / path.lstrip("/")
     full.parent.mkdir(parents=True, exist_ok=True)
     full.write_text(text, encoding="utf-8")
-    os.chmod(full, mode)
+    os.chmod(full, 0o600)
     return full
 
 
@@ -118,12 +118,14 @@ def test_extra_uid0_account_fails(tmp_path):
     assert posture.evaluate(check, str(tmp_path), _no_commands)[0] == posture.FAIL
 
 
-@pytest.mark.skipif(os.name == "nt", reason="POSIX permission bits")
-def test_world_readable_shadow_fails(tmp_path):
+def test_world_readable_shadow_fails(tmp_path, monkeypatch):
+    # The mode is faked rather than set on disk, so the test never creates a
+    # world-readable file and runs the same on every OS.
     check = _shipped("lnx-shadow-permissions")
-    _write(tmp_path, "/etc/shadow", "root:*:1::::::\n", mode=0o640)
+    _write(tmp_path, "/etc/shadow", "root:*:1::::::\n")
+    monkeypatch.setattr(posture, "_mode_of", lambda _path: 0o640)
     assert posture.evaluate(check, str(tmp_path), _no_commands)[0] == posture.PASS
-    os.chmod(tmp_path / "etc/shadow", 0o644)
+    monkeypatch.setattr(posture, "_mode_of", lambda _path: 0o644)
     assert posture.evaluate(check, str(tmp_path), _no_commands)[0] == posture.FAIL
 
 
@@ -162,7 +164,7 @@ def test_a_broken_check_reports_an_error_instead_of_raising(tmp_path):
 def test_checks_never_change_the_host(tmp_path):
     _write(tmp_path, "/etc/ssh/sshd_config", "PermitRootLogin yes\n")
     _write(tmp_path, "/etc/passwd", "root:x:0:0:root:/root:/bin/sh\n")
-    _write(tmp_path, "/etc/shadow", "root:*:1::::::\n", mode=0o600)
+    _write(tmp_path, "/etc/shadow", "root:*:1::::::\n")
     before = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in tmp_path.rglob("*") if p.is_file()}
     posture.run_all(root=str(tmp_path), run=_no_commands)
     after = {p: (p.stat().st_mtime_ns, p.read_bytes()) for p in tmp_path.rglob("*") if p.is_file()}
