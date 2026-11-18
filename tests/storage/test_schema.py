@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "feature_drift",
     "alerts_feedback",
     "ingestion_stats",
+    "audit_events",  # migration 008 (G-26)
 }
 
 
@@ -101,7 +102,12 @@ def test_get_connection_issues_per_connection_pragmas_only(db, monkeypatch):
     db.get_connection().close()
     assert kwargs_seen == [{"timeout": 30}]
     pragmas = [s for s in statements if s.upper().startswith("PRAGMA")]
-    assert pragmas == ["PRAGMA busy_timeout=30000", "PRAGMA synchronous=NORMAL", "PRAGMA foreign_keys=ON"]
+    assert pragmas == [
+        "PRAGMA busy_timeout=30000",
+        "PRAGMA synchronous=NORMAL",
+        "PRAGMA foreign_keys=ON",
+        "PRAGMA secure_delete=ON",  # G-27
+    ]
     assert not any("journal_mode" in s for s in statements)
 
 
