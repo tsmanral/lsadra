@@ -576,7 +576,7 @@ export const getIngestionStats = async () => {
       }
     };
   }
-  return { data: { events_per_second: 0, avg_latency_ms: 0, drop_rate_pct: 0 } };
+  return { data: { events_per_second: 0, avg_latency_ms: null, drop_rate_pct: null } };
 };
 
 export const getAnomalies = async () => {
