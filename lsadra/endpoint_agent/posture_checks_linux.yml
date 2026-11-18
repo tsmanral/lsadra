@@ -1,0 +1,117 @@
+# LSADRA posture checks for Linux hosts, tagged with CIS Controls v8.1
+# Implementation Group 1 safeguards (gap G-31). Modelled on Wazuh SCA policies.
+#
+# Every check is READ-ONLY: it reads a file, a file's permissions, the sshd
+# configuration, or runs one allow-listed status command (no shell). Nothing
+# here changes the host.
+#
+# Format: a restricted YAML subset so the agent can load it without PyYAML
+# (see posture.py): a top-level "checks:" list of mappings whose values are
+# scalars or lists of scalars, plus nested "any_of:" lists of the same. Strings
+# that contain ": " or start with a special character are quoted.
+#
+# Check types:
+#   sshd_option  key, allowed (list), default        effective sshd setting
+#   file_regex   path, pattern, expect (match|no_match)
+#   file_mode    path, max_mode (octal string)        no permission bits beyond it
+#   command      argv (list), pattern                 stdout matches pattern
+#   any_of       any_of (list of checks)              passes if one sub-check passes
+#
+# Status: pass, fail, not_applicable (nothing to check on this host), error.
+
+checks:
+  - id: lnx-ssh-root-login
+    title: SSH does not allow root to log in with a password
+    cis: ["4.1", "5.4"]
+    type: sshd_option
+    key: permitrootlogin
+    allowed: ["no", "prohibit-password", "without-password", "forced-commands-only"]
+    default: prohibit-password
+
+  - id: lnx-ssh-password-auth
+    title: SSH password authentication is off (keys only)
+    cis: ["4.1", "5.2"]
+    type: sshd_option
+    key: passwordauthentication
+    allowed: ["no"]
+    default: "yes"
+
+  - id: lnx-ssh-empty-passwords
+    title: SSH refuses accounts with empty passwords
+    cis: ["5.2"]
+    type: sshd_option
+    key: permitemptypasswords
+    allowed: ["no"]
+    default: "no"
+
+  - id: lnx-firewall-active
+    title: A host firewall is active (ufw, firewalld or nftables rules)
+    cis: ["4.4", "4.5"]
+    type: any_of
+    any_of:
+      - type: command
+        argv: ["ufw", "status"]
+        pattern: "^Status: active"
+      - type: command
+        argv: ["systemctl", "is-active", "firewalld"]
+        pattern: "^active$"
+      - type: command
+        argv: ["nft", "list", "ruleset"]
+        pattern: "\\bchain\\b"
+
+  - id: lnx-auto-updates
+    title: Operating system updates install automatically
+    cis: ["7.3"]
+    type: any_of
+    any_of:
+      - type: file_regex
+        path: /etc/apt/apt.conf.d/20auto-upgrades
+        pattern: "APT::Periodic::Unattended-Upgrade\\s+\"1\""
+        expect: match
+      - type: command
+        argv: ["systemctl", "is-enabled", "dnf-automatic-install.timer"]
+        pattern: "^enabled$"
+      - type: command
+        argv: ["systemctl", "is-enabled", "dnf-automatic.timer"]
+        pattern: "^enabled$"
+
+  - id: lnx-disk-encryption
+    title: A disk is encrypted with LUKS (dm-crypt)
+    cis: ["3.6"]
+    type: command
+    argv: ["lsblk", "-rno", "TYPE"]
+    pattern: "^crypt$"
+
+  - id: lnx-audit-logging
+    title: System logging is running (journald or rsyslog)
+    cis: ["8.2"]
+    type: any_of
+    any_of:
+      - type: command
+        argv: ["systemctl", "is-active", "systemd-journald"]
+        pattern: "^active$"
+      - type: command
+        argv: ["systemctl", "is-active", "rsyslog"]
+        pattern: "^active$"
+
+  - id: lnx-single-uid0
+    title: Only root has user ID 0
+    cis: ["5.4"]
+    type: file_regex
+    path: /etc/passwd
+    pattern: "^(?!root:)[^:\\n]*:[^:\\n]*:0:"
+    expect: no_match
+
+  - id: lnx-shadow-permissions
+    title: /etc/shadow is not readable by other users
+    cis: ["3.3"]
+    type: file_mode
+    path: /etc/shadow
+    max_mode: "0640"
+
+  - id: lnx-passwd-permissions
+    title: /etc/passwd is not writable by group or others
+    cis: ["3.3"]
+    type: file_mode
+    path: /etc/passwd
+    max_mode: "0644"
