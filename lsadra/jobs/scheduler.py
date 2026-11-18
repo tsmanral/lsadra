@@ -6,8 +6,8 @@ Uses APScheduler to run periodic tasks.
 V3 jobs (preserved):
   - Metrics aggregation (every 5 min)
   - Device offline detection (every 2 min)
-  - Threat intel refresh (every 24h)
-  - IP geolocation resolution (every 24h; opt-in, LSADRA_GEO_RESOLUTION_ENABLED)
+  - Runtime threat intel refresh (hourly check; feeds and AbuseIPDB only if enabled)
+  - IP geolocation resolution from a local .mmdb (every 24h; opt-in, LSADRA_GEO_RESOLUTION_ENABLED)
   - Feature drift detection (every 24h)
   - Data retention cleanup (every RETENTION_INTERVAL_MINUTES, first run 1 min
     after start; bounded batches, see storage.database.cleanup_old_data)
@@ -72,17 +72,19 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # ── V3 Job 3: Threat intel refresh (every 24h) ──────────────────────
+    # ── V3 Job 3: Runtime intel refresh (hourly check) ──────────────────
+    # Each enabled feed is fetched only once LSADRA_INTEL_FEED_REFRESH_HOURS
+    # have passed, with a conditional GET. No feeds or key: no requests.
     _scheduler.add_job(
         _run_threat_intel_refresh,
-        IntervalTrigger(hours=24),
+        IntervalTrigger(hours=1),
         id="threat_intel_refresh",
         name="Threat Intel Refresh",
         replace_existing=True,
     )
 
     # ── V3 Job 4: IP geolocation resolution (every 24h; opt-in) ─────────
-    # Sends observed public IPs to ipinfo.io, so it only runs when enabled.
+    # Reads the local .mmdb file only; no IP leaves the machine.
     if GEO_RESOLUTION_ENABLED:
         _scheduler.add_job(
             _run_geo_resolution,
@@ -217,28 +219,37 @@ def _run_device_offline_check() -> None:
 
 
 def _run_threat_intel_refresh() -> None:
-    """Re-query AbuseIPDB for expiring cache entries."""
+    """Refresh the runtime intel tier: due list feeds, then expiring AbuseIPDB entries.
+
+    Does nothing on a default install (no feeds enabled, no AbuseIPDB key).
+    """
     try:
         import asyncio
-        from lsadra.storage.database import get_expiring_threat_intel
-        from lsadra.explainability.threat_intel import query_abuseipdb
+        from lsadra.config import ABUSEIPDB_API_KEY
+        from lsadra.intel import feeds, runtime
 
-        expiring = get_expiring_threat_intel(limit=50)
+        results = feeds.update_feeds(only_if_due=True)
+        if results:
+            logger.info("Intel feeds refreshed: %s", results)
+
+        if not ABUSEIPDB_API_KEY:
+            return
+        expiring = runtime.expiring_abuse(limit=50)
         if not expiring:
             return
 
         async def _refresh():
-            for entry in expiring:
-                await query_abuseipdb(entry["ip_address"])
+            for ip in expiring:
+                await feeds.query_abuseipdb(ip)
 
         asyncio.run(_refresh())
-        logger.info("Threat intel refresh: processed %d entries.", len(expiring))
+        logger.info("AbuseIPDB refresh: processed %d entries.", len(expiring))
     except Exception:
         logger.exception("Threat intel refresh job failed.")
 
 
 def _run_geo_resolution() -> None:
-    """Resolve unresolved IP addresses using geopy."""
+    """Fill ip_geolocation from the local .mmdb file (no network)."""
     try:
         from lsadra.jobs.geo_resolver import run
         run()
