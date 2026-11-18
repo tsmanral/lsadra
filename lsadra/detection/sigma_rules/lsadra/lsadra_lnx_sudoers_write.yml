@@ -1,0 +1,23 @@
+title: Sudoers File Written
+name: lsadra_lnx_sudoers_write
+id: 90af6100-6e28-517c-8441-5f132940fba5
+status: test
+description: Detects a write to /etc/sudoers or a file in /etc/sudoers.d, which can grant passwordless root.
+references:
+    - https://attack.mitre.org/techniques/T1548/003/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.privilege-escalation
+    - attack.t1548.003
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        - TargetFilename: '/etc/sudoers'
+        - TargetFilename|startswith: '/etc/sudoers.d/'
+    condition: selection
+falsepositives:
+    - Administrators and configuration management changing sudo rules
+level: medium

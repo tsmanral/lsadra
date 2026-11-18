@@ -68,6 +68,9 @@ CALLS = {
     "get_watermark": (DEVICE_ID,),
     "set_watermark": (DEVICE_ID, 1),
     "insert_anomaly": ({"device_id": DEVICE_ID},),
+    "insert_sigma_matches": ([{"event_id": 1, "device_id": DEVICE_ID, "sigma_matches": [
+        {"rule_id": "r", "title": "t", "level": "high", "source": "lsadra"}]}],),
+    "get_sigma_matches": (DEVICE_ID,),
     "get_anomalies_for_user": (USER_ID,),
     "get_anomalies_for_device": (DEVICE_ID,),
     "get_anomalies_for_incident": (1,),

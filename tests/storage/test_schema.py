@@ -25,6 +25,7 @@ EXPECTED_TABLES = {
     "feature_drift",
     "alerts_feedback",
     "ingestion_stats",
+    "sigma_matches",
 }
 
 
