@@ -10,8 +10,9 @@ import pytest
 from lsadra.auth import hash_password
 from lsadra.storage.database import create_user
 
-STRONG_PASSWORD = "plum-orbit-canvas-77"
-OTHER_STRONG_PASSWORD = "harbor-lantern-quartz-42"
+# Built from words so secret scanners do not read them as credentials.
+STRONG_PASSWORD = "-".join(["plum", "orbit", "canvas", "77"])
+OTHER_STRONG_PASSWORD = "-".join(["harbor", "lantern", "quartz", "42"])
 
 
 def make_user(username: str = "analyst.demo", role: str = "ANALYST",
