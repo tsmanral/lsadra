@@ -43,5 +43,6 @@ nav:
       - Overview: threat-models/README.md
       - Agent keys: threat-models/agent-keys.md
   - Contracts: contracts/README.md
+  - Detection scorecard: detection/scorecard.md
   - Security: security/README.md
   - Contributing: contributing/README.md
