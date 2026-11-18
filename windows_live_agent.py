@@ -8,7 +8,36 @@ import sys
 import xml.etree.ElementTree as ET
 import re
 
-SERVER_URL = "http://127.0.0.1:8000"
+SERVER_URL = os.environ.get("LSADRA_SERVER_URL", "http://127.0.0.1:8000")
+# SHA-256 fingerprint of the server's TLS certificate (shown in the dashboard
+# beside the registration token). When set, only that exact certificate is
+# accepted, self-signed or not (G-8).
+SERVER_CERT_SHA256 = re.sub(r"[^0-9a-f]", "", os.environ.get("LSADRA_SERVER_CERT_SHA256", "").lower())
+
+
+def _make_session(pin):
+    session = requests.Session()
+    if not pin:
+        return session
+    if len(pin) != 64:
+        raise SystemExit("LSADRA_SERVER_CERT_SHA256 must be 64 hex digits.")
+    from requests.adapters import HTTPAdapter
+
+    class _PinnedAdapter(HTTPAdapter):
+        def init_poolmanager(self, *args, **kwargs):
+            kwargs["assert_fingerprint"] = pin
+            kwargs["cert_reqs"] = "CERT_NONE"
+            kwargs["assert_hostname"] = False
+            return super().init_poolmanager(*args, **kwargs)
+
+    session.mount("https://", _PinnedAdapter())
+    session.verify = False  # replaced by the exact fingerprint match above
+    if SERVER_URL.startswith("http://"):
+        raise SystemExit("LSADRA_SERVER_CERT_SHA256 is set, so LSADRA_SERVER_URL must be https://.")
+    return session
+
+
+_http = _make_session(SERVER_CERT_SHA256)
 LOG_CHANNELS = ["Security", "System"]
 POLL_INTERVAL_SEC = 5
 
@@ -74,7 +103,7 @@ def main():
     # 1. Check if server is running
     print("\n1. Checking V4 central API server...")
     try:
-        resp = requests.get(f"{SERVER_URL}/api/health", timeout=5)
+        resp = _http.get(f"{SERVER_URL}/api/health", timeout=5)
         if resp.status_code != 200:
             print("Server not healthy.")
             return
@@ -117,7 +146,7 @@ def main():
     print("\n3. Registering Live Windows Machine...")
     try:
         hostname = os.environ.get('COMPUTERNAME', 'Windows-Live-Device')
-        resp = requests.post(f"{SERVER_URL}/api/devices/register", json={
+        resp = _http.post(f"{SERVER_URL}/api/devices/register", json={
             "token": token,
             "hostname": hostname,
             "os_type": "windows"
@@ -139,7 +168,7 @@ def main():
     def send_heartbeats():
         while True:
             try:
-                requests.post(f"{SERVER_URL}/heartbeat", json={
+                _http.post(f"{SERVER_URL}/heartbeat", json={
                     "device_id": device_id,
                     "cpu_pct": 10.0,
                     "mem_pct": 50.0,
@@ -197,7 +226,7 @@ def main():
                     for i in range(0, len(lines), batch_size):
                         batch = {"lines": lines[i:i+batch_size]}
                         try:
-                            res = requests.post(f"{SERVER_URL}/api/events/raw", json=batch, headers=headers)
+                            res = _http.post(f"{SERVER_URL}/api/events/raw", json=batch, headers=headers)
                             if res.status_code == 200:
                                 accepted = res.json().get('accepted', 0)
                                 if accepted > 0:

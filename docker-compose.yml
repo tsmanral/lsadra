@@ -9,10 +9,16 @@ services:
     build: .
     container_name: lsadra-api
     ports:
-      - "${API_PORT:-8000}:8000"
+      # Published on the host's loopback only (G-8). To reach the API from other
+      # machines, put a TLS proxy in front, or set LSADRA_TLS_CERT/KEY and drop
+      # LSADRA_ALLOW_PLAINTEXT_LISTENER below.
+      - "127.0.0.1:${API_PORT:-8000}:8000"
     environment:
+      # Inside the container the API must listen on all interfaces for the
+      # published port to reach it; that port is loopback-only on the host.
       - LSADRA_API_HOST=0.0.0.0
       - LSADRA_API_PORT=8000
+      - LSADRA_ALLOW_PLAINTEXT_LISTENER=${LSADRA_ALLOW_PLAINTEXT_LISTENER:-true}
       - LSADRA_REQUIRE_TLS=${LSADRA_REQUIRE_TLS:-false}
       - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
       - LSADRA_ABUSEIPDB_API_KEY=${LSADRA_ABUSEIPDB_API_KEY:-}
@@ -29,10 +35,15 @@ services:
       start_period: 10s
     restart: unless-stopped
 
-  # ── Streamlit Dashboard ─────────────────────────────────────────────────
+  # ── Legacy Streamlit Dashboard (opt-in) ─────────────────────────────────
+  # G-7: off by default. It has its own login code, so it is a second login
+  # surface; the React dashboard replaces it and it is removed at M3. To run it:
+  #   docker compose --profile legacy up
+  # It is published on the host's loopback only.
   dashboard:
     build: .
     container_name: lsadra-dashboard
+    profiles: ["legacy"]
     command: >
       streamlit run lsadra/ui/dashboard.py
       --server.port=8501
@@ -40,7 +51,7 @@ services:
       --server.headless=true
       --browser.gatherUsageStats=false
     ports:
-      - "${DASH_PORT:-8501}:8501"
+      - "127.0.0.1:${DASH_PORT:-8501}:8501"
     environment:
       - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
     volumes:

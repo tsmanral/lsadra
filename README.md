@@ -44,7 +44,7 @@ py -3.12 -m venv venv            # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
 
 # 2. Start the API server (creates the database on first launch)
-venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
+venv/Scripts/python -m lsadra.serve     # listens on 127.0.0.1:8000 by default
 
 # 3. In a second terminal, start the React dashboard
 cd frontend
@@ -67,7 +67,30 @@ cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
 
-This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+This starts the API (`127.0.0.1:8000`, published on the host's loopback only) and an idle agent simulator. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+
+### Network exposure and TLS
+
+The API listens on **127.0.0.1** unless you set `LSADRA_API_HOST`. On any other address it refuses to serve plain HTTP: it uses `LSADRA_TLS_CERT` / `LSADRA_TLS_KEY` if set, assumes TLS ends at a proxy if `LSADRA_TRUSTED_PROXY_IPS` is set, and otherwise generates a self-signed certificate in `data/tls/` on first boot. The certificate's SHA-256 fingerprint is printed at start-up, served at `GET /api/server/identity`, and shown on **Connect Device** next to the registration token. Put it in the agent config as `server_cert_sha256` (Linux agent) or `LSADRA_SERVER_CERT_SHA256` (Windows agent) and the agent talks only to that certificate. `LSADRA_ALLOW_PLAINTEXT_LISTENER=true` is an explicit, logged exception (docker compose sets it because it publishes the port on loopback only). Start the server with `python -m lsadra.serve` (or `python server.py`) so this policy applies; plain `uvicorn` skips it.
+
+### Accounts, sessions and audit
+
+- **Sessions** last 60 minutes (`LSADRA_JWT_EXPIRATION_MINUTES`). Logging out (`POST /api/auth/logout`), changing a password or role, or disabling an account ends every earlier session at once.
+- **Passwords** need 12+ characters (`LSADRA_MIN_PASSWORD_LENGTH`) and may not be on the bundled common-password list. After 5 failed logins for one username, or 20 from one IP, in 15 minutes, logins answer `429` with `Retry-After` (`LSADRA_LOGIN_MAX_FAILURES_PER_USER`, `LSADRA_LOGIN_MAX_FAILURES_PER_IP`, `LSADRA_LOGIN_FAILURE_WINDOW_SECONDS`).
+- **Authenticator (TOTP)** is optional per account (`POST /api/auth/totp/setup`, then `/enable` with a code). On the server, `python -m lsadra.security.totp_cli enroll <username>` enrols one. `LSADRA_ADMIN_TOTP=required` stops admins logging in without one.
+- **Devices** can be revoked (`POST /api/devices/{id}/revoke`) or given a new key (`POST /api/devices/{id}/rotate-key`); the old key keeps working for `LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES` (10).
+- **Audit trail:** logins, lockouts, logouts, password, role, TOTP and account changes, device revokes and key rotations, backups and restores go to a hash-chained `audit_events` table (`GET /api/dashboard/audit`, `GET /api/dashboard/audit/verify`, admin only; kept at least 365 days). Lockouts, admin grants and a broken chain also raise LSADRA alerts.
+- **API docs** (`/docs`, `/openapi.json`) are served in dev mode only (`LSADRA_EXPOSE_API_DOCS`).
+
+### Data at rest and backups
+
+At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention (`LSADRA_RETENTION_DAYS`) also expires closed incidents, analyst feedback, IP intelligence and geolocation rows, and old registration tokens. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
+
+```bash
+python -m lsadra.backup create                 # online copy + SHA-256 manifest, in data/backups/
+python -m lsadra.backup verify data/backups/lsadra-<time>.db
+python -m lsadra.backup restore data/backups/lsadra-<time>.db --yes   # stop the server first
+```
 
 ## Ingesting Logs
 
@@ -191,7 +214,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 LSADRA treats logs as **attacker-controlled input** — they reach parsers, the detection pipeline, and (later) an LLM and a RAG index. The threat model is written down in [`docs/threat-models/`](docs/threat-models/).
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
-- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
 - **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
 
 ## License

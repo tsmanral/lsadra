@@ -14,6 +14,21 @@ const api = axios.create({
   },
 });
 
+// A 401 on an authenticated call means the session ended (expired, logged out
+// elsewhere, role changed or account disabled): drop the token and go to login.
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const url: string = error?.config?.url || '';
+    if (error?.response?.status === 401 && !url.startsWith('/api/auth/login')
+        && localStorage.getItem('sentinel_token')) {
+      localStorage.removeItem('sentinel_token');
+      if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
+    }
+    return Promise.reject(error);
+  }
+);
+
 // Interceptor to add JWT token
 api.interceptors.request.use(
   (config) => {
@@ -492,7 +507,15 @@ export const isTestUser = () => {
   return user === 'testuser'; // STRICT: Only testuser gets mock data
 };
 // Existing Endpoints wrapped with mock logic
-export const login = async (credentials: { username: string; password: string }) => {
+export class LoginError extends Error {
+  code?: string;
+  constructor(message: string, code?: string, cause?: unknown) {
+    super(message, { cause });
+    this.code = code;
+  }
+}
+
+export const login = async (credentials: { username: string; password: string; totp_code?: string }) => {
   try {
     const res = await api.post('/api/auth/login', credentials);
     localStorage.setItem('sentinel_username', credentials.username);
@@ -501,24 +524,45 @@ export const login = async (credentials: { username: string; password: string })
   } catch (err) {
     // No offline fallback: only the server issues tokens.
     const res = axios.isAxiosError(err) ? err.response : undefined;
-    throw new Error(res?.data?.detail || (res ? 'Invalid credentials' : 'Backend unreachable'), { cause: err });
+    const detail = res?.data?.detail;
+    if (detail && typeof detail === 'object') {
+      // {code: 'totp_required' | 'totp_invalid' | 'totp_enrolment_required', message}
+      throw new LoginError(detail.message || 'Login failed', detail.code, err);
+    }
+    if (res?.status === 429) {
+      const wait = res.headers?.['retry-after'];
+      throw new LoginError(`Too many failed logins. Try again in ${wait || 'a few'} seconds.`, 'throttled', err);
+    }
+    throw new LoginError(detail || (res ? 'Invalid credentials' : 'Backend unreachable'), undefined, err);
   }
 };
 
+// Ends every session of this account on the server, then forgets the token.
+export const logout = async () => {
+  try { await api.post('/api/auth/logout'); } catch { /* already invalid */ }
+  localStorage.removeItem('sentinel_token');
+};
+
+// TLS certificate fingerprint agents pin (null when the API is not serving TLS itself).
+export const getServerIdentity = async (): Promise<{ tls: boolean; cert_sha256: string | null }> => {
+  try { return (await api.get('/api/server/identity')).data; }
+  catch { return { tls: false, cert_sha256: null }; }
+};
+
 export const updateIncidentStatus = async (id: string | number, status: string) => {
-  const idStr = String(id);
-  const store = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-  store[idStr] = status;
-  localStorage.setItem(INCIDENT_STATUS_KEY, JSON.stringify(store));
-
-  // Dispatch event for local reactivity
-  window.dispatchEvent(new Event('sentinel_state_change'));
-
-  try {
-    return await api.post(`/api/incidents/${id}/status`, { status });
-  } catch {
-    return { data: { ok: true, note: 'Saved locally' } };
+  // Demo sessions keep canned incidents' status in the browser only.
+  if (isTestUser()) {
+    const store = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
+    store[String(id)] = status;
+    localStorage.setItem(INCIDENT_STATUS_KEY, JSON.stringify(store));
+    window.dispatchEvent(new Event('sentinel_state_change'));
+    return { data: { ok: true } };
   }
+  // Real sessions: the server is the only source of an incident's status. A
+  // failed update is an error, never a silent "saved locally" (G-11).
+  const res = await api.post(`/api/incidents/${id}/status`, { status });
+  window.dispatchEvent(new Event('sentinel_state_change'));
+  return res;
 };
 
 export const register = async (credentials: any) => api.post('/api/auth/register', credentials);
@@ -529,15 +573,7 @@ export const getIncidents = async () => {
   // 1. Try real API first
   try {
     const res = await api.get('/api/incidents');
-    if (res.data?.incidents?.length > 0) {
-      // Merge local resolutions to ensure instant feedback
-      const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-      res.data.incidents = res.data.incidents.map((i: any) => ({
-        ...i,
-        status: statusStore[String(i.id)] || i.status
-      }));
-      return res;
-    }
+    if (res.data?.incidents?.length > 0) return res;  // server status only (G-11)
   } catch (err) {
     console.error("Failed to fetch real incidents:", err);
   }
@@ -598,15 +634,6 @@ export const getKpis = async () => {
     const res = await api.get(`/api/dashboard/kpis${deviceId ? `?device_id=${deviceId}` : ''}`);
     if (res.data) kpis = { ...res.data };
   } catch (err) { }
-
-  // 3. FORCE correct closed_incidents count based on local status store
-  // This ensures the counter matches the "Resolved" section exactly.
-  try {
-    const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-    const closedCount = Object.values(statusStore).filter(s => s === 'RESOLVED' || s === 'FALSE_POSITIVE').length;
-    // We use the MAX of the local count and server count to avoid losing data
-    kpis.closed_incidents = Math.max(kpis.closed_incidents || 0, closedCount);
-  } catch { }
 
   // 4. Fallback to mock ONLY for testuser if real counts are zero
   if (isTestUser() && kpis.total_events_24h === 0) {

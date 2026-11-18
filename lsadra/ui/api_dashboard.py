@@ -114,10 +114,14 @@ def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
 
         conn.commit()
         return {"status": "ok", "message": f"Device {device_id} and all related telemetry deleted."}
-    except Exception as e:
+    except HTTPException:
         conn.rollback()
-        logger.error(f"Failed to delete device {device_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise
+    except Exception:
+        conn.rollback()
+        # G-11: log the cause; never echo exception text to the client.
+        logger.exception("Failed to delete device %s", device_id)
+        raise HTTPException(status_code=500, detail="Could not delete the device.")
     finally:
         conn.close()
 
@@ -145,7 +149,10 @@ def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict
             raise HTTPException(status_code=404, detail="Device not found or access denied.")
             
         status = "ONLINE" if active else "OFFLINE"
-        conn.execute("UPDATE devices SET status = ? WHERE id = ?", (status, device_id))
+        conn.execute(
+            "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
+            (status, device_id),
+        )
         conn.commit()
         return {"status": "ok", "device_id": device_id, "new_status": status}
     finally:
@@ -196,7 +203,15 @@ class RoleUpdate(BaseModel):
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
-    await run_in_threadpool(update_user_role, req.user_id, req.role)
+    def _do() -> None:
+        from lsadra.security import audit
+
+        update_user_role(req.user_id, req.role)  # also ends the user's sessions (G-9)
+        audit.record("user.role.change", actor=user, target=req.user_id, details={"role": req.role})
+        if req.role == "ADMIN":
+            audit.record("user.role.grant_admin", actor=user, target=req.user_id)  # self-alert (G-26)
+
+    await run_in_threadpool(_do)
     return {"status": "ok"}
 
 def _table_counts() -> Dict[str, int]:
@@ -276,6 +291,9 @@ def _retrain() -> Dict[str, Any]:
 
 @router.post("/retrain")
 async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    from lsadra.security import audit
+
+    await run_in_threadpool(audit.record, "model.retrain", actor=user)
     return await run_in_threadpool(_retrain)
 
 from lsadra.onboarding.token_manager import generate_token

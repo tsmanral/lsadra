@@ -1,9 +1,11 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { Terminal, Key, Copy, CheckCircle2, Shield, Settings } from 'lucide-react';
-import { generateToken } from '../services/api';
+import { generateToken, getServerIdentity } from '../services/api';
 
 const ConnectDevice = () => {
   const [token, setToken] = useState<string | null>(null);
+  const [fingerprint, setFingerprint] = useState<string | null>(null);
+  useEffect(() => { getServerIdentity().then((id) => setFingerprint(id.cert_sha256)); }, []);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const hostIP = window.location.hostname;
@@ -71,6 +73,24 @@ const ConnectDevice = () => {
                 >
                   {copied ? <CheckCircle2 className="text-[#05FFA1]" /> : <Copy className="text-[var(--color-muted)]" />}
                 </button>
+              </div>
+            )}
+
+            {token && (
+              <div className="bg-[rgba(10,15,25,0.8)] border border-[rgba(0,240,255,0.3)] rounded p-4 mb-8">
+                <div className="text-xs text-[var(--color-primary)] font-mono mb-1 uppercase tracking-widest">Server certificate fingerprint (SHA-256)</div>
+                {fingerprint ? (
+                  <>
+                    <div className="text-sm font-mono text-white break-all">{fingerprint}</div>
+                    <p className="text-xs text-[var(--color-muted)] font-mono mt-2">
+                      Set this as <code>server_cert_sha256</code> in the agent config (or LSADRA_SERVER_CERT_SHA256 for the Windows agent). The agent then refuses any server that presents a different certificate.
+                    </p>
+                  </>
+                ) : (
+                  <p className="text-xs text-[var(--color-muted)] font-mono">
+                    This server is not serving TLS itself (loopback, or TLS ends at a proxy), so there is no certificate to pin here.
+                  </p>
+                )}
               </div>
             )}
           </div>

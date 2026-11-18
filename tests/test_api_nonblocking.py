@@ -51,7 +51,10 @@ def _device() -> dict:
 
 def _bearer(role: str) -> dict:
     from lsadra.auth import create_access_token
+    from lsadra.storage.database import create_user
 
+    # G-9: a token must belong to a stored account; its stored role is the one used.
+    create_user("u-demo", "demo.user", "hash", role)
     return {"Authorization": "Bearer " + create_access_token("u-demo", "demo.user", role)}
 
 

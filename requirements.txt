@@ -26,6 +26,8 @@ matplotlib>=3.11.2
 PyJWT>=2.10.0
 # bcrypt used directly (passlib dropped — unmaintained + broke with bcrypt>=4; §6 #15)
 bcrypt>=4.0.0
+# Self-signed TLS certificate on first boot for non-loopback listeners (G-8)
+cryptography>=44.0.0
 
 # HTTP client (agents, threat intel)
 httpx>=0.24.0
