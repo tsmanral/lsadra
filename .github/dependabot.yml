@@ -40,3 +40,16 @@ updates:
     groups:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
+
+  - package-ecosystem: cargo
+    directory: "/collectors"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
