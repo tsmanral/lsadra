@@ -1,7 +1,7 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { useSearchParams, useNavigate } from 'react-router-dom';
 import { Search, Network, Globe, Activity, ShieldAlert, Crosshair, BookOpen, ChevronRight, ChevronDown, ArrowLeft, CheckCircle, Zap, Plus } from 'lucide-react';
-import { MOCK_ENTITIES, getEntity, updateIncidentStatus } from '../services/api';
+import { MOCK_ENTITIES, getEntity, updateIncidentStatus, isTestUser } from '../services/api';
 
 // ── SVG Entity Graph ──────────────────────────────────────────────────────────
 const EntityGraph: React.FC<{ entity: any; onNodeClick: (q: string) => void }> = ({ entity, onNodeClick }) => {
@@ -91,7 +91,7 @@ const sevBg = (s: string) =>
 const makeFallback = (q: string) => {
   const isIP = /^\d+\.\d+\.\d+/.test(q);
   // If it's an IP, try to find matching incidents
-  if (isIP) {
+  if (isIP && isTestUser()) {
     const match = Object.values(MOCK_ENTITIES).find((e: any) => e.source_ip === q);
     if (match) return { ...match, entity: q };
   }
