@@ -8,7 +8,7 @@ Runs the full detection stack:
   4. Autoencoder
   5. Severity scoring
   6. Rules + MITRE mapping
-  7. SHAP explainability
+  7. (SHAP explainability is not wired in: shap_values stays empty)
   8. Narrative generation
   9. Incident management (grouping)
 """
@@ -26,8 +26,9 @@ from lsadra.config import (
     MODEL_DIR,
 )
 from lsadra.detection.incident_manager import IncidentManager
-from lsadra.detection.severity import compute_severity_score, severity_context
+from lsadra.detection.severity import apply_rule_floor, compute_severity_score, severity_context
 from lsadra.features.feature_extractor import FEATURE_COLS, build_features
+from lsadra.features.rule_features import RULE_LOOKBACK_MINUTES, build_rule_features
 from lsadra.models.autoencoder_model import AutoencoderModel
 from lsadra.models.ensemble_model import EnsembleModel
 from lsadra.models.statistical_baseline import StatisticalBaselineModel
@@ -36,6 +37,7 @@ from lsadra.session.user_profile_store import UserProfileStore
 from lsadra.storage.database import (
     get_device,
     get_event_count_for_device,
+    get_events_before,
     get_events_since,
     get_watermark,
     increment_device_event_count,
@@ -145,10 +147,16 @@ class DetectionOrchestrator:
         # Track event count and check baselining status
         event_total = increment_device_event_count(device_id, len(new_events))
 
-        # Build features from new events
-        df = build_features(new_events)
+        # Build features over the new events plus the device's recent history,
+        # so 5/15/30-minute windows span detection runs (a slow attack split
+        # across several runs still crosses its threshold). History rows are
+        # context only: they are never scored or alerted on twice.
+        context = self._context_events(device_id, new_events)
+        df = build_features(context + new_events)
         if df.empty:
             return
+        context_ids = {ev.get("id") for ev in context}
+        df["_context_only"] = df["id"].isin(context_ids) if context_ids else False
 
         # Update user profile
         user_id = new_events[0].get("user_id", "")
@@ -195,6 +203,24 @@ class DetectionOrchestrator:
         max_id = max(ev.get("id", 0) for ev in new_events)
         set_watermark(device_id, max_id)
 
+    @staticmethod
+    def _context_events(device_id: str, new_events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Stored events from the RULE_LOOKBACK_MINUTES before the new batch."""
+        first_id = min(int(ev.get("id", 0) or 0) for ev in new_events)
+        stamps = [str(ev.get("timestamp") or "") for ev in new_events if ev.get("timestamp")]
+        if not stamps or first_id <= 1:
+            return []
+        try:
+            start = pd.to_datetime(min(stamps), utc=True)
+        except (ValueError, TypeError):
+            return []
+        since = (start - pd.Timedelta(minutes=RULE_LOOKBACK_MINUTES)).strftime("%Y-%m-%dT%H:%M:%S")
+        try:
+            return get_events_before(device_id, before_id=first_id, since=since)
+        except Exception:
+            logger.exception("Could not load detection context for device %s", device_id)
+            return []
+
     def _auto_train(self, device_id: str) -> None:
         """Auto-train models on all historical events for a device."""
         try:
@@ -225,10 +251,18 @@ class DetectionOrchestrator:
 
     def _run_layers(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
         """Execute all detection layers, score severity, and merge verdicts."""
-        from lsadra.detection.rule_engine import evaluate_rules
+        from lsadra.detection.rule_engine import NO_RULE_MATCH, UNMAPPED_ANOMALY, evaluate
         from lsadra.explainability.narrative_builder import NarrativeBuilder
 
+        # Rule features are computed over context rows too (that is what the
+        # context is for); only the rest are scored.
+        df = build_rule_features(df)
+        if "_context_only" in df.columns:
+            df = df[~df["_context_only"].astype(bool)].reset_index(drop=True)
+
         n = len(df)
+        if n == 0:
+            return []
 
         # Layer 1 — statistical baseline
         l1 = self.baseline.score(df)
@@ -253,14 +287,23 @@ class DetectionOrchestrator:
                 or l3[i].get("is_ae_anomaly", False)
             )
 
-            # [DEMO FIX] Force anomaly status if rule engine finds a critical event type
-            threat_type, mitre_id = evaluate_rules(row.to_dict())
-            if threat_type != "None":
+            # Rules (lsadra/detection/rule_engine.py). A match at medium level or
+            # above raises an alert on its own and names the technique; a low
+            # match only names the technique of an anomaly layers 1-3 flagged.
+            # An ML-only anomaly is reported without an ATT&CK technique rather
+            # than with a guessed one.
+            row_dict = row.to_dict()
+            matches = evaluate(row_dict)
+            best = matches[0] if matches else None
+            if best is not None and best.raises_alert:
                 is_anomaly = True
-            
-            if not is_anomaly:
-                threat_type = "None"
-                mitre_id = "N/A"
+            if is_anomaly and best is not None:
+                threat_type, mitre_id = best.rule.title, best.technique.id
+            elif is_anomaly:
+                threat_type, mitre_id = UNMAPPED_ANOMALY
+            else:
+                threat_type, mitre_id = NO_RULE_MATCH
+            labelled = is_anomaly and best is not None
 
             # Compute severity
             layer1_z = l1[i].get("z_max", 0.0)
@@ -276,6 +319,9 @@ class DetectionOrchestrator:
                 total_models=total_models,
                 layer3_error=layer3_error,
             )
+            if labelled:
+                severity_score, severity_label = apply_rule_floor(
+                    severity_score, severity_label, best.severity)
 
             # Build narrative
             narrative = ""
@@ -285,7 +331,7 @@ class DetectionOrchestrator:
                 narrative = NarrativeBuilder.build(
                     threat_type=threat_type,
                     mitre_id=mitre_id,
-                    row_data=row.to_dict(),
+                    row_data=row_dict,
                     layer1_z=layer1_z,
                     layer2_score=layer2_score,
                     layer3_error=layer3_error,
@@ -307,7 +353,15 @@ class DetectionOrchestrator:
                 "threat_type": threat_type,
                 "attack_type": threat_type,  # normalized key for incident grouping
                 "mitre_technique": mitre_id,
-                "mitre_confidence": 0.0,  # placeholder until SHAP integration
+                # The matched rule's author-set confidence; 0 when no rule
+                # named the technique.
+                "mitre_confidence": best.rule.confidence if labelled else 0.0,
+                "mitre_tactics": best.tactics if labelled else [],
+                "rule_id": best.rule.id if labelled else None,
+                "rule_version": best.rule.version if labelled else None,
+                "rule_level": best.level if labelled else None,
+                "rule_reason": best.reason if labelled else "",
+                "rule_matches": [m.rule.id for m in matches],
                 "narrative": narrative,
                 "shap_values": shap_values,
                 "is_synthetic": bool(row.get("is_synthetic", False)),

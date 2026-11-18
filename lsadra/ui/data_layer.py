@@ -148,6 +148,31 @@ def get_dashboard_drift(model_name: str, limit: int = 50) -> List[Dict]:
     return get_drift_records(model_name, limit)
 
 
+INGEST_RATE_WINDOW_SECONDS = 60
+
+
+def get_ingestion_rate(user_id: Optional[str] = None,
+                       window_seconds: int = INGEST_RATE_WINDOW_SECONDS) -> float:
+    """Events per second over the last ``window_seconds``, by event timestamp.
+
+    Agents ship events as they happen, so the event timestamp is a close proxy
+    for arrival time. Not cached: the health tile polls it and wants it live.
+    """
+    cutoff = (datetime.utcnow() - timedelta(seconds=window_seconds)).isoformat()
+    query = "SELECT COUNT(*) FROM normalized_events WHERE timestamp > ?"
+    params: List[Any] = [cutoff]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    conn = get_connection()
+    try:
+        row = conn.execute(query, tuple(params)).fetchone()
+    finally:
+        conn.close()
+    count = row[0] if row else 0
+    return round(count / window_seconds, 2)
+
+
 @st.cache_data(ttl=30)
 def get_dashboard_kpis(user_id: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
     """Compute high-level KPIs for the dashboard overview."""
@@ -198,7 +223,7 @@ def get_dashboard_kpis(user_id: Optional[str] = None, device_id: Optional[str] =
         open_incidents = conn.execute(f"SELECT COUNT(*) FROM ({final_incident_query})", tuple(incident_params)).fetchone()[0]
 
         # Critical incidents
-        critical_clauses = ["severity_label = 'CRITICAL'", "status IN ('OPEN', 'INVESTIGATING')"]
+        critical_clauses = ["i.severity_label = 'CRITICAL'", "i.status IN ('OPEN', 'INVESTIGATING')"]
         critical_params = []
         crit_query = "SELECT i.* FROM incidents i"
         if user_id:
@@ -213,7 +238,7 @@ def get_dashboard_kpis(user_id: Optional[str] = None, device_id: Optional[str] =
         critical_incidents = conn.execute(f"SELECT COUNT(*) FROM ({final_crit_query})", tuple(critical_params)).fetchone()[0]
 
         # Closed incidents
-        closed_clauses = ["status IN ('RESOLVED', 'FALSE_POSITIVE')"]
+        closed_clauses = ["i.status IN ('RESOLVED', 'FALSE_POSITIVE')"]
         closed_params = []
         cl_query = "SELECT i.* FROM incidents i"
         if user_id:

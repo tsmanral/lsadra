@@ -18,5 +18,6 @@ nav:
       - "0007 · Detection stack": architecture/adr/0007-detection-stack.md
   - Threat models: threat-models/README.md
   - Contracts: contracts/README.md
+  - Detection scorecard: detection/scorecard.md
   - Security: security/README.md
   - Contributing: contributing/README.md

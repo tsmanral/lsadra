@@ -1,6 +1,6 @@
 """Contract: normalized events and detection watermarks.
 
-Covers: insert_event, insert_events_batch, get_events_since,
+Covers: insert_event, insert_events_batch, get_events_since, get_events_before,
 get_events_for_user, get_event_count_for_device, get_watermark, set_watermark,
 store_batch_and_touch.
 """
@@ -103,6 +103,27 @@ def test_get_events_since_filters_by_device_and_id_ascending_with_limit(seeded):
     assert [e["id"] for e in after_first] == ids[1:]
     assert [e["id"] for e in seeded.get_events_since(DEVICE_ID, 0, limit=2)] == ids[:2]
     assert seeded.get_events_since(DEVICE_ID, ids[-1]) == []
+
+
+def test_get_events_before_returns_recent_history_for_one_device(seeded):
+    """Detection context: older ids of this device inside the time window, oldest first."""
+    seeded.create_device("dev-2", USER_ID, "h2", "linux", "k2")
+    old = seeded.insert_event(make_event(timestamp="2026-01-15T01:00:00+00:00"))
+    in_window = [
+        seeded.insert_event(make_event(timestamp="2026-01-15T02:00:00+00:00")),
+        seeded.insert_event(make_event(timestamp="2026-01-15T02:10:00.5+00:00")),
+        seeded.insert_event(make_event(timestamp="2026-01-15T02:20:00")),
+    ]
+    seeded.insert_event(make_event(device_id="dev-2", timestamp="2026-01-15T02:21:00+00:00"))
+    batch_start = seeded.insert_event(make_event(timestamp="2026-01-15T02:25:00+00:00"))
+
+    got = seeded.get_events_before(DEVICE_ID, before_id=batch_start, since="2026-01-15T01:55:00")
+    assert [e["id"] for e in got] == in_window
+    assert old not in [e["id"] for e in got]
+    # limit keeps the newest rows, still returned oldest first
+    assert [e["id"] for e in seeded.get_events_before(
+        DEVICE_ID, before_id=batch_start, since="2026-01-15T01:55:00", limit=2)] == in_window[1:]
+    assert seeded.get_events_before(DEVICE_ID, before_id=in_window[0], since="2026-01-15T01:55:00") == []
 
 
 def test_get_events_for_user_filters_synthetic_and_orders_newest_first(seeded):
