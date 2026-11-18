@@ -105,7 +105,7 @@ def _incident_detail(incident_id: int, uid: Optional[str]) -> Optional[Dict[str,
         alerts = [
             _alert_row(r)
             for r in conn.execute(
-                f"SELECT {_ALERT_COLUMNS} FROM anomalies a "
+                f"SELECT {_ALERT_COLUMNS} FROM anomalies a "  # noqa: S608 - constant SQL fragments, every value bound as ?
                 "LEFT JOIN normalized_events e ON e.id = a.event_id "
                 "WHERE a.incident_id = ? ORDER BY a.created_at ASC, a.id ASC LIMIT ?",
                 (incident_id, MAX_ALERTS),
@@ -174,7 +174,7 @@ def _entity(q: str, uid: Optional[str]) -> Optional[Dict[str, Any]]:
         own_params: List[Any] = [uid] if uid else []
 
         device_row = conn.execute(
-            "SELECT d.id, d.hostname FROM devices d WHERE (d.id = ? OR d.hostname = ?)" + own,
+            "SELECT d.id, d.hostname FROM devices d WHERE (d.id = ? OR d.hostname = ?)" + own,  # noqa: S608 - constant SQL fragments, every value bound as ?
             tuple([q, q] + own_params),
         ).fetchone()
         device_ids = [device_row["id"]] if device_row else []
@@ -189,7 +189,7 @@ def _entity(q: str, uid: Optional[str]) -> Optional[Dict[str, Any]]:
         alerts = [
             _alert_row(r)
             for r in conn.execute(
-                f"SELECT {_ALERT_COLUMNS} FROM anomalies a "
+                f"SELECT {_ALERT_COLUMNS} FROM anomalies a "  # noqa: S608 - constant SQL fragments, every value bound as ?
                 "LEFT JOIN normalized_events e ON e.id = a.event_id "
                 "JOIN devices d ON d.id = a.device_id "
                 f"WHERE a.is_anomaly = 1 AND {match}{own} "
@@ -226,7 +226,7 @@ def _entity(q: str, uid: Optional[str]) -> Optional[Dict[str, Any]]:
             incidents = [
                 dict(r)
                 for r in conn.execute(
-                    "SELECT id, attack_type, severity_label, status, first_seen, last_seen "
+                    "SELECT id, attack_type, severity_label, status, first_seen, last_seen "  # noqa: S608 - constant SQL fragments, every value bound as ?
                     f"FROM incidents WHERE id IN ({marks}) ORDER BY last_seen DESC",
                     tuple(int(i) for i in incident_ids),
                 ).fetchall()
