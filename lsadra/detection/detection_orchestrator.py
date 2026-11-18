@@ -225,7 +225,7 @@ class DetectionOrchestrator:
 
     def _run_layers(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
         """Execute all detection layers, score severity, and merge verdicts."""
-        from lsadra.detection.rule_engine import evaluate_rules
+        from lsadra.detection.rule_engine import NO_RULE_MATCH, UNMAPPED_ANOMALY, evaluate_rules
         from lsadra.explainability.narrative_builder import NarrativeBuilder
 
         n = len(df)
@@ -253,14 +253,17 @@ class DetectionOrchestrator:
                 or l3[i].get("is_ae_anomaly", False)
             )
 
-            # [DEMO FIX] Force anomaly status if rule engine finds a critical event type
+            # A matching rule raises an alert on its own and names the technique.
+            # No match leaves the verdict to layers 1-3: an ML-only anomaly is
+            # reported without an ATT&CK technique rather than with a guessed one.
             threat_type, mitre_id = evaluate_rules(row.to_dict())
-            if threat_type != "None":
+            if threat_type != NO_RULE_MATCH[0]:
                 is_anomaly = True
-            
+            elif is_anomaly:
+                threat_type, mitre_id = UNMAPPED_ANOMALY
+
             if not is_anomaly:
-                threat_type = "None"
-                mitre_id = "N/A"
+                threat_type, mitre_id = NO_RULE_MATCH
 
             # Compute severity
             layer1_z = l1[i].get("z_max", 0.0)
