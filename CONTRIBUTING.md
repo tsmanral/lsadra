@@ -67,6 +67,13 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 
 ## Development Setup
 
+**Fastest start:** open the repository in a dev container (VS Code "Reopen in Container", or GitHub
+Codespaces opened in VS Code). [`.devcontainer/`](.devcontainer/) installs Python 3.12, Node 24 and
+every dependency, sets local dev mode, runs the smoke test, and prints the commands to start the API
+and dashboard. The dashboard calls the API at `http://localhost:8000`, so in a browser-only Codespace
+it can't reach the API yet; use VS Code desktop, which forwards `localhost`. The manual setup below
+works everywhere.
+
 You need **Python 3.12+**, **Node.js 22+** (CI uses Node 24) and **git**. Commands below use the
 Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` instead.
 

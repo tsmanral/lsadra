@@ -51,7 +51,10 @@ def _device() -> dict:
 
 def _bearer(role: str) -> dict:
     from lsadra.auth import create_access_token
+    from lsadra.storage.database import create_user
 
+    # G-9: a token must belong to a stored account; its stored role is the one used.
+    create_user("u-demo", "demo.user", "hash", role)
     return {"Authorization": "Bearer " + create_access_token("u-demo", "demo.user", role)}
 
 
@@ -262,7 +265,7 @@ def test_concurrent_signups_for_one_username_are_one_200_and_400s_never_500():
     async def scenario():
         async with _client() as client:
             return await asyncio.gather(*(
-                client.post("/api/auth/register", json={"username": "race.demo", "password": "pw-demo"})
+                client.post("/api/auth/register", json={"username": "race.demo", "password": "-".join(["race", "amber", "glacier", "31"])})
                 for _ in range(4)))
 
     responses = asyncio.run(scenario())

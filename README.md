@@ -4,7 +4,7 @@
 
 ### Local Security Anomaly Detection & Risk Assessment — open-source, explainable, built to run anywhere.
 
-**Real-time, multi-source log detection with ML ensembles, SHAP explainability, and human-readable threat narratives — no LLM API keys required.**
+**Real-time, multi-source log detection with ML ensembles, rule-based ATT&CK mapping, and human-readable threat narratives — no LLM API keys required.**
 
 <br/>
 
@@ -27,10 +27,10 @@
 Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, expensive, and opaque. Lightweight consumer tools watch the network but have no real detection intelligence. **LSADRA fills the gap**: a self-hostable SOC platform that explains *why* every alert fired.
 
 - 🧠 **Multi-layer ML detection** — statistical baselining (Z-score), ensemble models (Isolation Forest, LOF, One-Class SVM), and a PyTorch autoencoder, with drift tracking via Population Stability Index.
-- 🔍 **Explainable by design** — SHAP feature attribution, composite severity scoring with a plain-English breakdown per alert, and MITRE ATT&CK technique mapping with confidence scores.
+- 🔍 **Explainable by design** — every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline today; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter** — brute force, credential stuffing, port scans, exfiltration, LOLBin abuse, persistence, and lateral movement, all with tunable thresholds and analyst feedback loops.
+- 🚨 **Detection rules that matter** — 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
 - 📊 **Full SOC dashboard** — modern React (Vite) command center with live threat feed, incident drill-down, multi-source health, threat intel (AbuseIPDB), model analytics, device behavior, feedback & threshold tuning, and admin management with RBAC + JWT auth. A legacy Streamlit interface is also included.
 
 ## Quick Start
@@ -47,10 +47,10 @@ venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
 venv/Scripts/pip install --no-deps -r requirements/torch.txt
 
 # 2. Start the API server in local dev mode (creates the database on first launch).
-#    Dev mode uses a per-boot JWT secret and plain HTTP; CORS lets the dashboard call the API.
+#    Dev mode uses a per-boot JWT secret; CORS lets the dashboard call the API.
 #    PowerShell: $env:LSADRA_DEV_MODE="true"; $env:LSADRA_CORS_ORIGINS="http://localhost:5173"
 export LSADRA_DEV_MODE=true LSADRA_CORS_ORIGINS=http://localhost:5173
-venv/Scripts/python -m uvicorn server:app --host 127.0.0.1 --port 8000
+venv/Scripts/python -m lsadra.serve     # listens on 127.0.0.1:8000 by default
 
 # 3. In a second terminal, start the React dashboard
 cd frontend
@@ -87,7 +87,7 @@ docker compose up -d
 
 `LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
-This starts the API (`:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. The image builds in two stages from a digest-pinned `python:3.12-slim`, installs only hash-checked dependencies, and runs as an unprivileged user (uid 10001) that can write only `/app/data` and `/app/logs`.
+This starts the API (`127.0.0.1:8000`) and the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), both published on the host's loopback only, plus an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. The image builds in two stages from a digest-pinned `python:3.12-slim`, installs only hash-checked dependencies, and runs as an unprivileged user (uid 10001) that can write only `/app/data` and `/app/logs`.
 
 A versioned image is published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release, only after the full CI suite passes on the tagged commit. Each image carries an SBOM and SLSA provenance, a GitHub attestation and a keyless Sigstore signature. Verify one before you run it:
 
@@ -96,6 +96,29 @@ gh attestation verify oci://ghcr.io/tsmanral/lsadra:<version> --owner tsmanral
 cosign verify ghcr.io/tsmanral/lsadra:<version> \
   --certificate-identity-regexp '^https://github.com/tsmanral/lsadra/.github/workflows/release.yml@refs/tags/v' \
   --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
+
+### Network exposure and TLS
+
+The API listens on **127.0.0.1** unless you set `LSADRA_API_HOST`. On any other address it refuses to serve plain HTTP: it uses `LSADRA_TLS_CERT` / `LSADRA_TLS_KEY` if set, assumes TLS ends at a proxy if `LSADRA_TRUSTED_PROXY_IPS` is set, and otherwise generates a self-signed certificate in `data/tls/` on first boot. The certificate's SHA-256 fingerprint is printed at start-up, served at `GET /api/server/identity`, and shown on **Connect Device** next to the registration token. Put it in the agent config as `server_cert_sha256` (Linux agent) or `LSADRA_SERVER_CERT_SHA256` (Windows agent) and the agent talks only to that certificate. `LSADRA_ALLOW_PLAINTEXT_LISTENER=true` is an explicit, logged exception (docker compose sets it because it publishes the port on loopback only). Start the server with `python -m lsadra.serve` (or `python server.py`) so this policy applies; plain `uvicorn` skips it.
+
+### Accounts, sessions and audit
+
+- **Sessions** last 60 minutes (`LSADRA_JWT_EXPIRATION_MINUTES`). Logging out (`POST /api/auth/logout`), changing a password or role, or disabling an account ends every earlier session at once.
+- **Passwords** need 12+ characters (`LSADRA_MIN_PASSWORD_LENGTH`) and may not be on the bundled common-password list. After 5 failed logins for one username, or 20 from one IP, in 15 minutes, logins answer `429` with `Retry-After` (`LSADRA_LOGIN_MAX_FAILURES_PER_USER`, `LSADRA_LOGIN_MAX_FAILURES_PER_IP`, `LSADRA_LOGIN_FAILURE_WINDOW_SECONDS`).
+- **Authenticator (TOTP)** is optional per account (`POST /api/auth/totp/setup`, then `/enable` with a code). On the server, `python -m lsadra.security.totp_cli enroll <username>` enrols one. `LSADRA_ADMIN_TOTP=required` stops admins logging in without one.
+- **Devices** can be revoked (`POST /api/devices/{id}/revoke`) or given a new key (`POST /api/devices/{id}/rotate-key`); the old key keeps working for `LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES` (10).
+- **Audit trail:** logins, lockouts, logouts, password, role, TOTP and account changes, device revokes and key rotations, backups and restores go to a hash-chained `audit_events` table (`GET /api/dashboard/audit`, `GET /api/dashboard/audit/verify`, admin only; kept at least 365 days). Lockouts, admin grants and a broken chain also raise LSADRA alerts.
+- **API docs** (`/docs`, `/openapi.json`) are served in dev mode only (`LSADRA_EXPOSE_API_DOCS`).
+
+### Data at rest and backups
+
+At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention (`LSADRA_RETENTION_DAYS`) also expires closed incidents, analyst feedback, IP intelligence and geolocation rows, and old registration tokens. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
+
+```bash
+python -m lsadra.backup create                 # online copy + SHA-256 manifest, in data/backups/
+python -m lsadra.backup verify data/backups/lsadra-<time>.db
+python -m lsadra.backup restore data/backups/lsadra-<time>.db --yes   # stop the server first
 ```
 
 ## Ingesting Logs
@@ -129,6 +152,20 @@ Per-source ingestion health is available at `GET /api/events/stats`.
 
 Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
 
+## Detection Rules
+
+Rules live in one registry, [`lsadra/detection/rule_engine.py`](lsadra/detection/rule_engine.py), and the detection orchestrator runs every one of them on every scored event. What you get on each alert:
+
+- **Rule attribution.** Each rule has a stable ID (for example `lsadra-auth-brute-force`), a version, a status and a [Sigma-style level](https://sigmahq.io/docs/basics/rules.html#level). Alerts store the rule ID and version (`anomalies.rule_id`, `rule_version`), so every alert traces back to one rule version.
+- **When a rule alerts.** A `medium`, `high` or `critical` match raises an alert on its own and sets a severity floor. A `low` match (off-hours login, a lone LOLBin, a large transfer to an internal or documentation address) only names the technique of an event the anomaly layers already flagged. Activity from the same address in a second log source raises the level one step.
+- **ATT&CK.** One map, pinned to MITRE ATT&CK Enterprise **20.1** ([`lsadra/detection/attack_map.py`](lsadra/detection/attack_map.py), table generated by `scripts/update_attack_data.py`). Alerts carry the technique and its tactics (`mitre_tactics`). CI fails if any rule, narrative or corpus label names a technique that is unknown, revoked or deprecated in that release.
+- **Confidence.** `mitre_confidence` is the matched rule's author-set confidence that a match is that technique (0.4 to 0.9). It is `0` when no rule matched. It is not a model probability.
+- **Time windows that span runs.** Rule windows (5, 10, 15 and 30 minutes) are computed over the new events plus the device's last 30 minutes of stored events, so an attack paced across several detection runs still crosses its threshold. Stored history is context only and is never alerted on twice.
+- **Event types.** Detection uses a closed list of about 30 event types, each mapped to an OCSF 1.9 class and ECS 9.5 categories ([`lsadra/detection/event_types.py`](lsadra/detection/event_types.py)). The bundled parsers and agents emit these names; older names such as `ssh_failed_password` or `process_create` are mapped; anything else is stored but treated as `other`, which no rule matches. The ingestion contract is unchanged: `event_type` is still a free string in event schema v1.
+- **Scorecard.** [`docs/detection/scorecard.md`](docs/detection/scorecard.md) scores every rule on the labelled demo corpus: today 3 of 3 attack scenarios detected and 0 alerts on the benign control set. It is regenerated with `python scripts/detection_scorecard.py`, and CI fails when it is stale or when the benign set raises an alert. It measures the rules only; the ML layers are measured separately.
+
+To add a rule, register it with the `@rule(...)` decorator, add positive and negative cases to `tests/test_rules.py`, and regenerate the scorecard.
+
 ## Live Alerts
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -146,6 +183,30 @@ The dashboard signs in only through `POST /api/auth/login`. There is no offline 
 
 The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
+## Model Integrity and Training
+
+Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
+
+Training is gated:
+
+- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies and events inside an open or investigating incident. With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
+- **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
+- **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
+- **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
+- **Audit trail and model cards.** Every attempt (promoted, rejected, skipped, refused, rolled back) is a row in `model_training_runs`. Each promoted model gets a JSON model card: type, file hash, features, training window and event counts, exclusions, canary result and library versions.
+
+Per-entity baselines are saved as plain JSON and survive restarts. Drift is measured daily (and on `POST /api/dashboard/run-drift`): the last `LSADRA_DRIFT_WINDOW_HOURS` of events (default 24) are compared by PSI against quantiles stored at training time; a drifted feature marks the models stale and logs a warning that the cause may be poisoned training data. `GET /api/models/status` (ADMIN, ANALYST) reports model cards, baseline coverage, the latest drift per feature and recent training runs.
+
+## LLM Guardrails (before the LLM ships)
+
+The optional LLM tier (M4, [ADR 0007](docs/architecture/adr/)) will triage incidents and recommend next steps; it is never on the detection path and never acts. Its controls are in place first, in `lsadra/llm/`:
+
+- **Fixed output.** The model must return JSON matching `TRIAGE_SCHEMA` (summary, verdict, confidence, cited event ids, up to five recommended actions from a closed list). The runtime enforces it as a grammar and LSADRA validates it again: no extra keys, every cited event id must belong to the incident, every action target must be a host, user or IP from that evidence, and no URLs, links, HTML or tool calls anywhere. Anything else is discarded and the deterministic narrative is shown.
+- **Spotlighting.** Log-derived text is cleaned and placed only inside a data block fenced by a random per-request delimiter that never occurs in the data.
+- **Recommend-only.** The action broker can only store recommendations as `PROPOSED` actions (`proposed_actions` table); an ADMIN approves or rejects them, and approval executes nothing.
+- **Local by default.** A bring-your-own-model endpoint must be on this machine (loopback or `localhost`) unless `LSADRA_LLM_ALLOW_REMOTE=true`, and a remote one must use HTTPS. Downloaded GGUF/ONNX weights load only if their SHA-256 matches a pin in `lsadra/llm/pinned_models.json` or `LSADRA_LLM_MODEL_SHA256`.
+- **Red-team corpus.** [`demo/llm_redteam/`](demo/llm_redteam/) holds synthetic injection payloads with deterministic scorers. CI runs them offline on every PR; `python scripts/llm_redteam.py --endpoint http://127.0.0.1:8080` runs them against a local `llama-server`. Add payloads by PR.
+
 ## Architecture
 
 ```mermaid
@@ -159,7 +220,7 @@ graph TD
     RE --> SV[Dynamic Severity Scoring]
     C --> SV
     SV --> INC[Incident Grouping]
-    INC --> NB[Narrative Builder<br/>SHAP + MITRE ATT&CK]
+    INC --> NB[Narrative Builder<br/>Layer scores + MITRE ATT&CK]
     NB --> DB[(SQLite)]
     DB --> DASH[React SOC Dashboard]
     NB -->|/ws/alerts, JWT at handshake| DASH
@@ -185,14 +246,21 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode; lock-deps.sh — regenerates the dependency locks)
+  llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
+                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table;
+                    llm_redteam.py — runs the LLM injection corpus)
 requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools; see requirements/README.md
+                    (lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
+  detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
+  detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
+.devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
 .github/workflows/  CI matrix, DCO, commitlint, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
@@ -255,6 +323,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
 - **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
 - **Ingest benchmark:** [`benchmarks/`](benchmarks/) drives the real API at rising rates and records sustained events/s, request latency percentiles, event-loop lag and RSS. The committed baseline for today's synchronous stack is in [`benchmarks/README.md`](benchmarks/README.md) — M1 is measured against it.
+- **Detection bench:** [`benchmarks/detection/`](benchmarks/detection/) replays labelled attacks (the demo corpus plus pinned subsets of splunk/attack_data and EVTX-ATTACK-SAMPLES, downloaded on demand and never committed) inside seeded synthetic background traffic through the real detection pipeline, and records the true-positive rate per MITRE ATT&CK technique at 1 % and 0.1 % false-positive rate plus alerts per host per day. The committed baseline is [`benchmarks/detection/results/baseline-2026-11-18.md`](benchmarks/detection/results/baseline-2026-11-18.md); detection changes are measured against it ([ADR 0007](docs/architecture/adr/0007-detection-stack.md)).
 
 **What's next (M1 — async core)**
 
