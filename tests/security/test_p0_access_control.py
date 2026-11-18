@@ -14,6 +14,7 @@ All users, hosts and addresses are synthetic (``*.demo``, RFC 5737).
 """
 
 import os
+import secrets
 import shutil
 import subprocess
 import sys
@@ -22,6 +23,9 @@ from pathlib import Path
 import pytest
 
 from tests.fixtures import setup_test_db
+
+# Generated per run so no credential-shaped literal sits in the repository.
+TEST_PASSWORD = secrets.token_urlsafe(16)
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 
@@ -47,7 +51,7 @@ def _user(user_id, username, role):
     from lsadra.auth import create_access_token, hash_password
     from lsadra.storage.database import create_user
 
-    create_user(user_id, username, hash_password("synthetic-pass-123"), role)
+    create_user(user_id, username, hash_password(TEST_PASSWORD), role)
     return {"Authorization": f"Bearer {create_access_token(user_id, username, role)}"}
 
 
@@ -104,7 +108,7 @@ def _config_value(env_overrides, expr):
     return r
 
 
-STRONG_SECRET = "synthetic-strong-secret-0123456789abcdefghij"
+STRONG_SECRET = secrets.token_urlsafe(48)
 
 
 def test_signup_is_closed_by_default_outside_dev_mode():
@@ -125,7 +129,7 @@ def test_register_refused_when_signup_closed(client, monkeypatch):
 
     monkeypatch.setattr(config, "ALLOW_SIGNUP", False)
     r = client.post("/api/auth/register",
-                    json={"username": "mallory.demo", "password": "synthetic-pass-123"})
+                    json={"username": "mallory.demo", "password": TEST_PASSWORD})
     assert r.status_code == 403
     from lsadra.storage.database import get_user_by_username
 
@@ -133,7 +137,7 @@ def test_register_refused_when_signup_closed(client, monkeypatch):
 
 
 def test_admin_can_create_accounts_and_others_cannot(client, tenants):
-    body = {"username": "carol.demo", "password": "synthetic-pass-123", "role": "VIEWER"}
+    body = {"username": "carol.demo", "password": TEST_PASSWORD, "role": "VIEWER"}
     assert client.post("/api/dashboard/users", json=body, headers=tenants["bob"]).status_code == 403
     r = client.post("/api/dashboard/users", json=body, headers=tenants["admin"])
     assert r.status_code == 200, r.text

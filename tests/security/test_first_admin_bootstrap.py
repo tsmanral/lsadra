@@ -5,9 +5,14 @@ Regression: /api/auth/register used to make any account whose username was
 first got full control. Admins are now created with ``python -m lsadra.admin_cli``.
 """
 
+import secrets
+
 import pytest
 
 from tests.fixtures import setup_test_db
+
+# Generated per run so no credential-shaped literal sits in the repository.
+TEST_PASSWORD = secrets.token_urlsafe(16)
 
 
 @pytest.fixture(autouse=True)
@@ -26,7 +31,7 @@ def client():
 
 @pytest.mark.parametrize("name", ["admin", "Admin", "ADMIN"])
 def test_registering_admin_username_does_not_grant_admin(client, name):
-    r = client.post("/api/auth/register", json={"username": name, "password": "synthetic-pass-123"})
+    r = client.post("/api/auth/register", json={"username": name, "password": TEST_PASSWORD})
     assert r.status_code == 200, r.text
     assert r.json()["role"] == "ANALYST"
 
@@ -38,8 +43,8 @@ def test_registering_admin_username_does_not_grant_admin(client, name):
 def test_cli_creates_first_admin_who_can_log_in(client):
     from lsadra.admin_cli import create_admin
 
-    create_admin("ops.demo", "synthetic-pass-123")
-    r = client.post("/api/auth/login", json={"username": "ops.demo", "password": "synthetic-pass-123"})
+    create_admin("ops.demo", TEST_PASSWORD)
+    r = client.post("/api/auth/login", json={"username": "ops.demo", "password": TEST_PASSWORD})
     assert r.status_code == 200, r.text
     assert r.json()["role"] == "ADMIN"
 
@@ -49,13 +54,13 @@ def test_cli_rejects_short_password_and_duplicates():
 
     with pytest.raises(ValueError):
         create_admin("ops.demo", "short")
-    create_admin("ops.demo", "synthetic-pass-123")
+    create_admin("ops.demo", TEST_PASSWORD)
     with pytest.raises(ValueError):
         create_admin("ops.demo", "synthetic-pass-456")
 
 
 def test_cli_promotes_existing_user(client):
-    client.post("/api/auth/register", json={"username": "analyst.demo", "password": "synthetic-pass-123"})
+    client.post("/api/auth/register", json={"username": "analyst.demo", "password": TEST_PASSWORD})
     from lsadra.admin_cli import main
     from lsadra.storage.database import get_user_by_username
 
