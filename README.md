@@ -15,6 +15,7 @@
 [![Tests](https://img.shields.io/badge/smoke_tests-27%2F27_passing-brightgreen.svg?style=flat-square)](tests/test_v4_smoke.py)
 [![Security Tests](https://img.shields.io/badge/security_regressions-44_passing-brightgreen.svg?style=flat-square)](tests/security/)
 [![CI](https://img.shields.io/github/actions/workflow/status/tsmanral/lsadra/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/tsmanral/lsadra/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tsmanral/lsadra/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/tsmanral/lsadra)
 [![GitHub Stars](https://img.shields.io/github/stars/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra/stargazers)
 
 </div>
@@ -42,6 +43,8 @@ git clone https://github.com/tsmanral/lsadra.git
 cd lsadra
 py -3.12 -m venv venv            # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
+# Optional: CPU torch for the autoencoder model (the server runs without it)
+venv/Scripts/pip install --no-deps -r requirements/torch.txt
 
 # 2. Start the API server (creates the database on first launch)
 venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
@@ -67,7 +70,16 @@ cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
 
-This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. The image builds in two stages from a digest-pinned `python:3.12-slim`, installs only hash-checked dependencies, and runs as an unprivileged user (uid 10001) that can write only `/app/data` and `/app/logs`.
+
+A versioned image is published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release, only after the full CI suite passes on the tagged commit. Each image carries an SBOM and SLSA provenance, a GitHub attestation and a keyless Sigstore signature. Verify one before you run it:
+
+```bash
+gh attestation verify oci://ghcr.io/tsmanral/lsadra:<version> --owner tsmanral
+cosign verify ghcr.io/tsmanral/lsadra:<version> \
+  --certificate-identity-regexp '^https://github.com/tsmanral/lsadra/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ## Ingesting Logs
 
@@ -150,14 +162,15 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode; lock-deps.sh — regenerates the dependency locks)
+requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools; see requirements/README.md
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, DCO, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 fleet_simulator.py  Multi-device fleet traffic simulator
@@ -192,7 +205,7 @@ LSADRA treats logs as **attacker-controlled input** — they reach parsers, the 
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
-- **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
+- **Supply chain:** hash-locked Python dependencies ([`requirements/`](requirements/)) and SHA-pinned Actions; secret scanning on every PR diff plus a weekly full-history scan; dependency review, `pip-audit` and `npm audit` on every PR and weekly; CodeQL; `zizmor` on workflow changes; a ruff security-rule ratchet; OpenSSF Scorecard; Dependabot for pip/npm/Actions/Docker. Release images are built only after CI passes and ship with an SBOM, SLSA provenance, a GitHub attestation and a Sigstore signature (see [Docker](#docker-production)).
 
 ## License
 

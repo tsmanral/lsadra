@@ -72,6 +72,7 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 ```bash
 py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
+venv/Scripts/pip install --no-deps -r requirements/torch.txt   # optional autoencoder (CPU torch)
 venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
