@@ -1,7 +1,7 @@
 # Security
 
 - **Reporting a vulnerability:** see the repository
-  [SECURITY.md](../../SECURITY.md) — private reporting via GitHub advisory or
+  [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md) — private reporting via GitHub advisory or
   email; 72-hour acknowledgement, 7-day triage target.
 - **Do not** open public issues for vulnerabilities.
 

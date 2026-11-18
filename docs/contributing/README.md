@@ -1,6 +1,6 @@
 # Contributing
 
-See the repository [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full guide
+See the repository [CONTRIBUTING.md](https://github.com/tsmanral/lsadra/blob/main/CONTRIBUTING.md) for the full guide
 (dev setup, project map, PR process, AI-assisted-development policy).
 
 Quick notes:

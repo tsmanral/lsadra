@@ -1,0 +1,6 @@
+# Docs site toolchain, pinned so the strict docs build is reproducible.
+# Install:  pip install -r requirements-docs.txt
+# Build:    mkdocs build --strict
+mkdocs==1.6.1
+mkdocs-material==9.8.1
+pymdown-extensions==13.1

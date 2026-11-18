@@ -9,7 +9,7 @@ explainable, open-source SIEM.
 
 ## Map
 
-- [Architecture](architecture/README.md) — system design and decision records (ADRs).
+- [Architecture](architecture/README.md) — system design, [C4 diagrams](architecture/c4.md) and decision records (ADRs).
 - [Threat models](threat-models/README.md) — product threat model, agent-key custody, prompt-injection defense.
 - [Contracts](contracts/README.md) — the versioned event schema binding collectors, core, and UI.
 - [Security](security/README.md) — reporting and posture.
@@ -17,3 +17,6 @@ explainable, open-source SIEM.
 
 Publication of the rendered docs site (MkDocs Material) is gated on the product
 name decision — see [ADR 0002](architecture/adr/0002-product-name.md) (gate D1).
+CI already builds the site with `mkdocs build --strict` on every pull request,
+so a broken link, a missing anchor or a page left out of the nav fails the
+build. Preview locally with `pip install -r requirements-docs.txt && mkdocs serve`.
