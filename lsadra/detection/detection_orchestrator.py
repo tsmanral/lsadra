@@ -51,7 +51,7 @@ from lsadra.storage.database import (
     set_watermark,
     update_device_status,
 )
-from lsadra.ui.alert_stream import alert_hub
+from lsadra.api.alert_stream import alert_hub
 
 logger = logging.getLogger(__name__)
 

@@ -28,8 +28,8 @@ from starlette.websockets import WebSocketDisconnect
 
 from lsadra.auth import create_access_token
 from lsadra.config import JWT_SECRET, TOKEN_ALGORITHM
-from lsadra.ui import alert_stream
-from lsadra.ui.alert_stream import (
+from lsadra.api import alert_stream
+from lsadra.api.alert_stream import (
     WS_POLICY_VIOLATION,
     WS_TRY_AGAIN_LATER,
     AlertHub,

@@ -53,9 +53,9 @@ from lsadra.storage.database import (
     assign_incident as db_assign_incident,
 )
 from lsadra.tls_middleware import TLSEnforcementMiddleware
-from lsadra.ui.alert_stream import router as alert_stream_router
-from lsadra.ui.api_identity import router as identity_router
-from lsadra.ui.api_dashboard import router as dashboard_router
+from lsadra.api.alert_stream import router as alert_stream_router
+from lsadra.api.identity import router as identity_router
+from lsadra.api.dashboard import router as dashboard_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 logger = logging.getLogger(__name__)
@@ -485,10 +485,10 @@ async def retrain_models(
     return {"status": "accepted", "message": "Started."}
 
 
-from lsadra.ui.api_dashboard import router as dashboard_router
+from lsadra.api.dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="/api/dashboard")
 
-from lsadra.ui.api_models import router as models_router  # noqa: E402
+from lsadra.api.models import router as models_router  # noqa: E402
 app.include_router(models_router, prefix="/api/models")
 
 if __name__ == "__main__":

@@ -58,7 +58,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are a
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
 - 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
-- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
+- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, device and model views, and JWT auth with roles.
 
 ## Quick start (local, about 10 minutes)
 
@@ -248,7 +248,7 @@ The command saves the installer to a file and checks its SHA-256 before running 
 
 ## Run with Docker
 
-The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard is off by default; `docker compose -f docker-compose.yml --profile legacy up -d` starts it on `127.0.0.1:8501`.
+The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard has been removed; the React dashboard is the only UI.
 
 ```bash
 cp .env.example .env
@@ -461,7 +461,8 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, admin CLI (admin_cli.py)
+  api/             REST and WebSocket API the dashboard and desktop app use (routers, data layer, PDF report)
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
@@ -473,7 +474,7 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
 scripts/            Operator tooling (seed_demo.py replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus)
-requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, dev, torch (CPU index), ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
@@ -490,7 +491,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix, DCO, commitlint, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff (not torch)
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff (not torch)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent

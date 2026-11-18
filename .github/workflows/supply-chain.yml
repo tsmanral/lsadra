@@ -51,7 +51,6 @@ jobs:
           pip-audit --require-hashes --disable-pip --progress-spinner off \
             -r requirements/base.txt \
             -r requirements/ml.txt \
-            -r requirements/ui.txt \
             -r requirements/dev.txt \
             -r requirements/ci-tools.txt
           pip-audit --require-hashes --disable-pip --no-deps --progress-spinner off \
