@@ -2,8 +2,17 @@
 # ============================================================================
 # LSADRA Agent Installer for Linux
 #
-# Usage:
-#   curl -s https://your-sentinel-server/install-agent.sh | sudo bash -s -- --token ABC123
+# Usage (the dashboard's Connect Device page generates this command with the
+# real hashes filled in):
+#   curl -fsSLo lsadra-install.sh https://your-server/static/installer_linux.sh \
+#     && echo "<installer-sha256>  lsadra-install.sh" | sha256sum -c - \
+#     && sudo bash lsadra-install.sh --token ABC123 --server https://your-server \
+#          --agent-sha256 <agent-sha256>
+#
+# The installer is never piped straight into a shell: it is saved, checked
+# against the hash the dashboard shows, and only then run. It in turn refuses
+# an agent (or --file name=sha256 extra file) whose SHA-256 differs, and refuses plain-HTTP
+# servers unless --allow-insecure-http is given (local labs only).
 #
 # What this script does:
 #   1. Creates /opt/lsadra-agent/
@@ -25,12 +34,18 @@ CONFIG_FILE="${CONFIG_DIR}/config.yml"
 SERVICE_NAME="lsadra-agent"
 AGENT_USER="sentinel-agent"
 TOKEN=""
+AGENT_SHA256=""
+EXTRA_FILES=()   # name=sha256 pairs for optional agent files (e.g. posture checks)
+ALLOW_INSECURE_HTTP=0
 
 # ── Parse arguments ──────────────────────────────────────────────────────
 while [[ $# -gt 0 ]]; do
     case "$1" in
         --token)  TOKEN="$2"; shift 2 ;;
         --server) LSADRA_SERVER="$2"; shift 2 ;;
+        --agent-sha256) AGENT_SHA256="$2"; shift 2 ;;
+        --file) EXTRA_FILES+=("$2"); shift 2 ;;
+        --allow-insecure-http) ALLOW_INSECURE_HTTP=1; shift ;;
         *)        echo "Unknown arg: $1"; exit 1 ;;
     esac
 done
@@ -40,6 +55,25 @@ if [[ -z "$TOKEN" ]]; then
     echo "Usage: sudo bash install-agent.sh --token <REGISTRATION_TOKEN>"
     exit 1
 fi
+
+if [[ ! "$AGENT_SHA256" =~ ^[0-9a-f]{64}$ ]]; then
+    echo "Error: --agent-sha256 <64 hex chars> is required."
+    echo "       Copy the full install command from the dashboard's Connect Device page."
+    exit 1
+fi
+
+case "$LSADRA_SERVER" in
+    https://*) ;;
+    http://*)
+        if [[ "$ALLOW_INSECURE_HTTP" -ne 1 ]]; then
+            echo "Error: ${LSADRA_SERVER} is plain HTTP. The device API key would travel unencrypted."
+            echo "       Serve LSADRA over HTTPS, or pass --allow-insecure-http for a local lab."
+            exit 1
+        fi
+        echo "WARNING: plain HTTP server. Use this only on a trusted local network."
+        ;;
+    *) echo "Error: --server must start with https:// (or http:// with --allow-insecure-http)."; exit 1 ;;
+esac
 
 echo "==> LSADRA Agent Installer"
 echo "    Server: ${LSADRA_SERVER}"
@@ -54,10 +88,38 @@ echo "==> Downloading agent ..."
 # In production this would pull a release artifact.  For the lab, we copy
 # the Python script directly from the server or the local repo.
 AGENT_URL="${LSADRA_SERVER}/agent/linux_agent.py"
-curl -fsSL "${AGENT_URL}" -o "${INSTALL_DIR}/linux_agent.py" || {
-    echo "Warning: Could not download agent from ${AGENT_URL}."
-    echo "         Copy lsadra/endpoint_agent/linux_agent.py manually."
+AGENT_TMP="$(mktemp)"
+trap 'rm -f "${AGENT_TMP}"' EXIT
+curl -fsSL "${AGENT_URL}" -o "${AGENT_TMP}" || {
+    echo "Error: could not download the agent from ${AGENT_URL}."
+    exit 1
 }
+if ! echo "${AGENT_SHA256}  ${AGENT_TMP}" | sha256sum -c - >/dev/null 2>&1; then
+    echo "Error: the downloaded agent does not match the expected SHA-256."
+    echo "       Nothing was installed. Regenerate the command from the dashboard and retry."
+    exit 1
+fi
+install -m 0755 "${AGENT_TMP}" "${INSTALL_DIR}/linux_agent.py"
+
+# Optional agent files, each verified like the agent. Names are restricted to
+# a plain file name so a crafted --file cannot write outside INSTALL_DIR.
+for spec in ${EXTRA_FILES[@]+"${EXTRA_FILES[@]}"}; do
+    name="${spec%%=*}"
+    sha="${spec#*=}"
+    if [[ ! "$name" =~ ^[A-Za-z0-9_.-]+$ || "$name" == .* || ! "$sha" =~ ^[0-9a-f]{64}$ ]]; then
+        echo "Error: bad --file value '${spec}' (expected name=<64 hex chars>)."
+        exit 1
+    fi
+    curl -fsSL "${LSADRA_SERVER}/agent/${name}" -o "${AGENT_TMP}" || {
+        echo "Error: could not download ${name}."
+        exit 1
+    }
+    if ! echo "${sha}  ${AGENT_TMP}" | sha256sum -c - >/dev/null 2>&1; then
+        echo "Error: ${name} does not match the expected SHA-256. Nothing more was installed."
+        exit 1
+    fi
+    install -m 0644 "${AGENT_TMP}" "${INSTALL_DIR}/${name}"
+done
 
 # ── 3. Register with server ──────────────────────────────────────────────
 echo "==> Registering device with token ..."

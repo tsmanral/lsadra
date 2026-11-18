@@ -52,7 +52,7 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**, register an account, and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
+Open **http://localhost:5173**, sign in (see [First admin account](#first-admin-account)), and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The command downloads the installer to a file and checks its SHA-256 before running it with `sudo`, and the installer checks the agent's SHA-256 before installing it. Against a plain-HTTP server it needs `--allow-insecure-http`, which the page adds and warns about; use that only on a trusted local network. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
 
 To validate the full pipeline (parsers, rules, severity, narratives, DB, scheduler):
 
@@ -62,7 +62,7 @@ venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 
 ### First admin account
 
-Accounts created from the dashboard's sign-up form are analysts. Create the first admin from a shell on the server; after that, admins can change roles from the **Admin** page. Run it with the server's environment (`LSADRA_JWT_SECRET` set, or `LSADRA_DEV_MODE=true` for local dev), otherwise it stops with a message naming those settings:
+Self-service sign-up is **off by default** outside dev mode (`LSADRA_ALLOW_SIGNUP=false`), so nobody who merely reaches the port can create an account. When it is turned on, sign-ups are analysts. Create the first admin from a shell on the server; after that, admins add accounts with `POST /api/dashboard/users` (`{"username", "password", "role"}`, password 12+ characters, role `ADMIN`, `ANALYST` or `VIEWER`) and change roles from the **Admin** page. Run it with the server's environment (`LSADRA_JWT_SECRET` set, or `LSADRA_DEV_MODE=true` for local dev), otherwise it stops with a message naming those settings:
 
 ```bash
 venv/Scripts/python -m lsadra.admin_cli create-admin --username alice   # prompts for a password (12+ characters)
@@ -76,6 +76,8 @@ venv/Scripts/python -m lsadra.admin_cli promote --username bob          # make a
 cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
+
+`LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
 This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
 
@@ -107,6 +109,8 @@ curl -X POST http://localhost:8000/api/events/raw \
 `source_hint` is optional and must be one of `ssh`, `syslog`, `windows`, `network`, `endpoint`; omit it to auto-detect. Lines no parser recognizes are counted in `parse_errors` rather than rejected.
 
 Per-source ingestion health is available at `GET /api/events/stats`.
+
+Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
 
 ## Live Alerts
 
