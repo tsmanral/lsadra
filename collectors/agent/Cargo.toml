@@ -1,0 +1,22 @@
+[package]
+name = "lsadra-agent"
+description = "LSADRA endpoint agent: one source per OS, disk spool, HTTPS shipper"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lsadra-collector-core = { workspace = true, features = ["http"] }
+lsadra-source-journald.workspace = true
+lsadra-source-wineventlog.workspace = true
+
+[dev-dependencies]
+tempfile.workspace = true
+serde_json.workspace = true
+jsonschema.workspace = true
+
+[lints]
+workspace = true

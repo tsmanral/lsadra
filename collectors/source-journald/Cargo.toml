@@ -1,0 +1,17 @@
+[package]
+name = "lsadra-source-journald"
+description = "Linux journald source: follows `journalctl -o json` and maps sshd/sudo records to schema v1 events"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish.workspace = true
+
+[dependencies]
+lsadra-collector-core.workspace = true
+serde_json.workspace = true
+regex-lite.workspace = true
+
+[lints]
+workspace = true
