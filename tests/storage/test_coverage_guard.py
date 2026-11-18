@@ -14,7 +14,7 @@ import lsadra.storage.database as database
 
 SUITE_DIR = Path(__file__).parent
 FIXTURE_NAMES = {"db", "seeded"}
-EXPECTED_PUBLIC_COUNT = 69  # audit §13 baseline 57 + record_heartbeat (S2-3) + store_batch_and_touch (S2-4) + get_events_before (G-12 detection context) + 6 model training (G-18/G-19) + 3 proposed actions (G-30); update deliberately
+EXPECTED_PUBLIC_COUNT = 76  # audit §13 baseline 57 + record_heartbeat (S2-3) + store_batch_and_touch (S2-4) + get_events_before (G-12 detection context) + 6 model training (G-18/G-19) + 3 proposed actions (G-30) + 7 identity/device functions (G-9, G-33); update deliberately
 
 
 def _public_functions():

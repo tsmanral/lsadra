@@ -28,5 +28,9 @@ RUN mkdir -p /app/data /app/data/models /app/logs
 # Expose ports (API + Dashboard)
 EXPOSE 8000 8501
 
-# Default: run the API server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default: run the API server through the launcher, which applies the listener
+# policy (G-8): plain HTTP beyond loopback only with TLS configured, a trusted
+# proxy, or LSADRA_ALLOW_PLAINTEXT_LISTENER (docker-compose.yml sets it and
+# publishes the port on the host's loopback only).
+ENV LSADRA_API_HOST=0.0.0.0
+CMD ["python", "-m", "lsadra.serve"]
