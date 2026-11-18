@@ -139,7 +139,7 @@ def main():
     def send_heartbeats():
         while True:
             try:
-                requests.post(f"{SERVER_URL}/heartbeat", json={
+                requests.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": device_id, "X-Api-Key": api_key}, json={
                     "device_id": device_id,
                     "cpu_pct": 10.0,
                     "mem_pct": 50.0,
