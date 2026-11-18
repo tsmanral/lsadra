@@ -84,7 +84,7 @@ docker compose up -d
 
 `LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
-This starts the API (`127.0.0.1:8000`, published on the host's loopback only) and an idle agent simulator. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+This starts the API (`127.0.0.1:8000`) and the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), both published on the host's loopback only, plus an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
 
 ### Network exposure and TLS
 
@@ -190,7 +190,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
-frontend/           React (Vite + TypeScript) SOC dashboard
+frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations

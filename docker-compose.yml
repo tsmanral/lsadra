@@ -25,6 +25,8 @@ services:
       - LSADRA_ABUSEIPDB_API_KEY=${LSADRA_ABUSEIPDB_API_KEY:-}
       - LSADRA_MIN_BASELINE_EVENTS=${LSADRA_MIN_BASELINE_EVENTS:-200}
       - LSADRA_RETENTION_DAYS=${LSADRA_RETENTION_DAYS:-30}
+      # The React dashboard (web service) calls the API from the browser.
+      - LSADRA_CORS_ORIGINS=${LSADRA_CORS_ORIGINS:-http://localhost:8080}
     volumes:
       - sentinel-data:/app/data
       - sentinel-logs:/app/logs
@@ -34,6 +36,21 @@ services:
       timeout: 10s
       retries: 3
       start_period: 10s
+    restart: unless-stopped
+
+  # ── React Dashboard ─────────────────────────────────────────────────────
+  # Static build of frontend/ served by unprivileged nginx. The browser talks
+  # to the API at http://localhost:8000, so open the dashboard on the same
+  # machine; serving it to other hosts needs a configurable API address.
+  # Published on the host's loopback only (G-7).
+  web:
+    build: ./frontend
+    container_name: lsadra-web
+    ports:
+      - "127.0.0.1:${WEB_PORT:-8080}:8080"
+    depends_on:
+      api:
+        condition: service_healthy
     restart: unless-stopped
 
   # ── Legacy Streamlit Dashboard (opt-in) ─────────────────────────────────
