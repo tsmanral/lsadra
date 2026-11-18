@@ -85,6 +85,47 @@ def _orchestrator():
 # ── hygiene ───────────────────────────────────────────────────────────────
 
 
+def test_labelled_attack_reads_ground_truth():
+    from lsadra.detection.model_lifecycle import labelled_attack
+
+    def ev(attrs):
+        return {"attributes": attrs}
+
+    assert labelled_attack(ev({"ground_truth": {"label": "malicious"}}))
+    assert labelled_attack(ev(json.dumps({"ground_truth": {"label": "suspicious"}})))
+    assert not labelled_attack(ev({"ground_truth": {"label": "benign"}}))
+    assert not labelled_attack(ev({"source_type": "syslog"}))
+    assert not labelled_attack(ev("{not json"))
+    assert not labelled_attack({})
+
+
+def test_seeded_demo_corpus_trains_a_model():
+    """Regression: a fresh install seeded with the whole demo corpus got no model.
+
+    The corpus's own attack events were learned as normal, so the candidate
+    missed the canary scenarios and every automatic run was rejected.
+    """
+    rows = []
+    for f in sorted(CORPUS.glob("*.jsonl")):
+        for line in f.read_text(encoding="utf-8").splitlines():
+            ev = json.loads(line)
+            rows.append({
+                "timestamp": ev["timestamp"], "device_id": "dev-a", "user_id": "user-a",
+                "host": ev.get("host", ""), "effective_username": ev.get("effective_username", ""),
+                "source_ip": ev.get("source_ip") or "", "event_type": ev["event_type"],
+                "raw_message": ev.get("raw_message", ""), "attributes": ev.get("attributes", {}),
+                "is_synthetic": True,
+            })
+    rows.sort(key=lambda r: r["timestamp"])
+    _store_events(rows)
+
+    result = _orchestrator().retrain(trigger="auto")
+
+    attacks = sum(1 for r in rows if r["attributes"]["ground_truth"]["label"] != "benign")
+    assert result["selection"]["excluded_labelled_attacks"] == attacks
+    assert result["status"] == "promoted", result.get("canary")
+
+
 def test_cap_device_share_limits_dominant_device():
     from lsadra.detection.model_lifecycle import cap_device_share
 
