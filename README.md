@@ -150,6 +150,7 @@ frontend/           React (Vite + TypeScript) SOC dashboard
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations
+  fuzz/             Property-based fuzz tests for every log parser (Hypothesis)
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
@@ -158,6 +159,8 @@ docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
+  security/         Incident runbook, SSDF and CRA position, release security review
+fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
@@ -194,6 +197,8 @@ LSADRA treats logs as **attacker-controlled input** — they reach parsers, the 
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Fuzzing:** every log parser is fuzzed on each PR with Hypothesis ([`tests/fuzz/`](tests/fuzz/)), and with Atheris under ClusterFuzzLite when parser code changes.
+- **Operating it safely:** the [incident runbook](docs/security/incident-runbook.md) covers leaked secrets and keys, compromised hosts and a stolen database; [SSDF and CRA](docs/security/ssdf-cra.md) maps the project to NIST SSDF and states its EU Cyber Resilience Act position; the maintainer runs a [release security review](docs/security/release-security-review.md) before every tag.
 - **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
 
 ## License

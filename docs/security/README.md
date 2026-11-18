@@ -13,3 +13,14 @@
   RAG index.
 - Full-history secret scanning runs weekly in CI (gitleaks on PRs + a scheduled
   verified TruffleHog sweep).
+
+## Pages
+
+- [Operator incident runbook](incident-runbook.md): leaked secrets or keys,
+  compromised hosts, server or account compromise, stolen database.
+- [Secure development and the CRA](ssdf-cra.md): NIST SSDF practice map and the
+  project's EU Cyber Resilience Act position for Lite and Team.
+- [Release security review](release-security-review.md): the AI-assisted review
+  the maintainer runs before every release tag.
+- [Product threat model](../threat-models/product-stride.md): STRIDE table and
+  data-flow diagram.
