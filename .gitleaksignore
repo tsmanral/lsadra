@@ -1,0 +1,8 @@
+# Findings reviewed and confirmed as synthetic test data, by gitleaks fingerprint.
+# Only add an entry after checking the value is not a real credential.
+
+# PR #118: synthetic test passwords in an earlier commit of the first-admin
+# regression test (since replaced by runtime-built values).
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:29
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:42
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:58
