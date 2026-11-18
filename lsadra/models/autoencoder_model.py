@@ -3,7 +3,9 @@ LSADRA V3 — Layer 3: Lightweight autoencoder anomaly detector.
 
 Trains a small feed-forward autoencoder on normal feature vectors using
 PyTorch (CPU only).  High reconstruction error signals an anomaly.
-Supports persistence via ``torch.save`` / ``torch.load``.
+Supports persistence via ``torch.save`` / ``torch.load``. The saved state holds
+only tensors and plain numbers, is verified against the models folder manifest,
+and is loaded with ``weights_only=True`` (G-17).
 """
 
 import logging
@@ -184,20 +186,21 @@ class AutoencoderModel:
             logger.warning("Cannot save autoencoder — not trained or torch unavailable.")
             return self._model_path()
 
+        from lsadra.models.integrity import ModelStore
+
         target = path or self._model_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
         state = {
             "net_state_dict": self._net.state_dict(),
-            "threshold": self._threshold,
-            "mean": self._mean,
-            "std": self._std,
-            "latent_dim": self.latent_dim,
-            "input_dim": self._net.encoder[0].in_features,
-            "threshold_pct": self.threshold_pct,
-            "epochs": self.epochs,
-            "lr": self.lr,
+            "threshold": float(self._threshold),
+            "mean": torch.as_tensor(np.asarray(self._mean, dtype=np.float32)),
+            "std": torch.as_tensor(np.asarray(self._std, dtype=np.float32)),
+            "latent_dim": int(self.latent_dim),
+            "input_dim": int(self._net.encoder[0].in_features),
+            "threshold_pct": float(self.threshold_pct),
+            "epochs": int(self.epochs),
+            "lr": float(self.lr),
         }
-        torch.save(state, str(target))
+        ModelStore(target.parent).save_torch(target.name, state)
         logger.info("Autoencoder saved to %s", target)
         return target
 
@@ -205,11 +208,14 @@ class AutoencoderModel:
         """
         Load persisted autoencoder state.
 
-        Returns True if loaded successfully, False otherwise.
+        Returns True if loaded successfully, False otherwise (including when
+        the file does not verify against the manifest).
         """
         if not _HAS_TORCH:
             logger.warning("Cannot load autoencoder — torch not available.")
             return False
+
+        from lsadra.models.integrity import ModelIntegrityError, ModelStore
 
         target = path or self._model_path()
         if not target.exists():
@@ -217,18 +223,23 @@ class AutoencoderModel:
             return False
 
         try:
-            state = torch.load(str(target), map_location="cpu", weights_only=False)
-            input_dim = state["input_dim"]
-            self.latent_dim = state["latent_dim"]
-            self._net = _AENet(input_dim, self.latent_dim)
-            self._net.load_state_dict(state["net_state_dict"])
-            self._net.eval()
-            self._threshold = state["threshold"]
-            self._mean = state["mean"]
-            self._std = state["std"]
+            state = ModelStore(target.parent).load_torch(target.name)
+            input_dim = int(state["input_dim"])
+            latent_dim = int(state["latent_dim"])
+            net = _AENet(input_dim, latent_dim)
+            net.load_state_dict(state["net_state_dict"])
+            net.eval()
+            self.latent_dim = latent_dim
+            self._net = net
+            self._threshold = float(state["threshold"])
+            self._mean = np.asarray(state["mean"], dtype=np.float32)
+            self._std = np.asarray(state["std"], dtype=np.float32)
             self.is_fitted = True
             logger.info("Autoencoder loaded from %s", target)
             return True
+        except ModelIntegrityError as exc:
+            logger.warning("Refusing to load autoencoder from %s: %s", target, exc)
+            return False
         except Exception:
             logger.exception("Failed to load autoencoder from %s", target)
             return False

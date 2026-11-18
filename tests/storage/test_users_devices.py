@@ -3,7 +3,9 @@
 Covers: create_user, get_user_by_username, get_user_by_id, update_user_role,
 list_users, create_device, get_device, get_devices_for_user, get_all_devices,
 touch_device, update_device_status, increment_device_event_count, store_token,
-consume_token, insert_heartbeat, record_heartbeat, get_latest_heartbeat.
+consume_token, insert_heartbeat, record_heartbeat, get_latest_heartbeat,
+bump_token_version, set_user_disabled, set_user_password_hash, set_user_totp,
+claim_totp_step, revoke_device, rotate_device_key.
 """
 
 import sqlite3
@@ -13,7 +15,11 @@ import pytest
 
 from tests.storage._support import DEVICE_ID, USER_ID, transactions
 
-USER_KEYS = {"id", "username", "password_hash", "role", "created_at"}
+USER_KEYS = {
+    "id", "username", "password_hash", "role", "created_at",
+    # migration 008 (G-9, G-33)
+    "token_version", "disabled", "totp_secret", "totp_enabled", "totp_last_step",
+}
 DEVICE_KEYS = {
     "id",
     "user_id",
@@ -25,6 +31,9 @@ DEVICE_KEYS = {
     "event_count",
     "created_at",
     "last_seen_at",
+    # migration 008: key-rotation overlap (G-9)
+    "previous_api_key_hash",
+    "previous_key_expires_at",
 }
 
 
@@ -76,7 +85,8 @@ def test_list_users_returns_all_without_password_hash(db):
     users = db.list_users()
     assert isinstance(users, list) and len(users) == 2
     for u in users:
-        assert set(u) == {"id", "username", "role", "created_at"}
+        # never password_hash or totp_secret
+        assert set(u) == {"id", "username", "role", "created_at", "disabled", "totp_enabled"}
     assert {u["id"] for u in users} == {"u-a", "u-b"}
 
 
@@ -283,3 +293,70 @@ def test_record_heartbeat_repeated_beats_append_rows(seeded, sql):
         seeded.record_heartbeat(DEVICE_ID, float(i))
     assert sql("SELECT COUNT(*) AS n FROM device_heartbeats")[0]["n"] == 3
     assert seeded.get_device(DEVICE_ID)["status"] == "BASELINING"
+
+
+# ── session revocation, second factor, device credentials (G-9, G-33) ─────
+
+
+def test_update_user_role_bumps_token_version(db):
+    db.create_user("u-r", "rose", "synthetic-hash")
+    db.update_user_role("u-r", "VIEWER")
+    assert db.get_user_by_id("u-r")["token_version"] == 1
+
+
+def test_bump_token_version(db):
+    db.create_user("u-t", "tom", "synthetic-hash")
+    assert db.bump_token_version("u-t") is True
+    assert db.bump_token_version("u-t") is True
+    assert db.get_user_by_id("u-t")["token_version"] == 2
+    assert db.bump_token_version("ghost") is False
+
+
+def test_set_user_disabled_and_reenable(db):
+    db.create_user("u-d", "dora", "synthetic-hash")
+    assert db.set_user_disabled("u-d", True) is True
+    row = db.get_user_by_id("u-d")
+    assert (row["disabled"], row["token_version"]) == (1, 1)
+    db.set_user_disabled("u-d", False)
+    assert db.get_user_by_id("u-d")["disabled"] == 0
+    assert db.set_user_disabled("ghost", True) is False
+
+
+def test_set_user_password_hash_bumps_version(db):
+    db.create_user("u-p", "pam", "old-hash")
+    assert db.set_user_password_hash("u-p", "new-hash") is True
+    row = db.get_user_by_id("u-p")
+    assert (row["password_hash"], row["token_version"]) == ("new-hash", 1)
+
+
+def test_set_user_totp_and_claim_step(db):
+    db.create_user("u-o", "otto", "synthetic-hash")
+    assert db.set_user_totp("u-o", "SECRET", enabled=False) is True
+    assert db.get_user_by_id("u-o")["token_version"] == 0  # pending: no bump
+    db.set_user_totp("u-o", "SECRET", enabled=True)
+    row = db.get_user_by_id("u-o")
+    assert (row["totp_secret"], row["totp_enabled"], row["token_version"]) == ("SECRET", 1, 1)
+    assert db.claim_totp_step("u-o", 100) is True
+    assert db.claim_totp_step("u-o", 100) is False  # replay
+    assert db.claim_totp_step("u-o", 99) is False
+    assert db.claim_totp_step("u-o", 101) is True
+    db.set_user_totp("u-o", None, enabled=False)
+    assert db.get_user_by_id("u-o")["totp_secret"] is None
+
+
+def test_revoke_device_is_sticky(seeded):
+    assert seeded.revoke_device(DEVICE_ID) is True
+    seeded.update_device_status(DEVICE_ID, "ONLINE")
+    assert seeded.get_device(DEVICE_ID)["status"] == "REVOKED"
+    assert seeded.revoke_device("nope") is False
+
+
+def test_rotate_device_key_keeps_previous_until_overlap(seeded):
+    until = datetime.utcnow() + timedelta(minutes=10)
+    assert seeded.rotate_device_key(DEVICE_ID, "k-new", until) is True
+    dev = seeded.get_device(DEVICE_ID)
+    assert (dev["api_key_hash"], dev["previous_api_key_hash"]) == ("k-new", "synthetic-key-hash")
+    assert dev["previous_key_expires_at"] == until.isoformat()
+    seeded.revoke_device(DEVICE_ID)
+    assert seeded.get_device(DEVICE_ID)["previous_api_key_hash"] is None
+    assert seeded.rotate_device_key(DEVICE_ID, "k-3", until) is False  # revoked

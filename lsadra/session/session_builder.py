@@ -10,6 +10,8 @@ from typing import Any, Dict, List
 
 import pandas as pd
 
+from lsadra.features.timestamps import parse_event_timestamps
+
 
 class SessionBuilder:
     """
@@ -37,7 +39,7 @@ class SessionBuilder:
             return events
 
         df = pd.DataFrame(events)
-        df["timestamp"] = pd.to_datetime(df["timestamp"])
+        df["timestamp"] = parse_event_timestamps(df["timestamp"])
         df = df.sort_values("timestamp")
 
         session_col: List[int] = []

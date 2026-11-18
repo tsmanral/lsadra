@@ -50,6 +50,7 @@ def _seed():
 
     create_user(ANALYST_ID, "analyst.demo", "x", "ANALYST")
     create_user(OTHER_ID, "other.demo", "x", "ANALYST")
+    create_user("admin-1", "admin.demo", "x", "ADMIN")  # sessions need a stored user (G-9)
     create_device(DEVICE_ID, ANALYST_ID, "demo-host-01", "linux", "x")
     create_device(OTHER_DEVICE_ID, OTHER_ID, "demo-host-02", "linux", "x")
 
@@ -103,7 +104,7 @@ def test_kpis_for_non_admin_user(client):
 
 def test_kpis_for_admin_see_everything(client):
     _seed()
-    r = client.get("/api/dashboard/kpis", headers=_auth("admin-1", "admin", "ADMIN"))
+    r = client.get("/api/dashboard/kpis", headers=_auth("admin-1", "admin.demo", "ADMIN"))
     assert r.status_code == 200, r.text
     body = r.json()
     assert body["open_incidents"] == 3

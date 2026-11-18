@@ -3,12 +3,18 @@
 # arrive one PR each, since they are the ones that need a real look.
 version: 2
 updates:
+  # Hash-locked requirement files (requirements/*.txt, compiled from *.in
+  # with uv; see requirements/README.md). requirements.txt pulls them in with -r.
   - package-ecosystem: pip
     directory: "/"
     schedule:
       interval: weekly
       day: monday
       time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
@@ -22,6 +28,10 @@ updates:
       interval: weekly
       day: monday
       time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
     commit-message:
       prefix: "chore(ci)"
     groups:
@@ -34,6 +44,10 @@ updates:
       interval: weekly
       day: monday
       time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
@@ -41,12 +55,33 @@ updates:
       npm-minor-and-patch:
         update-types: ["minor", "patch"]
 
+  # Base image digests: Dockerfile (API) and frontend/Dockerfile (dashboard).
+  - package-ecosystem: docker
+    directories:
+      - "/"
+      - "/frontend"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
+    commit-message:
+      prefix: "chore(docker)"
+
+  # Rust collectors (collectors/Cargo.lock).
   - package-ecosystem: cargo
     directory: "/collectors"
     schedule:
       interval: weekly
       day: monday
       time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
     open-pull-requests-limit: 5
     commit-message:
       prefix: "chore(deps)"
