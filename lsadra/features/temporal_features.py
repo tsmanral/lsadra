@@ -8,6 +8,8 @@ indicators from event timestamps.
 import numpy as np
 import pandas as pd
 
+from lsadra.features.timestamps import parse_event_timestamps
+
 
 def extract_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -19,7 +21,7 @@ def extract_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     df["hour"] = df["timestamp"].dt.hour
     df["minute"] = df["timestamp"].dt.minute
