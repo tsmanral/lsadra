@@ -34,7 +34,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, 
 
 ## Quick Start
 
-> Requires **Python 3.12 or newer**. CI pins 3.12; the test suite also runs clean on 3.14. Check installed versions with `py -0` on Windows.
+> Requires **Python 3.12 or newer**. CI runs the full suite on 3.12 (Ubuntu, Windows, macOS) and on 3.13 and 3.14 (Ubuntu). Check installed versions with `py -0` on Windows.
 
 ```bash
 # 1. Clone and set up
