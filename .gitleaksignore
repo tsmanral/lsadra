@@ -1,0 +1,6 @@
+# Reviewed gitleaks false positives, one exact finding per line (commit:file:rule:line).
+# Synthetic test passwords from PR #136 commit 77b0023; the strings were split in the
+# next commit so the scanner no longer matches them. Approved by the project lead
+# 2026-11-18. Never add real secrets here.
+77b0023f89a81d4c2eacebab428279c99b2e57a3:tests/security/_identity_support.py:generic-api-key:14
+77b0023f89a81d4c2eacebab428279c99b2e57a3:tests/security/test_g10_passwords_and_throttle.py:generic-api-key:32
