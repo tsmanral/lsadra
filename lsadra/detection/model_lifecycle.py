@@ -46,7 +46,7 @@ from lsadra.models.integrity import ModelIntegrityError, ModelStore
 logger = logging.getLogger(__name__)
 
 ENSEMBLE_FILE = "ensemble.joblib"
-AUTOENCODER_FILE = "autoencoder.pt"
+AUTOENCODER_FILE = "autoencoder.json"
 BASELINE_FILE = "baseline.json"
 REFERENCE_FILE = "reference.json"
 PREVIOUS_DIR = "previous"
@@ -405,7 +405,7 @@ def library_versions() -> Dict[str, str]:
     from lsadra import __version__
 
     versions = {"lsadra": __version__, "python": platform.python_version()}
-    for mod in ("numpy", "pandas", "sklearn", "joblib", "torch"):
+    for mod in ("numpy", "pandas", "sklearn", "joblib"):
         try:
             versions[mod] = __import__(mod).__version__
         except Exception:  # noqa: BLE001 - optional dependency
@@ -420,8 +420,8 @@ _MODEL_DESCRIPTIONS = {
         "file": ENSEMBLE_FILE,
     },
     "autoencoder": {
-        "type": "Feed-forward autoencoder, 95th-percentile reconstruction error threshold",
-        "format": "torch state dict, tensors only, loaded with weights_only=True",
+        "type": "Feed-forward autoencoder (scikit-learn MLP, numpy scoring), 95th-percentile reconstruction error threshold",
+        "format": "plain JSON (weights, normalisation, threshold), verified against the signed manifest",
         "file": AUTOENCODER_FILE,
     },
     "baseline": {

@@ -28,7 +28,7 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 | Technology | Purpose |
 |---|---|
 | **Python 3.12 / FastAPI** | Ingestion API, auth (JWT + RBAC), detection orchestration |
-| **scikit-learn / PyTorch** | Ensemble anomaly models (Isolation Forest, LOF, One-Class SVM) + autoencoder |
+| **scikit-learn** | Ensemble anomaly models (Isolation Forest, LOF, One-Class SVM) + MLP autoencoder |
 | **SHAP** | Per-alert feature attribution and explainability |
 | **SQLite** | Zero-dependency persistence (events, incidents, models, feedback) |
 | **APScheduler** | Background jobs: correlation, drift detection, threat-intel caching, retention |
@@ -83,8 +83,6 @@ Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` inst
 py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
 ```
-
-The first install downloads the CPU build of PyTorch, so expect a few minutes.
 
 Start the API in **local dev mode**. Outside dev mode the server refuses to start without a
 `LSADRA_JWT_SECRET` and TLS, which is what you want in production and not what you want on your

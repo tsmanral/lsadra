@@ -13,8 +13,7 @@ pydantic>=2.13.5
 streamlit>=1.30.0
 plotly>=5.14.0
 
-# ML & Deep Learning
-torch --index-url https://download.pytorch.org/whl/cpu
+# ML (the autoencoder layer is a scikit-learn MLP; PyTorch is no longer needed)
 shap>=0.52.0
 joblib>=1.4.0
 

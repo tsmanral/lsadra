@@ -2,7 +2,8 @@
 G-17 — model files are verified before they are deserialized.
 
 Regression tests: each one fails on the old loaders, which unpickled whatever
-file sat in the models folder (and loaded torch state with weights_only=False).
+file sat in the models folder (and loaded torch state with weights_only=False). The autoencoder is now
+plain JSON, so its tests check that nothing is ever unpickled for it.
 A tampered, unlisted or re-signed file must never be deserialized; the stack
 falls back to fresh, untrained models instead.
 """
@@ -123,32 +124,91 @@ def test_base_model_load_raises_on_unverified_file(model_dir, tmp_path):
     assert not marker.exists()
 
 
-def test_autoencoder_loads_weights_only_even_when_signed(model_dir, tmp_path):
-    """A verified torch file may still only hold tensors and plain values."""
-    torch = pytest.importorskip("torch")
+def test_autoencoder_state_is_json_never_unpickled(model_dir, tmp_path):
+    """A verified autoencoder file is parsed as JSON; pickle bytes are refused."""
     from lsadra.models.autoencoder_model import AutoencoderModel
     from lsadra.models.integrity import ModelStore
 
     marker = tmp_path / "pwned"
-    buf = io.BytesIO()
-    torch.save({"input_dim": 9, "payload": _Boom(str(marker))}, buf)
-    ModelStore(model_dir).write_bytes("autoencoder.pt", buf.getvalue())
+    import pickle
+
+    ModelStore(model_dir).write_bytes(
+        "autoencoder.json", pickle.dumps({"payload": _Boom(str(marker))})
+    )
 
     ae = AutoencoderModel()
-    assert ae.load(model_dir / "autoencoder.pt") is False
+    assert ae.load(model_dir / "autoencoder.json") is False
     assert not marker.exists()
     assert not ae.is_fitted
 
 
-def test_autoencoder_refuses_unlisted_file(model_dir, tmp_path):
-    torch = pytest.importorskip("torch")
+def test_autoencoder_refuses_signed_but_malformed_state(model_dir):
+    """Signed JSON whose shapes do not form a valid network is not loaded."""
+    from lsadra.models.autoencoder_model import STATE_FORMAT, AutoencoderModel
+    from lsadra.models.integrity import ModelStore
+
+    ae = AutoencoderModel()
+    n = len(ae.features)
+    good = {
+        "format": STATE_FORMAT,
+        "features": ae.features,
+        "weights": [[[0.0] * 3] * n, [[0.0] * n] * 3],
+        "biases": [[0.0] * 3, [0.0] * n],
+        "mean": [0.0] * n,
+        "std": [1.0] * n,
+        "threshold": 1.0,
+    }
+    store = ModelStore(model_dir)
+    store.save_json("autoencoder.json", good)
+    assert AutoencoderModel().load(model_dir / "autoencoder.json") is True
+
+    bad_states = [
+        {**good, "format": "something-else"},
+        {**good, "features": ["x"] * n},
+        {**good, "weights": [[[0.0] * 3] * n, [[0.0] * 2] * 3]},  # does not chain
+        {**good, "weights": [[[0.0] * 3] * n, [[0.0] * (n - 1)] * 3],
+         "biases": [[0.0] * 3, [0.0] * (n - 1)]},  # wrong output size
+        {**good, "std": [0.0] * n},
+        {**good, "threshold": float("nan")},
+        {**good, "mean": "not a list"},
+        ["not", "a", "dict"],
+    ]
+    for state in bad_states:
+        store.save_json("autoencoder.json", state)
+        ae2 = AutoencoderModel()
+        assert ae2.load(model_dir / "autoencoder.json") is False, state
+        assert not ae2.is_fitted
+
+
+def test_autoencoder_refuses_unlisted_file(model_dir):
     from lsadra.models.autoencoder_model import AutoencoderModel
 
-    marker = tmp_path / "pwned"
-    torch.save({"payload": _Boom(str(marker))}, str(model_dir / "autoencoder.pt"))
+    (model_dir / "autoencoder.json").write_text("{}")
 
-    assert AutoencoderModel().load(model_dir / "autoencoder.pt") is False
+    assert AutoencoderModel().load(model_dir / "autoencoder.json") is False
+
+
+def test_legacy_torch_autoencoder_file_is_ignored_and_triggers_retrain(model_dir, tmp_path):
+    """An upgraded install's old autoencoder.pt is never opened; models retrain."""
+    from tests.fixtures import setup_test_db
+
+    setup_test_db(tmp_path)
+    from lsadra.detection.detection_orchestrator import DetectionOrchestrator
+    from lsadra.models.ensemble_model import EnsembleModel
+    from lsadra.models.integrity import ModelStore
+
+    marker = tmp_path / "pwned"
+    import pickle
+
+    ModelStore(model_dir).write_bytes("autoencoder.pt", pickle.dumps(_Boom(str(marker))))
+    ens = EnsembleModel()
+    ens.train(make_feature_matrix(n_rows=80))
+    ens.save(model_dir / "ensemble.joblib")
+
+    orch = DetectionOrchestrator(model_dir=model_dir)
     assert not marker.exists()
+    assert not orch.autoencoder.is_fitted
+    assert orch._trained is False
 
 
 def test_orchestrator_cold_start_ignores_tampered_models(model_dir, tmp_path):
@@ -166,7 +226,6 @@ def test_orchestrator_cold_start_ignores_tampered_models(model_dir, tmp_path):
 
 
 def test_signed_round_trip_still_loads(model_dir):
-    pytest.importorskip("torch")
     from lsadra.models.autoencoder_model import AutoencoderModel
     from lsadra.models.ensemble_model import EnsembleModel
 
@@ -176,13 +235,13 @@ def test_signed_round_trip_still_loads(model_dir):
     ens.save(model_dir / "ensemble.joblib")
     ae = AutoencoderModel(epochs=2)
     ae.train(df)
-    ae.save(model_dir / "autoencoder.pt")
+    ae.save(model_dir / "autoencoder.json")
 
     loaded = EnsembleModel.load(model_dir / "ensemble.joblib")
     assert loaded.models[0].is_fitted
     assert len(loaded.predict(df)) == len(df)
     ae2 = AutoencoderModel()
-    assert ae2.load(model_dir / "autoencoder.pt") is True
+    assert ae2.load(model_dir / "autoencoder.json") is True
     assert [r["is_ae_anomaly"] for r in ae2.score(df)] == [
         r["is_ae_anomaly"] for r in ae.score(df)
     ]
