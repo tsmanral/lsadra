@@ -27,6 +27,9 @@ EXPECTED_TABLES = {
     "ingestion_stats",
     "audit_events",  # migration 008 (G-26)
     "sigma_matches",
+    "risk_events",
+    "asset_weights",
+    "risk_notables",
 }
 
 

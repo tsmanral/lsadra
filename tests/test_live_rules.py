@@ -73,6 +73,8 @@ def store(monkeypatch):
     monkeypatch.setattr(orch_mod, "insert_anomaly", s.insert)
     monkeypatch.setattr(orch_mod, "insert_sigma_matches", s.insert_sigma)
     monkeypatch.setattr(orch_mod.alert_hub, "publish", lambda res: None)
+    # Entity risk writes to the database; tests/test_risk.py turns it on with a temp DB.
+    monkeypatch.setattr(orch_mod, "risk_mode", lambda: "off")
     return s
 
 

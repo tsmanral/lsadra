@@ -59,7 +59,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are a
 - 🔍 **Explainable by design.** Every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline yet; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) runs alongside them in shadow mode.
+- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) and a 0-100 entity risk score with risk cases run alongside them in shadow mode.
 - 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
 
 ## Quick start (local, about 10 minutes)
@@ -409,6 +409,25 @@ A second rule layer runs standard [Sigma](https://sigmahq.io/) 2.0 rules in-proc
 - **Suppressions.** Reviewed exceptions are Sigma filters: bundled ones in `sigma_rules/filters/suppressions.yml`, site-specific ones in the file named by `LSADRA_SIGMA_SUPPRESSIONS`.
 - **Scorecard.** The [scorecard](docs/detection/scorecard.md) has a Sigma section: today the layer matches all 3 attack scenarios and 0 of 99 benign events.
 - Rules are code to pySigma (it compiles them to Python), so the layer loads only the bundled folder and the operator's suppression file.
+
+### Entity risk and risk cases (shadow mode)
+
+Single weak signals rarely prove an attack; several on the same machine or account usually do. [`lsadra/detection/risk.py`](lsadra/detection/risk.py) gives every host and user a 0-100 risk score:
+
+- **Signals.** Every built-in rule match (low ones included), every Sigma match, and every anomaly no rule explained is stored in `risk_events` for the event's host and user. A failed login adds risk to the host only, because the account it names is usually the target.
+- **Score.** Points by level (low 4, medium 12, high 24, critical 40), summed over the last `LSADRA_RISK_WINDOW_DAYS` (default 7) with a `LSADRA_RISK_HALF_LIFE_HOURS` decay (default 24). One event counts once, and the same rule counts once per hour per entity. Each distinct ATT&CK tactic after the first multiplies the total by 1.25 (up to 2x), and an admin-set **asset weight** (1 to 5) multiplies it again. The total maps to 0-100 (`100 * (1 - exp(-total / 60))`): one `high` signal scores about 33, a chain across three tactics passes 70. These constants are a starting point for the detection bench to tune.
+- **Risk cases.** A score at or above `LSADRA_RISK_THRESHOLD` (default 70) opens a risk case (`risk_notables`) for that host or user, with its ordered tactic chain (for example *Credential Access -> Persistence -> Collection*); later signals update the open case. On the demo corpus, the brute-force and new-service scenarios open host cases and the benign set peaks at 22 ([scorecard](docs/detection/scorecard.md)).
+- **Modes.** `LSADRA_RISK_MODE=shadow` (default) records scores and cases without alerting; `alert` also turns the event that opens a case into an alert (*Entity risk threshold crossed*); `off` records nothing.
+
+| Endpoint | Roles | What it returns |
+|---|---|---|
+| `GET /api/risk/entities` | all | Hosts and users with recent signals, highest score first |
+| `GET /api/risk/timeline?entity_type=host&entity=…` | all | One entity's score, open case, and the signals behind it, oldest first |
+| `GET /api/risk/cases?status=OPEN` | all | Risk cases, highest score first |
+| `PATCH /api/risk/cases/{id}` | ADMIN, ANALYST | Close or reopen a case (`{"status": "CLOSED"}`) |
+| `PUT /api/risk/asset-weights` | ADMIN | Set an asset's weight (`{"entity_type": "host", "entity": "dc-01", "weight": 3}`) |
+
+Admins see every entity; analysts and viewers see only entities whose signals came from their own devices.
 
 ## Live alert stream (WebSocket)
 

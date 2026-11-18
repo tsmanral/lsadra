@@ -28,6 +28,8 @@ from lsadra.config import (
 )
 from lsadra.detection import model_lifecycle as lifecycle
 from lsadra.detection.incident_manager import IncidentManager
+from lsadra.detection.risk import raise_case_alerts, risk_mode
+from lsadra.detection.risk import record as record_risk
 from lsadra.detection.severity import apply_rule_floor, compute_severity_score, severity_context
 from lsadra.features.feature_extractor import FEATURE_COLS, build_features
 from lsadra.features.rule_features import RULE_LOOKBACK_MINUTES, build_rule_features
@@ -438,6 +440,18 @@ class DetectionOrchestrator:
             except Exception:
                 logger.exception("Could not store Sigma matches for device %s", device_id)
 
+        # Entity risk (lsadra/detection/risk.py): add this batch's signals to
+        # each host's and user's score; open a risk case at the threshold. In
+        # alert mode the event that opens a case becomes an alert itself.
+        rmode = risk_mode()
+        if rmode != "off" and results:
+            try:
+                opened = record_risk(results, rmode)
+                if rmode == "alert" and opened:
+                    raise_case_alerts(results, opened)
+            except Exception:
+                logger.exception("Entity risk scoring failed for device %s", device_id)
+
         # Persist anomalies and create incidents
         for res in results:
             if res.get("is_anomaly"):
@@ -650,6 +664,14 @@ class DetectionOrchestrator:
                                else top_sigma.level if sigma_labelled else None),
                 "rule_reason": best.reason if labelled else "",
                 "rule_matches": [m.rule.id for m in matches],
+                # Every match, low ones included: entity risk adds them up.
+                "rule_hits": [{
+                    "rule_id": m.rule.id, "title": m.rule.title, "level": m.level,
+                    "technique": m.technique.id, "tactics": m.tactics,
+                } for m in matches],
+                "host": str(row.get("host") or ""),
+                "event_type": str(row.get("canonical_event_type") or ""),
+                "effective_username": str(row.get("effective_username") or ""),
                 "sigma_mode": mode,
                 "sigma_matches": [h.as_dict() for h in hits],
                 "narrative": narrative,

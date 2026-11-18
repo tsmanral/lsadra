@@ -62,6 +62,12 @@ def test_cleanup_old_data_deletes_old_rows_across_tables_and_returns_event_count
     sql("UPDATE sigma_matches SET created_at=?", (OLD,))
     seeded.insert_sigma_matches([{"event_id": 2, "device_id": DEVICE_ID, "sigma_matches": [hit]}])
 
+    risk = {"entity_type": "host", "entity": "h", "source": "rule", "base_score": 4.0,
+            "event_time": OLD}
+    seeded.insert_risk_events([risk])
+    sql("UPDATE risk_events SET created_at=?", (OLD,))
+    seeded.insert_risk_events([risk])
+
     deleted = seeded.cleanup_old_data()
     assert isinstance(deleted, int)
     assert deleted == 2  # only the normalized_events count is reported
@@ -72,6 +78,7 @@ def test_cleanup_old_data_deletes_old_rows_across_tables_and_returns_event_count
         "metrics_5min",
         "feature_drift",
         "sigma_matches",
+        "risk_events",
     ):
         assert _count(sql, table) == 1, table
 
