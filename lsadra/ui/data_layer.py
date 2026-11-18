@@ -6,12 +6,58 @@ query functions so multiple components don't issue duplicate DB hits.
 All functions use Streamlit's TTL cache for performance.
 """
 
+import copy
+import functools
 import json
 import logging
+import threading
+import time
 from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
-import streamlit as st
+
+def _ttl_cache(ttl: int):
+    """Small stand-in for ``st.cache_data(ttl=...)`` when Streamlit is absent.
+
+    The API server imports this module too. A base install
+    (requirements/base.txt) has no Streamlit, so results are memoised here
+    per argument tuple for ``ttl`` seconds instead.
+    """
+
+    def decorator(fn):
+        store: Dict[Any, Any] = {}
+        lock = threading.Lock()
+
+        @functools.wraps(fn)
+        def wrapper(*args, **kwargs):
+            key = (args, tuple(sorted(kwargs.items())))
+            now = time.monotonic()
+            with lock:
+                hit = store.get(key)
+                if hit is not None and now - hit[0] < ttl:
+                    # Hand out a copy, as st.cache_data does, so a caller
+                    # that mutates the result cannot poison the cache.
+                    return copy.deepcopy(hit[1])
+            value = fn(*args, **kwargs)
+            with lock:
+                store[key] = (now, value)
+                if len(store) > 256:  # bound memory: drop the oldest entries
+                    for stale in sorted(store, key=lambda k: store[k][0])[:64]:
+                        store.pop(stale, None)
+            return copy.deepcopy(value)
+
+        wrapper.clear = store.clear  # same name as st.cache_data's clear()
+        return wrapper
+
+    return decorator
+
+
+try:
+    import streamlit as st
+
+    _cache_data = st.cache_data
+except ImportError:  # API-only install without the legacy Streamlit UI
+    _cache_data = _ttl_cache
 
 from lsadra.storage.database import (
     get_all_devices,
@@ -33,7 +79,7 @@ from lsadra.storage.database import (
 logger = logging.getLogger(__name__)
 
 
-@st.cache_data(ttl=30)
+@_cache_data(ttl=30)
 def get_dashboard_metrics(device_id: Optional[str], start: str, end: str) -> List[Dict]:
     """Query metrics_5min for a device within a time range."""
     if not device_id:
@@ -58,7 +104,7 @@ def get_dashboard_metrics(device_id: Optional[str], start: str, end: str) -> Lis
     return get_metrics_timeseries(device_id, start, end)
 
 
-@st.cache_data(ttl=15)
+@_cache_data(ttl=15)
 def get_dashboard_incidents(status: Optional[str] = None, limit: int = 100) -> List[Dict]:
     """Get incidents for the dashboard, optionally filtered."""
     if status:
@@ -66,7 +112,7 @@ def get_dashboard_incidents(status: Optional[str] = None, limit: int = 100) -> L
     return get_all_incidents(limit=limit)
 
 
-@st.cache_data(ttl=15)
+@_cache_data(ttl=15)
 def get_dashboard_open_incidents(user_id: Optional[str] = None) -> List[Dict]:
     """Get currently open incidents."""
     if not user_id:
@@ -84,13 +130,13 @@ def get_dashboard_open_incidents(user_id: Optional[str] = None) -> List[Dict]:
     return [dict(r) for r in rows]
 
 
-@st.cache_data(ttl=30)
+@_cache_data(ttl=30)
 def get_incident_anomalies(incident_id: int) -> List[Dict]:
     """Get anomalies for a specific incident with event details."""
     return get_anomalies_for_incident(incident_id)
 
 
-@st.cache_data(ttl=15)
+@_cache_data(ttl=15)
 def get_dashboard_recent_anomalies(limit: int = 50, user_id: Optional[str] = None, device_id: Optional[str] = None) -> List[Dict]:
     """Get recent anomalies across all devices."""
     conn = get_connection()
@@ -112,7 +158,7 @@ def get_dashboard_recent_anomalies(limit: int = 50, user_id: Optional[str] = Non
     return [dict(r) for r in rows]
 
 
-@st.cache_data(ttl=30)
+@_cache_data(ttl=30)
 def get_shap_for_anomaly(anomaly_id: int) -> Dict[str, float]:
     """Read SHAP values from the anomalies table for a specific anomaly."""
     conn = get_connection()
@@ -128,7 +174,7 @@ def get_shap_for_anomaly(anomaly_id: int) -> Dict[str, float]:
     return {}
 
 
-@st.cache_data(ttl=60)
+@_cache_data(ttl=60)
 def get_dashboard_devices(user_id: Optional[str] = None) -> List[Dict]:
     """Get all registered devices."""
     if not user_id:
@@ -136,19 +182,19 @@ def get_dashboard_devices(user_id: Optional[str] = None) -> List[Dict]:
     return get_devices_for_user(user_id)
 
 
-@st.cache_data(ttl=60)
+@_cache_data(ttl=60)
 def get_dashboard_model_info(model_name: str) -> Optional[Dict]:
     """Get the latest model registry entry."""
     return get_latest_model(model_name)
 
 
-@st.cache_data(ttl=60)
+@_cache_data(ttl=60)
 def get_dashboard_drift(model_name: str, limit: int = 50) -> List[Dict]:
     """Get recent drift measurements for a model."""
     return get_drift_records(model_name, limit)
 
 
-@st.cache_data(ttl=30)
+@_cache_data(ttl=30)
 def get_dashboard_kpis(user_id: Optional[str] = None, device_id: Optional[str] = None) -> Dict[str, Any]:
     """Compute high-level KPIs for the dashboard overview."""
     conn = get_connection()

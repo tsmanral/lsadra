@@ -1,0 +1,16 @@
+name: tmp-torch-lock
+on: pull_request
+permissions:
+  contents: read
+jobs:
+  lock:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - run: |
+          pip install uv
+          cd requirements
+          uv pip compile torch.in -o torch.txt --universal --python-version 3.12 --generate-hashes --no-deps --index-url https://download.pytorch.org/whl/cpu --emit-index-url
+          echo "-----BEGIN TORCH-----"; cat torch.txt; echo "-----END TORCH-----"

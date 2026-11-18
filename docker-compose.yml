@@ -22,7 +22,8 @@ services:
       - sentinel-data:/app/data
       - sentinel-logs:/app/logs
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      # The image has no curl; probe with Python.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -41,6 +42,12 @@ services:
       --browser.gatherUsageStats=false
     ports:
       - "${DASH_PORT:-8501}:8501"
+    healthcheck:
+      # Replaces the image's API health check, which does not apply here.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     environment:
       - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
     volumes:
@@ -63,6 +70,8 @@ services:
       "
     environment:
       - SERVER_URL=http://api:8000
+    healthcheck:
+      disable: true  # idle helper; the image's API health check does not apply
     depends_on:
       api:
         condition: service_healthy
