@@ -67,7 +67,7 @@ cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
 
-This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+This starts the API (`:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
 
 ## Ingesting Logs
 
@@ -144,7 +144,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
-frontend/           React (Vite + TypeScript) SOC dashboard
+frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations
