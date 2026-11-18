@@ -12,7 +12,7 @@ Enriches with:
   - unusual_parent: known-bad child-parent combos (e.g., winword→cmd)
 
 [V4 ENHANCEMENT — gap: multi-source ingestion]
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 """
 
 import json
@@ -73,7 +73,7 @@ class EndpointParser(BaseParser):
     Normalises pipe-delimited and JSON endpoint agent events into the
     unified V4 schema, enriching each event with process-level threat signals.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 

@@ -103,7 +103,10 @@ def test_main_tails_the_configured_paths(tmp_path):
     log = tmp_path / "secure"
     log.write_text("")
     cfg_file = tmp_path / "config.yml"
-    cfg_file.write_text(f"api_key: k\ndevice_id: dev\nlog_paths: {log}, {tmp_path / 'missing'}\n")
+    # posture_interval_hours: 0 keeps main() from starting the posture thread.
+    cfg_file.write_text(
+        f"api_key: k\ndevice_id: dev\nposture_interval_hours: 0\nlog_paths: {log}, {tmp_path / 'missing'}\n"
+    )
     with patch("sys.argv", ["agent", "--config", str(cfg_file)]), \
             patch.object(linux_agent, "_tail_paths") as tail, \
             patch.object(linux_agent, "_tail_journal") as journal:

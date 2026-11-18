@@ -327,8 +327,16 @@ METRICS_AGGREGATION_INTERVAL_MINUTES: int = int(
 # ---------------------------------------------------------------------------
 # Data Retention
 # ---------------------------------------------------------------------------
+# Tiered retention (gap G-35). Raw telemetry (normalized events, heartbeats)
+# is the bulk of the database and the most personal, so it goes first. Alerts
+# (anomalies) and the rollups built from them (5-minute metrics, drift records)
+# are small and are what an investigation of a slow, months-old intrusion needs,
+# so they stay a year. The alert tier never expires sooner than the raw tier.
 RETENTION_DAYS: int = int(os.getenv("LSADRA_RETENTION_DAYS", "30"))
 DATA_RETENTION_DAYS: int = RETENTION_DAYS  # alias
+ALERT_RETENTION_DAYS: int = max(
+    int(os.getenv("LSADRA_ALERT_RETENTION_DAYS", "365")), RETENTION_DAYS
+)
 # Bounded cleanup: each DELETE transaction removes at most this many rows, then
 # commits and pauses so ingest writers waiting on the lock get it between
 # batches instead of waiting out one long transaction. 1,000 rows held the lock
