@@ -80,14 +80,15 @@ def run_poisoning_experiments(
 
     combined = pd.concat([clean_train_df, poison_rows], ignore_index=True)
 
-    # Re-train with poisoned data
-    orchestrator.train(combined)
+    # Re-train with poisoned data (the canary gate may reject the candidate)
+    training = orchestrator.train(combined, trigger="other")
 
     # Evaluate on the original attack set (placeholder)
     result = {
         "clean_train_size": len(clean_train_df),
         "poison_fraction": poison_fraction,
         "poison_samples": n_poison,
+        "training_status": training.get("status"),
         "note": "Re-run benchmark after poisoning to measure impact.",
     }
     logger.info("Poisoning experiment: %s", result)
