@@ -4,7 +4,7 @@
 
 ### Local Security Anomaly Detection & Risk Assessment — open-source, explainable, built to run anywhere.
 
-**Real-time, multi-source log detection with ML ensembles, SHAP explainability, and human-readable threat narratives — no LLM API keys required.**
+**Real-time, multi-source log detection with ML ensembles, rule-based ATT&CK mapping, and human-readable threat narratives — no LLM API keys required.**
 
 <br/>
 
@@ -26,7 +26,7 @@
 Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, expensive, and opaque. Lightweight consumer tools watch the network but have no real detection intelligence. **LSADRA fills the gap**: a self-hostable SOC platform that explains *why* every alert fired.
 
 - 🧠 **Multi-layer ML detection** — statistical baselining (Z-score), ensemble models (Isolation Forest, LOF, One-Class SVM), and a PyTorch autoencoder, with drift tracking via Population Stability Index.
-- 🔍 **Explainable by design** — SHAP feature attribution, composite severity scoring with a plain-English breakdown per alert, and MITRE ATT&CK technique mapping with confidence scores.
+- 🔍 **Explainable by design** — every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline today; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
 - 🚨 **Detection rules that matter** — 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
@@ -185,7 +185,7 @@ graph TD
     RE --> SV[Dynamic Severity Scoring]
     C --> SV
     SV --> INC[Incident Grouping]
-    INC --> NB[Narrative Builder<br/>SHAP + MITRE ATT&CK]
+    INC --> NB[Narrative Builder<br/>Layer scores + MITRE ATT&CK]
     NB --> DB[(SQLite)]
     DB --> DASH[React SOC Dashboard]
     NB -->|/ws/alerts, JWT at handshake| DASH
@@ -216,6 +216,7 @@ scripts/            Operator tooling (seed_demo.py — replays the demo corpus t
                     detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table;
                     llm_redteam.py — runs the LLM injection corpus)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
+  detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
@@ -285,6 +286,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
 - **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
 - **Ingest benchmark:** [`benchmarks/`](benchmarks/) drives the real API at rising rates and records sustained events/s, request latency percentiles, event-loop lag and RSS. The committed baseline for today's synchronous stack is in [`benchmarks/README.md`](benchmarks/README.md) — M1 is measured against it.
+- **Detection bench:** [`benchmarks/detection/`](benchmarks/detection/) replays labelled attacks (the demo corpus plus pinned subsets of splunk/attack_data and EVTX-ATTACK-SAMPLES, downloaded on demand and never committed) inside seeded synthetic background traffic through the real detection pipeline, and records the true-positive rate per MITRE ATT&CK technique at 1 % and 0.1 % false-positive rate plus alerts per host per day. The committed baseline is [`benchmarks/detection/results/baseline-2026-11-18.md`](benchmarks/detection/results/baseline-2026-11-18.md); detection changes are measured against it ([ADR 0007](docs/architecture/adr/0007-detection-stack.md)).
 
 **What's next (M1 — async core)**
 
