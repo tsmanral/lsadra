@@ -38,7 +38,7 @@ contract, so the core does not change when they land
 | `ingestion/` | `/api/events/batch` (schema v1), `/api/events/raw` with the multi-source `IngestionManager` and its parsers, device authentication and its verified-credential cache |
 | `features/` | Temporal and behavioral feature extraction |
 | `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble |
-| `detection/` | Orchestrator, detection worker, rule engine, attack classifier, severity, incident manager, drift detector |
+| `detection/` | Orchestrator, detection worker, rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
 | `explainability/` | Narrative builder, log-value sanitizer, threat-intel lookup, SHAP helpers |
 | `session/` | Session building and user-journey analysis |
 | `jobs/` | Scheduler and IP geolocation |
@@ -65,9 +65,16 @@ contract, so the core does not change when they land
    work runs in the server's thread pool, never on the event loop.
 4. **Detection.** The worker thread runs the orchestrator for the device:
    features, then the statistical baseline, the ML ensemble and the rule
-   engine, then severity scoring. Anomalies are written to the database.
+   registry, then severity scoring. Every registered rule runs on the live
+   path; a rule at level `medium` or higher raises an alert on its own, a
+   lower one only names the technique when the anomaly layers flag the event.
+   An anomaly no rule explains is labelled "Unknown Anomalous Activity" with no
+   technique. Anomalies are written to the database with the rule that matched.
+   The rules' detection rate on the synthetic demo corpus is published in
+   [`docs/detection/scorecard.md`](docs/detection/scorecard.md).
 5. **Incidents and narratives.** Related anomalies are grouped into incidents.
-   The narrative builder explains each one with MITRE ATT&CK mapping and,
+   The narrative builder explains each one with MITRE ATT&CK mapping (one
+   pinned Enterprise release, checked in CI) and,
    where a key is configured, AbuseIPDB reputation. Every log-derived value
    passes through the sanitizer first, because logs are attacker-controlled
    input.
