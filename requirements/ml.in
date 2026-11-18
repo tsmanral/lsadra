@@ -1,0 +1,15 @@
+# Optional ML extras. Installed on top of base.txt.
+-c base.txt
+# SHAP explanations (the code runs without it)
+shap>=0.52.0
+
+# Runtime dependencies of the CPU torch build. torch itself comes from
+# torch.txt (PyTorch CPU index), installed with --no-deps after this file,
+# so its dependencies are locked here from PyPI with everything else.
+filelock
+typing-extensions>=4.13.0
+setuptools>=77.0.3
+sympy>=1.13.3
+networkx>=2.5.1
+jinja2
+fsspec>=0.8.5
