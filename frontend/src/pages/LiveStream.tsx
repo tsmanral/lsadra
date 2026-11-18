@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { Filter, Play, Pause, AlertOctagon } from 'lucide-react';
-import { getAnomalies, getEvents } from '../services/api';
+import { getAnomalies, getEvents, isTestUser } from '../services/api';
 import { subscribeAlerts, alertAsAnomaly } from '../services/alertStream';
 
 import { useNavigate } from 'react-router-dom';
@@ -10,7 +10,7 @@ const LiveStream = () => {
   const [events, setEvents] = useState<any[]>([]);
   const navigate = useNavigate();
 
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
 
   // Dynamic Event Generator for Demo
   const generateRandomEvent = () => {

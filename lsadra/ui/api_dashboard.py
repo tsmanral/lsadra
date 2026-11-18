@@ -15,7 +15,8 @@ from lsadra.ui.data_layer import (
     get_dashboard_devices,
     get_dashboard_model_info,
     get_dashboard_open_incidents,
-    get_events_for_user
+    get_events_for_user,
+    get_ingestion_rate,
 )
 from lsadra.ui.utils.report_generator import generate_report
 
@@ -94,17 +95,25 @@ async def api_metrics(start: str, end: str, device_id: Optional[str] = None, use
 
 @router.get("/health")
 async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
-    """Global ingestion health for dashboard tiles."""
+    """Ingestion health for dashboard tiles.
+
+    ``events_per_second`` is measured over the last minute. Latency and drop
+    rate are not measured yet, so they are ``None`` rather than made-up values.
+    """
     uid = user["user_id"] if user["role"] != "ADMIN" else None
-    kpis = await run_in_threadpool(get_dashboard_kpis, user_id=uid)
-    
-    # Return healthy status if there are any devices, or if we just want the HUD to look alive
+
+    def _health() -> Dict[str, Any]:
+        kpis = get_dashboard_kpis(user_id=uid)
+        return {"active_devices": kpis.get("active_devices", 0),
+                "events_per_second": get_ingestion_rate(user_id=uid)}
+
+    h = await run_in_threadpool(_health)
     return {
-        "status": "HEALTHY" if kpis.get("active_devices", 0) > 0 else "STABLE",
-        "events_per_second": 12.5 if kpis.get("active_devices", 0) > 0 else 0.0,
-        "avg_latency_ms": 4.2 if kpis.get("active_devices", 0) > 0 else 0.0,
-        "drop_rate_pct": 0.0,
-        "active_devices": kpis.get("active_devices", 0)
+        "status": "HEALTHY" if h["active_devices"] > 0 else "STABLE",
+        "events_per_second": h["events_per_second"],
+        "avg_latency_ms": None,
+        "drop_rate_pct": None,
+        "active_devices": h["active_devices"],
     }
 
 @router.get("/devices")
