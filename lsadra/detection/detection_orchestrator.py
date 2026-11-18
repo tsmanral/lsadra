@@ -48,6 +48,10 @@ from lsadra.ui.alert_stream import alert_hub
 
 logger = logging.getLogger(__name__)
 
+# A batch that fails this many times in a row is skipped (watermark advanced)
+# so one bad batch can never stop detection for its device for good.
+MAX_BATCH_FAILURES = 3
+
 
 class DetectionOrchestrator:
     """
@@ -65,6 +69,7 @@ class DetectionOrchestrator:
         self.profile_store = UserProfileStore()
         self.incident_manager = IncidentManager()
         self._last_run: Dict[str, float] = {}  # device_id → timestamp of last run
+        self._batch_failures: Dict[str, int] = {}  # device_id → consecutive failed runs
         self._trained = False
 
         # Attempt to load persisted models
@@ -141,6 +146,29 @@ class DetectionOrchestrator:
             return
 
         logger.info("Online detection: %d new events for device %s", len(new_events), device_id)
+
+        try:
+            self._process_new_events(device_id, new_events)
+        except Exception:
+            failures = self._batch_failures.get(device_id, 0) + 1
+            if failures < MAX_BATCH_FAILURES:
+                self._batch_failures[device_id] = failures
+                raise
+            # Give up on this batch rather than retrying it forever: every later
+            # run would fetch the same events and fail the same way.
+            self._batch_failures.pop(device_id, None)
+            max_id = max(ev.get("id", 0) for ev in new_events)
+            set_watermark(device_id, max_id)
+            logger.error(
+                "Online detection failed %d times in a row for device %s; "
+                "skipping events up to id %s so detection can continue.",
+                failures, device_id, max_id,
+            )
+            raise
+        self._batch_failures.pop(device_id, None)
+
+    def _process_new_events(self, device_id: str, new_events: List[Dict[str, Any]]) -> None:
+        """Score one batch of new events for *device_id* and advance its watermark."""
 
         # Track event count and check baselining status
         event_total = increment_device_event_count(device_id, len(new_events))

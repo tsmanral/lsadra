@@ -8,6 +8,8 @@ login velocity, failure ratios, username diversity, etc.
 import numpy as np
 import pandas as pd
 
+from lsadra.features.timestamps import parse_event_timestamps
+
 
 def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -21,7 +23,7 @@ def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
+    df["timestamp"] = parse_event_timestamps(df["timestamp"])
     
     # Ensure source_ip and effective_username are strings and handle NaNs
     df["source_ip"] = df["source_ip"].fillna("127.0.0.1").astype(str)
