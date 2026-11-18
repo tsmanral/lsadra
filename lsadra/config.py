@@ -10,6 +10,7 @@ import os
 import secrets
 import warnings
 from pathlib import Path
+from typing import List
 
 logger = logging.getLogger(__name__)
 
@@ -221,6 +222,36 @@ ENSEMBLE_CONTAMINATION: float = 0.05
 AUTOENCODER_LATENT_DIM: int = 4
 AUTOENCODER_EPOCHS: int = 50
 AUTOENCODER_LR: float = 1e-3
+
+# ---------------------------------------------------------------------------
+# Model integrity and training controls (G-17, G-18)
+# ---------------------------------------------------------------------------
+# Every model file is listed in a manifest whose HMAC is keyed by a secret
+# that lives outside the models folder, and is verified before it is
+# deserialized. Defaults to a key derived from LSADRA_JWT_SECRET, so rotating
+# that secret makes the current models unverifiable and they are retrained.
+MODEL_SIGNING_KEY: str = os.getenv("LSADRA_MODEL_SIGNING_KEY", "")
+
+# Training needs this many usable events across all devices (after events
+# tied to anomalies or open incidents are dropped).
+MIN_TRAINING_EVENTS: int = int(os.getenv("LSADRA_MIN_TRAINING_EVENTS", "50"))
+# Most recent events considered for one training run.
+TRAINING_MAX_EVENTS: int = int(os.getenv("LSADRA_TRAINING_MAX_EVENTS", "10000"))
+# With more than one device, no device may supply more than this share of the
+# training set, so one noisy or compromised host cannot define "normal".
+TRAINING_MAX_DEVICE_SHARE: float = float(os.getenv("LSADRA_TRAINING_MAX_DEVICE_SHARE", "0.5"))
+# Minimum gap between two training runs (manual or automatic).
+RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECONDS", "600"))
+# A candidate model is promoted only if its ML layers still flag at least this
+# share of the attack events in each canary scenario of the demo corpus.
+CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+CANARY_SCENARIOS: List[str] = [
+    s.strip()
+    for s in os.getenv("LSADRA_CANARY_SCENARIOS", "ssh_bruteforce,injection_attempts").split(",")
+    if s.strip()
+]
+# Drift is measured over this many hours of recent events.
+DRIFT_WINDOW_HOURS: int = int(os.getenv("LSADRA_DRIFT_WINDOW_HOURS", "24"))
 
 # ---------------------------------------------------------------------------
 # Feature Drift Detection

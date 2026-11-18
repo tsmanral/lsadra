@@ -335,28 +335,32 @@ async def retrain_models(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_role("ADMIN")),
 ):
+    """Start a training run in the background (ADMIN only, one at a time, cooldown).
+
+    The candidate replaces the live models only if it passes the canary; the
+    outcome is recorded in the model training audit trail
+    (``GET /api/models/status``).
+    """
+    from lsadra.detection import model_lifecycle as lifecycle
+
+    if lifecycle.is_training():
+        raise HTTPException(status_code=409, detail="A training run is already in progress.")
+    remaining = lifecycle.cooldown_remaining()
+    if remaining > 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Models were trained recently; try again later.",
+            headers={"Retry-After": str(int(remaining) + 1)},
+        )
+
     def _do_retrain():
+        from lsadra.ingestion.api_ingestion import _get_orchestrator
+
         try:
-            from lsadra.detection.detection_orchestrator import DetectionOrchestrator
-            from lsadra.features.feature_extractor import build_features
-            from lsadra.storage.database import get_connection
-
-            conn = get_connection()
-            rows = conn.execute(
-                "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT 10000"
-            ).fetchall()
-            conn.close()
-
-            if not rows:
-                return
-
-            df = build_features([dict(r) for r in rows])
-            if df.empty:
-                return
-
-            orchestrator = DetectionOrchestrator()
-            orchestrator.train(df)
-            logger.info("Model retrain completed.")
+            result = _get_orchestrator().retrain(trigger="admin", requested_by=user["user_id"])
+            logger.info("Model retrain finished: %s", result.get("status"))
+        except lifecycle.TrainingRefused as exc:
+            logger.info("Model retrain not started: %s", exc.reason)
         except Exception:
             logger.exception("Model retrain failed.")
 
@@ -366,6 +370,9 @@ async def retrain_models(
 
 from lsadra.ui.api_dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="/api/dashboard")
+
+from lsadra.ui.api_models import router as models_router  # noqa: E402
+app.include_router(models_router, prefix="/api/models")
 
 if __name__ == "__main__":
     import uvicorn

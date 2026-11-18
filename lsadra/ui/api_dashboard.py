@@ -253,30 +253,24 @@ async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWE
 @router.post("/run-drift")
 async def api_run_drift(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
     from lsadra.detection.drift_detector import run as run_drift
-    run_drift()
-    return {"status": "ok"}
+    drifted = await run_in_threadpool(run_drift)
+    return {"status": "ok", "drifted_features": drifted}
 
-def _retrain() -> Dict[str, Any]:
-    from lsadra.detection.detection_orchestrator import DetectionOrchestrator
-    from lsadra.features.feature_extractor import build_features
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT 10000"
-    ).fetchall()
-    conn.close()
-    if not rows:
-        return {"status": "error", "detail": "No events found"}
-    df = build_features([dict(r) for r in rows])
-    if df.empty:
-        return {"status": "error", "detail": "Empty features"}
-    orchestrator = DetectionOrchestrator()
-    orchestrator.train(df)
-    return {"status": "ok", "events": len(df)}
+def _retrain(user_id: str) -> Dict[str, Any]:
+    from lsadra.detection import model_lifecycle as lifecycle
+    from lsadra.ingestion.api_ingestion import _get_orchestrator
+
+    try:
+        return _get_orchestrator().retrain(trigger="api", requested_by=user_id)
+    except lifecycle.TrainingRefused as exc:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason, headers=headers)
 
 
 @router.post("/retrain")
-async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
-    return await run_in_threadpool(_retrain)
+async def api_retrain(user: dict = Depends(require_role("ADMIN"))):
+    """Train now (ADMIN only; one run at a time, cooldown, canary before promotion)."""
+    return await run_in_threadpool(_retrain, user["user_id"])
 
 from lsadra.onboarding.token_manager import generate_token
 

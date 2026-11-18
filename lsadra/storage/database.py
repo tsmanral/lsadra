@@ -20,7 +20,7 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from lsadra.config import (
     DB_PATH,
@@ -1222,3 +1222,136 @@ def get_ingestion_stats(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     init_db()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CRUD: model training runs (G-18 audit trail)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def insert_training_run(
+    trigger: str,
+    requested_by: Optional[str],
+    status: str,
+    event_count: int = 0,
+    device_count: int = 0,
+    excluded_count: int = 0,
+    canary: Optional[dict] = None,
+    detail: str = "",
+    finished: bool = True,
+) -> int:
+    """Record one training / promotion / rollback attempt. Returns its id."""
+    now = datetime.utcnow().isoformat()
+    with _connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO model_training_runs
+               (started_at, finished_at, trigger, requested_by, status,
+                event_count, device_count, excluded_count, canary, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                now,
+                now if finished else None,
+                trigger,
+                requested_by,
+                status,
+                event_count,
+                device_count,
+                excluded_count,
+                json.dumps(canary) if canary is not None else None,
+                detail[:2000],
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+
+
+def finish_training_run(
+    run_id: int,
+    status: str,
+    event_count: int = 0,
+    device_count: int = 0,
+    excluded_count: int = 0,
+    canary: Optional[dict] = None,
+    detail: str = "",
+) -> None:
+    """Close a training run row opened with ``finished=False``."""
+    with _connection() as conn:
+        conn.execute(
+            """UPDATE model_training_runs
+               SET finished_at = ?, status = ?, event_count = ?, device_count = ?,
+                   excluded_count = ?, canary = ?, detail = ?
+               WHERE id = ?""",
+            (
+                datetime.utcnow().isoformat(),
+                status,
+                event_count,
+                device_count,
+                excluded_count,
+                json.dumps(canary) if canary is not None else None,
+                detail[:2000],
+                run_id,
+            ),
+        )
+        conn.commit()
+
+
+def get_training_runs(limit: int = 20) -> List[Dict[str, Any]]:
+    """Most recent training runs first."""
+    with _connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM model_training_runs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("canary"):
+            try:
+                d["canary"] = json.loads(d["canary"])
+            except ValueError:
+                pass
+        out.append(d)
+    return out
+
+
+def get_training_events(limit: int) -> Tuple[List[Dict[str, Any]], int]:
+    """Most recent events that are not themselves recorded as anomalies.
+
+    Returns ``(events, excluded)`` where *excluded* counts the recent events
+    dropped because an anomaly row points at them. Events inside an open
+    incident's window are filtered by the caller.
+    """
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT e.* FROM (
+                   SELECT * FROM normalized_events ORDER BY id DESC LIMIT ?
+               ) AS e
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM anomalies a WHERE a.event_id = e.id AND a.is_anomaly
+               )
+               ORDER BY e.id""",
+            (limit,),
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT id FROM normalized_events ORDER BY id DESC LIMIT ?)",
+            (limit,),
+        ).fetchone()[0]
+    return [dict(r) for r in rows], int(total) - len(rows)
+
+
+def get_open_incident_windows() -> List[Dict[str, Any]]:
+    """Device, source IP and time window of every OPEN or INVESTIGATING incident."""
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT device_id, source_ip, first_seen, last_seen FROM incidents
+               WHERE status IN ('OPEN', 'INVESTIGATING')"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recent_events(limit: int) -> List[Dict[str, Any]]:
+    """The *limit* most recently stored events (for drift measurement)."""
+    with _connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM normalized_events ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
