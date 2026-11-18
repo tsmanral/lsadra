@@ -4,9 +4,13 @@ import time
 import json
 import logging
 import argparse
+import hashlib
+import hmac
+import http.client
 import ipaddress
 import platform
 import re
+import ssl
 import urllib.error
 import urllib.request
 import urllib.parse
@@ -35,6 +39,10 @@ DEFAULT_CONFIG = {
     "batch_size": 50,
     "flush_interval_seconds": 3,
     "log_paths": ["/var/log/auth.log"],
+    # SHA-256 fingerprint of the server's TLS certificate, as the dashboard shows
+    # it beside the registration token (G-8). When set, the agent talks only to
+    # a server presenting exactly that certificate, self-signed or not.
+    "server_cert_sha256": "",
 }
 
 MAX_BACKOFF = 300  # 5 minutes
@@ -119,14 +127,17 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         return {
             "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
-            "event_type": f"ssh_{status.lower()}_{method}",
+            # Canonical event types (lsadra/detection/event_types.py)
+            "event_type": "auth_failure" if status == "Failed" else "auth_success",
             "host": host,
             "effective_username": user[:_MAX_USERNAME],
             "source_ip": _ip_or_none(src_ip),
             "raw_message": f"{status} {method} for {user} from {src_ip}:{port}"[:_MAX_RAW],
             "attributes": {
                 "severity": "HIGH" if status == "Failed" else "INFO",
-                "port": port
+                "port": port,
+                "auth_method": method,
+                "service": "sshd",
             }
         }
 
@@ -137,7 +148,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         return {
             "schema_version": SCHEMA_VERSION,
             "timestamp": ts.isoformat(),
-            "event_type": "sudo_command",
+            "event_type": "sudo_exec",
             "host": host,
             "effective_username": user[:_MAX_USERNAME],
             "raw_message": f"User {user} executed sudo: {cmd}"[:_MAX_RAW],
@@ -158,6 +169,61 @@ def _ip_or_none(value: str) -> Optional[str]:
         return None
 
 
+# ── Server identity pinning (G-8) ───────────────────────────────────────
+
+
+def _normalise_fingerprint(value: str) -> str:
+    return re.sub(r"[^0-9a-f]", "", (value or "").lower())
+
+
+class _PinnedHTTPSConnection(http.client.HTTPSConnection):
+    pin = ""
+
+    def connect(self):
+        super().connect()
+        der = self.sock.getpeercert(binary_form=True) or b""
+        actual = hashlib.sha256(der).hexdigest()
+        if not hmac.compare_digest(actual, self.pin):
+            self.sock.close()
+            raise ssl.SSLError(
+                "Server certificate fingerprint does not match server_cert_sha256; "
+                "refusing to send events or the device key."
+            )
+
+
+def build_opener(pin: str = "") -> urllib.request.OpenerDirector:
+    """An opener that pins the server certificate when *pin* is set.
+
+    With a pin, chain and hostname checks are replaced by an exact match on the
+    certificate's SHA-256, which is what makes a self-signed server safe to use.
+    Plain http:// is refused while a pin is set.
+    """
+    pin = _normalise_fingerprint(pin)
+    if not pin:
+        return urllib.request.build_opener()
+    if len(pin) != 64:
+        raise ValueError("server_cert_sha256 must be a SHA-256 fingerprint (64 hex digits).")
+    ctx = ssl.create_default_context()
+    ctx.check_hostname = False
+    ctx.verify_mode = ssl.CERT_NONE
+
+    conn_cls = type("PinnedConn", (_PinnedHTTPSConnection,), {"pin": pin})
+
+    class _Handler(urllib.request.HTTPSHandler):
+        def https_open(self, req):
+            return self.do_open(conn_cls, req, context=ctx)
+
+    class _NoPlainHTTP(urllib.request.HTTPHandler):
+        def http_open(self, req):
+            raise urllib.error.URLError("http:// is refused while server_cert_sha256 is set")
+
+    return urllib.request.build_opener(_Handler(), _NoPlainHTTP())
+
+
+# Set by main() only when a pin is configured; otherwise urllib's default opener.
+_OPENER: Optional[urllib.request.OpenerDirector] = None
+
+
 # ── Batch Sender ─────────────────────────────────────────────────────────
 
 def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, device_id: str, api_key: str) -> bool:
@@ -176,7 +242,8 @@ def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, de
     while True:
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
-            with urllib.request.urlopen(req, timeout=10) as response:
+            send = _OPENER.open if _OPENER is not None else urllib.request.urlopen
+            with send(req, timeout=10) as response:
                 if response.status == 200:
                     logger.info("Successfully sent batch of %d events to %s", len(events), url)
                     return True
@@ -285,6 +352,17 @@ def main():
     if not cfg.get("device_id") or not cfg.get("api_key"):
         logger.error("device_id and api_key must be set in config.")
         sys.exit(1)
+
+    global _OPENER
+    try:
+        if cfg.get("server_cert_sha256"):
+            _OPENER = build_opener(cfg["server_cert_sha256"])
+    except ValueError as exc:
+        logger.error("%s", exc)
+        sys.exit(1)
+    if not cfg.get("server_cert_sha256") and not str(cfg.get("server_url", "")).startswith("https://"):
+        logger.warning("server_url is not https:// and no server_cert_sha256 is pinned; "
+                       "the device key travels unencrypted.")
 
     batch_size = int(cfg.get("batch_size", 50))
     flush_interval = float(cfg.get("flush_interval_seconds", 2))

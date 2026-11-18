@@ -13,3 +13,5 @@
   RAG index.
 - Full-history secret scanning runs weekly in CI (gitleaks on PRs + a scheduled
   verified TruffleHog sweep).
+- What the server stores and for how long, file permissions, and backups:
+  [data-inventory.md](data-inventory.md).
