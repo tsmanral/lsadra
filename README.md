@@ -29,7 +29,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, 
 - 🔍 **Explainable by design** — SHAP feature attribution, composite severity scoring with a plain-English breakdown per alert, and MITRE ATT&CK technique mapping with confidence scores.
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter** — brute force, credential stuffing, port scans, exfiltration, LOLBin abuse, persistence, and lateral movement, all with tunable thresholds and analyst feedback loops.
+- 🚨 **Detection rules that matter** — brute force, credential stuffing, port scans, exfiltration, LOLBin abuse, persistence, and lateral movement, all with tunable thresholds and analyst feedback loops. An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
 - 📊 **Full SOC dashboard** — modern React (Vite) command center with live threat feed, incident drill-down, multi-source health, threat intel (AbuseIPDB), model analytics, device behavior, feedback & threshold tuning, and admin management with RBAC + JWT auth. A legacy Streamlit interface is also included.
 
 ## Quick Start
@@ -181,6 +181,7 @@ docs/               Documentation tree
   architecture/c4.md C4 diagrams (context, containers, core components, target state)
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
+.devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
 .github/workflows/  CI matrix, DCO, commitlint, strict docs build, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
