@@ -30,7 +30,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, 
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
 - 🚨 **Detection rules that matter** — brute force, credential stuffing, port scans, exfiltration, LOLBin abuse, persistence, and lateral movement, all with tunable thresholds and analyst feedback loops.
-- 📊 **Full SOC dashboard** — modern React (Vite) command center with live threat feed, incident drill-down, multi-source health, threat intel (AbuseIPDB), model analytics, device behavior, feedback & threshold tuning, and admin management with RBAC + JWT auth. A legacy Streamlit interface is also included.
+- 📊 **Full SOC dashboard** — modern React (Vite) command center with live threat feed, incident drill-down, multi-source health, threat intel (signed, key-free CISA KEV + MITRE ATT&CK bundle, optional IP feeds and local geolocation), model analytics, device behavior, feedback & threshold tuning, and admin management with RBAC + JWT auth. A legacy Streamlit interface is also included.
 
 ## Quick Start
 
@@ -68,7 +68,7 @@ venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 ### Docker (production)
 
 ```bash
-cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
+cp .env.example .env    # set JWT secrets, TLS flags, optional intel feeds / AbuseIPDB key
 docker compose up -d
 ```
 
@@ -120,6 +120,22 @@ The dashboard signs in only through `POST /api/auth/login`. There is no offline 
 
 The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
+## Threat Intelligence
+
+Intel comes in two tiers ([ADR 0004](docs/architecture/adr/0004-intel-two-tier-licensing.md)). Nothing is simulated: when no source knows an IP, the dashboard says so.
+
+- **Bundled (works out of the box, no key, no network).** `lsadra/intel/data/intel-YYYYMMDD.sqlite` ships the CISA Known Exploited Vulnerabilities catalog and MITRE ATT&CK Enterprise techniques. Its `manifest.json` records the file's SHA-256 and each source's version, and `manifest.sig` is an Ed25519 signature checked against `lsadra/intel/trusted_keys.json` before the file is opened (read-only). A bundle that fails verification, or lists a source outside the redistribution allowlist, is refused and the tier switches off. Licences are in [`lsadra/intel/data/LICENSES.md`](lsadra/intel/data/LICENSES.md). The `intel-bundle` workflow rebuilds it weekly and opens a pull request when upstream data changed.
+- **Runtime (opt-in, stays on your machine).** A gitignored `data/intel_runtime.db` holds what you turn on: keyless IP lists via `LSADRA_INTEL_FEEDS` (`feodo` = abuse.ch Feodo Tracker C2s, `spamhaus_drop` = Spamhaus DROP, `tor_exits` = Tor exit nodes), fetched with conditional GETs every `LSADRA_INTEL_FEED_REFRESH_HOURS`; and AbuseIPDB lookups when `LSADRA_ABUSEIPDB_API_KEY` is set (analysts and admins choose per lookup, since it sends the IP to AbuseIPDB). A fresh install makes no intel requests at all.
+- **Local geolocation.** IPs are geolocated from a `.mmdb` file on disk; no IP is sent to a geolocation service. `python -m lsadra.intel geo-update` downloads GeoLite2-City when `LSADRA_MAXMIND_ACCOUNT_ID` and `LSADRA_MAXMIND_LICENSE_KEY` are set (free MaxMind account), otherwise the keyless DB-IP City Lite database (CC BY 4.0), into `data/geo/`. Or point `LSADRA_GEOIP_DB` at your own file.
+
+```bash
+python -m lsadra.intel status         # bundle signature, feed counts, geo database
+python -m lsadra.intel update-feeds   # fetch the feeds in LSADRA_INTEL_FEEDS now
+python -m lsadra.intel geo-update     # download a local geolocation database
+```
+
+API (JWT, any role unless noted): `GET /api/intel/status`, `GET /api/intel/ip/{ip}` (`?remote=true` asks AbuseIPDB; analysts and admins only), `GET /api/intel/cve/{cve}`, `GET /api/intel/kev?q=`, `GET /api/intel/technique/{id}`, `GET /api/intel/flagged-ips` (public IPs from your anomalies; admins see all), `POST /api/intel/feeds/refresh` (admin).
+
 ## Architecture
 
 ```mermaid
@@ -143,7 +159,7 @@ A deeper technical walkthrough lives in [ARCHITECTURE.md](ARCHITECTURE.md), and 
 
 Ingestion never runs detection inside the request: the handler stores the batch and enqueues the device on a bounded, per-device-coalescing queue drained by a single detection worker on its own thread (`LSADRA_DETECTION_QUEUE_SIZE`, default 256 devices; when it is full, ingestion answers `503` with `Retry-After` and stores nothing, so agent retries never duplicate events). API handlers never wait on SQLite or bcrypt on the event loop either: each one runs its storage and hashing work in the server's thread pool, so a slow write cannot stall other requests. A device key that has passed bcrypt is not re-hashed on every batch: a short-lived, size-bounded cache remembers the verification (as a keyed fingerprint, never the key) for `LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS`, default 60 s, bound to the stored hash, so re-keying or deleting a device still takes effect on the next request. Once an entry is past half its TTL, the next batch from that device queues a background bcrypt re-verify that renews it, so a device that sends steadily never waits on bcrypt after its first batch. Detection itself is CPU-bound Python on that worker thread, so the server shortens Python's thread switch interval at startup (`LSADRA_THREAD_SWITCH_INTERVAL_MS`, default 0.5 ms, against CPython's 5 ms), so a detection run hands the GIL back to waiting ingestion requests sooner.
 
-Background jobs (APScheduler) handle cross-source correlation, lateral-movement scans, metrics pre-aggregation, geo-resolution, threat-intel caching, drift detection, and data retention — no external queue or cron required.
+Background jobs (APScheduler) handle cross-source correlation, lateral-movement scans, metrics pre-aggregation, local geo-resolution, runtime intel feed refresh, drift detection, and data retention — no external queue or cron required.
 
 **Today** the stack is Python end to end: a FastAPI core (ingestion, detection, storage, orchestration), a React + Vite SOC dashboard, and a thin Python endpoint agent.
 
@@ -153,6 +169,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
+  intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
 frontend/           React (Vite + TypeScript) SOC dashboard
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
@@ -166,7 +183,7 @@ docs/               Documentation tree
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, DCO, release, security scanning, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
