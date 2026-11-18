@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { BookOpen, CheckCircle2, Clock, Zap, Play } from 'lucide-react';
-import { updateIncidentStatus } from '../services/api';
 
 const PLAYBOOKS: Record<string, any> = {
   AD_ELEVATION_RESPONSE: {
@@ -130,9 +129,8 @@ const Response = () => {
       setConsoleLog([
         `[SYSTEM] Initializing ${pb.name}...`,
         `[INFO]   Incident ${incidentId} was previously RESOLVED.`,
-        `[INFO]   Remediation verified. Reporting at 100%.`,
         ``,
-        `[COMPLETED] All steps verified.`,
+        `[INFO]   Steps are shown for reference only.`,
       ]);
     } else {
       setSteps(pb.steps.map((s: any) => ({ ...s })));
@@ -168,7 +166,7 @@ const Response = () => {
 
     setTimeout(() => {
       setConsoleLog(prev => [...prev,
-        `[OK] Step ${step.id} completed at ${ts}`,
+        `[DRY-RUN] Step ${step.id} simulated at ${ts}. Nothing was run on any host.`,
       ]);
       setSteps(prev => prev.map((s, idx) => {
         const stepIdx = prev.findIndex(x => x.id === step.id);
@@ -188,23 +186,18 @@ const Response = () => {
       delay += 1500;
       setTimeout(() => {
         const ts = new Date().toLocaleTimeString();
-        setConsoleLog(prev => [...prev, `[SUCCESS] Step ${step.id} verified @ ${ts}`]);
+        setConsoleLog(prev => [...prev, `[DRY-RUN] Step ${step.id} simulated @ ${ts} (not executed)`]);
         setSteps(prev => prev.map(s => s.id === step.id ? { ...s, status: 'done', time: ts } : s));
         
         if (idx === pendingSteps.length - 1) {
           setIsExecuting(false);
-          setConsoleLog(prev => [...prev, ``, `[COMPLETED] All response actions verified.`]);
-          if (incidentId) {
-            updateIncidentStatus(incidentId, 'RESOLVED');
-            // Save resolution metadata for the timeline/report
-            const customStore = JSON.parse(localStorage.getItem('sentinel_custom_resolutions') || '{}');
-            customStore[incidentId] = { playbook: playbook.name, timestamp: new Date().toISOString() };
-            localStorage.setItem('sentinel_custom_resolutions', JSON.stringify(customStore));
-            setConsoleLog(prev => [...prev, `[SYSTEM] Incident ${incidentId} marked as RESOLVED.`]);
-            
-            // Trigger instant refresh across dashboard
-            window.dispatchEvent(new CustomEvent('sentinel_state_change'));
-          }
+          // Playbooks are a simulation: no step runs on a host, so the
+          // incident is never resolved from here. The analyst carries out the
+          // steps and resolves the incident once they have confirmed it.
+          setConsoleLog(prev => [...prev, ``,
+            `[DRY-RUN] Simulation finished. No action was taken on any host.`,
+            ...(incidentId ? [`[SYSTEM] Incident ${incidentId} is unchanged. Resolve it once you have carried out and confirmed these steps.`] : []),
+          ]);
         }
       }, delay);
     });
@@ -246,7 +239,7 @@ const Response = () => {
               disabled={isExecuting || progress === 100}
               className="flex items-center hud-button bg-[var(--color-primary)] text-black font-bold disabled:opacity-50"
             >
-              <Play size={16} className="mr-2"/> EXECUTE ALL
+              <Play size={16} className="mr-2"/> SIMULATE ALL (DRY-RUN)
             </button>
           )}
         </div>
@@ -363,7 +356,7 @@ const Response = () => {
                       disabled={isExecuting}
                       className="text-[10px] font-bold font-mono px-3 py-1 border border-[var(--color-primary)] text-[var(--color-primary)] hover:bg-[var(--color-primary)] hover:text-black transition-colors uppercase disabled:opacity-50"
                     >
-                      Execute
+                      Simulate
                     </button>
                   )}
                   {step.status === 'pending' && (

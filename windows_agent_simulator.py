@@ -124,7 +124,7 @@ def send_heartbeats():
     """Background thread that sends periodic heartbeats."""
     while True:
         try:
-            requests.post(f"{SERVER_URL}/heartbeat", json={
+            requests.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": device_id, "X-Api-Key": api_key}, json={
                 "device_id": device_id,
                 "cpu_pct": 25.0,
                 "mem_pct": 45.0,
