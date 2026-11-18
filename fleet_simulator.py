@@ -232,7 +232,7 @@ def heartbeat_loop():
     while True:
         for d in devices:
             try:
-                requests.post(f"{SERVER_URL}/heartbeat", json={
+                requests.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": d["device_id"], "X-Api-Key": d["api_key"]}, json={
                     "device_id": d["device_id"],
                     "cpu_pct": round(random.uniform(10, 85), 1),
                     "mem_pct": round(random.uniform(20, 95), 1),
