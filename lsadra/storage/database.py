@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional
 
 from lsadra.config import (
+    ALERT_RETENTION_DAYS,
     DB_PATH,
     RETENTION_BATCH_PAUSE_S,
     RETENTION_BATCH_SIZE,
@@ -1005,21 +1006,40 @@ def get_drift_records(model_name: str, limit: int = 50) -> List[Dict[str, Any]]:
 # Retention order matters: the only FK into ``normalized_events`` is
 # ``anomalies.event_id`` (migration 001), so anomalies go first. Table and column
 # names are constants, never input.
+#
+# Each table belongs to a tier (gap G-35): "raw" telemetry expires after
+# RETENTION_DAYS (default 30), "alert" rows (anomalies and the rollups built from
+# events) after ALERT_RETENTION_DAYS (default 365).
 _RETENTION_STEPS = (
-    ("anomalies", "created_at", ""),
+    ("anomalies", "created_at", "alert", ""),
     (
         "normalized_events",
         "timestamp",
+        "raw",
         "AND id NOT IN (SELECT event_id FROM anomalies WHERE event_id IS NOT NULL)",
     ),
-    ("device_heartbeats", "timestamp", ""),
-    ("metrics_5min", "window_start", ""),
-    ("feature_drift", "measured_at", ""),
+    ("device_heartbeats", "timestamp", "raw", ""),
+    ("metrics_5min", "window_start", "alert", ""),
+    ("feature_drift", "measured_at", "alert", ""),
 )
 
 
+def _retention_cutoffs(now: Optional[datetime] = None) -> Dict[str, str]:
+    """ISO cutoff per tier; rows older than their tier's cutoff are deleted."""
+    now = now or datetime.utcnow()
+    alert_days = max(ALERT_RETENTION_DAYS, RETENTION_DAYS)
+    return {
+        "raw": (now - timedelta(days=RETENTION_DAYS)).isoformat(),
+        "alert": (now - timedelta(days=alert_days)).isoformat(),
+    }
+
+
 def cleanup_old_data(batch_size: Optional[int] = None) -> int:
-    """Delete rows older than RETENTION_DAYS. Returns the number of events deleted.
+    """Delete rows past their retention tier. Returns the number of events deleted.
+
+    Tiered: raw telemetry (events, heartbeats) older than ``RETENTION_DAYS`` and
+    alerts and rollups (anomalies, 5-minute metrics, drift records) older than
+    ``ALERT_RETENTION_DAYS`` are removed.
 
     Bounded: each table is cleared in transactions of at most ``batch_size`` rows
     (default ``RETENTION_BATCH_SIZE``), each committed on its own, with a short
@@ -1028,19 +1048,21 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
     and the next run picks up where this one stopped.
 
     Tables go in foreign-key-safe order (``_RETENTION_STEPS``). An expired event
-    still referenced by a *retained* anomaly (e.g. a back-filled log line whose
-    anomaly is recent) is kept until that anomaly ages out: deleting it would
-    violate the FK, deleting the anomaly early would drop a finding inside its
-    retention window. ``incidents`` are not part of retention; they are only
-    ever the parent side (``anomalies.incident_id``), so they impose no ordering.
+    still referenced by a *retained* anomaly (e.g. the evidence behind an alert
+    that is inside the alert tier) is kept until that anomaly ages out: deleting
+    it would violate the FK, deleting the anomaly early would drop a finding
+    inside its retention window. ``incidents`` are not part of retention; they
+    are only ever the parent side (``anomalies.incident_id``), so they impose no
+    ordering.
     """
     batch = batch_size or RETENTION_BATCH_SIZE
     if batch < 1:
         raise ValueError("retention batch size must be at least 1")
-    cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
+    cutoffs = _retention_cutoffs()
     events_deleted = 0
     with _connection() as conn:
-        for table, column, extra in _RETENTION_STEPS:
+        for table, column, tier, extra in _RETENTION_STEPS:
+            cutoff = cutoffs[tier]
             while True:
                 cur = conn.execute(
                     f"""DELETE FROM {table} WHERE rowid IN (
@@ -1054,7 +1076,12 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
                 if deleted < batch:
                     break
                 time.sleep(RETENTION_BATCH_PAUSE_S)
-    logger.info("Retention cleanup: removed %d events older than %s", events_deleted, cutoff)
+    logger.info(
+        "Retention cleanup: removed %d events older than %s (alerts kept until %s)",
+        events_deleted,
+        cutoffs["raw"],
+        cutoffs["alert"],
+    )
     return events_deleted
 
 
