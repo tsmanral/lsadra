@@ -19,4 +19,4 @@ Publication of the rendered docs site (MkDocs Material) is gated on the product
 name decision — see [ADR 0002](architecture/adr/0002-product-name.md) (gate D1).
 CI already builds the site with `mkdocs build --strict` on every pull request,
 so a broken link, a missing anchor or a page left out of the nav fails the
-build. Preview locally with `pip install -r requirements-docs.txt && mkdocs serve`.
+build. Preview locally with `pip install -r requirements/docs.txt && mkdocs serve`.

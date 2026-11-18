@@ -22,8 +22,8 @@ jobs:
       - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
         with:
           python-version: "3.12"
-      - name: Install the docs toolchain
-        run: pip install -r requirements-docs.txt
+      - name: Install the docs toolchain (hash-checked)
+        run: pip install --require-hashes -r requirements/docs.txt
       - name: Build the docs site in strict mode
         # Strict mode fails on broken links, missing anchors and pages left
         # out of the nav (see the validation block in mkdocs.yml).

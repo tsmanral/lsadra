@@ -1,5 +1,5 @@
 # MkDocs Material config. Publication is gated on the name decision
-# (ADR 0002 / gate D1).  Local preview:  pip install -r requirements-docs.txt && mkdocs serve
+# (ADR 0002 / gate D1).  Local preview:  pip install -r requirements/docs.txt && mkdocs serve
 # CI builds this site with `mkdocs build --strict` (.github/workflows/docs.yml).
 site_name: LSADRA
 site_description: Local Security Anomaly Detection & Risk Assessment

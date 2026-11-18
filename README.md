@@ -265,8 +265,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/ (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
-requirements-docs.txt  Pinned docs-site toolchain (MkDocs Material); `mkdocs build --strict` runs in CI
+requirements.txt    Full install from the hash-locked files in requirements/ (requirements-dev.txt adds contributor tooling: ruff, pre-commit; requirements/docs.txt is the docs-site toolchain)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
