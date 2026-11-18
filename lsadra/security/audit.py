@@ -6,7 +6,7 @@ retrain, backup and restore) is appended to ``audit_events``. Each row stores
 the SHA-256 of the previous row's hash plus its own canonical content, so an
 edit or a deleted row in the middle of the log breaks the chain, and
 :func:`verify_chain` reports the first row that does not match. SQL triggers
-(migration 005) refuse any UPDATE and any DELETE younger than 365 days.
+(migration 006) refuse any UPDATE and any DELETE younger than 365 days.
 
 Self-monitoring: a few events are also raised as LSADRA alerts (an anomaly
 row plus a live /ws/alerts push to admins), so the product watches its own

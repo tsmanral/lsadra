@@ -17,7 +17,7 @@ from tests.storage._support import DEVICE_ID, USER_ID, transactions
 
 USER_KEYS = {
     "id", "username", "password_hash", "role", "created_at",
-    # migration 005 (G-9, G-33)
+    # migration 006 (G-9, G-33)
     "token_version", "disabled", "totp_secret", "totp_enabled", "totp_last_step",
 }
 DEVICE_KEYS = {
@@ -31,7 +31,7 @@ DEVICE_KEYS = {
     "event_count",
     "created_at",
     "last_seen_at",
-    # migration 005: key-rotation overlap (G-9)
+    # migration 006: key-rotation overlap (G-9)
     "previous_api_key_hash",
     "previous_key_expires_at",
 }

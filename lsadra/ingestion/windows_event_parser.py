@@ -12,6 +12,7 @@ Event IDs required for V4 threat detection:
   4698  — Scheduled task created (persistence)
   4720  — User account created
   7045  — New service installed
+  1102  — Security event log cleared
 
 Supports XML-format and pipe-delimited flat log lines.
 Outputs unified V4 event schema.
@@ -28,17 +29,19 @@ from typing import Any, Dict, Optional
 from lsadra.ingestion.base_parser import BaseParser
 
 # ---------------------------------------------------------------------------
-# Event ID → (event_type, success, mitre_id)
-# ---------------------------------------------------------------------------
+# Event ID → (canonical event_type, success). ATT&CK techniques are assigned by
+# detection rules (lsadra/detection/attack_map.py), never by a parser: a logon
+# or a new service is not evidence of a technique on its own.
 _EVENT_MAP: Dict[str, tuple] = {
-    "4624": ("login_attempt",         True,  "T1078"),
-    "4625": ("login_attempt",         False, "T1110.001"),
-    "4648": ("login_attempt",         True,  "T1078"),
-    "4672": ("privilege_escalation",  True,  "T1548"),
-    "4688": ("process_create",        True,  "T1059"),
-    "4698": ("scheduled_task_created",True,  "T1053.005"),
-    "4720": ("user_account_created",  True,  "T1136"),
-    "7045": ("service_installed",     True,  "T1543.003"),
+    "4624": ("auth_success",          True),
+    "4625": ("auth_failure",          False),
+    "4648": ("auth_success",          True),
+    "4672": ("privileged_logon",      True),
+    "4688": ("process_exec",          True),
+    "4698": ("scheduled_task_create", True),
+    "4720": ("account_create",        True),
+    "7045": ("service_install",       True),
+    "1102": ("log_cleared",           True),
 }
 
 # Pipe-delimited flat format: EventID|timestamp|username|source_ip|...
@@ -200,7 +203,7 @@ class WindowsEventParser(BaseParser):
         device_id: str,
     ) -> Dict[str, Any]:
         """Assemble the final unified event dict from extracted components."""
-        event_type, success, mitre_id = _EVENT_MAP[event_id]
+        event_type, success = _EVENT_MAP[event_id]
         username    = data_fields.get("TargetUserName") or data_fields.get("SubjectUserName") or None
         source_ip   = data_fields.get("IpAddress") or None
         if source_ip in ("-", "::1", "127.0.0.1"):
@@ -211,7 +214,6 @@ class WindowsEventParser(BaseParser):
             "logon_type":  _LOGON_TYPES.get(data_fields.get("LogonType", ""), ""),
             "domain":      data_fields.get("TargetDomainName", ""),
             "computer":    computer or "",
-            "mitre_id":    mitre_id,
             "process_name": data_fields.get("NewProcessName", ""),
             "task_name":   data_fields.get("TaskName", ""),
             "service_name": data_fields.get("ServiceName", ""),

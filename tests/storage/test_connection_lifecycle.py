@@ -69,6 +69,7 @@ CALLS = {
     "insert_events_batch": ([make_event()],),
     "store_batch_and_touch": (DEVICE_ID, [make_event()]),
     "get_events_since": (DEVICE_ID, 0),
+    "get_events_before": (DEVICE_ID, 10, "2026-01-01T00:00:00"),
     "get_events_for_user": (USER_ID,),
     "get_event_count_for_device": (DEVICE_ID,),
     "get_watermark": (DEVICE_ID,),

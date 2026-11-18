@@ -484,6 +484,29 @@ def get_events_since(
         return [dict(r) for r in rows]
 
 
+def get_events_before(
+    device_id: str, before_id: int, since: str, limit: int = 2000
+) -> List[Dict[str, Any]]:
+    """
+    Stored events for a device with ``id < before_id`` and ``timestamp >= since``.
+
+    Detection context: the recent history a new batch's time windows need.
+    *since* is ``YYYY-MM-DDTHH:MM:SS`` (UTC). Stored timestamps share that
+    prefix whatever their suffix (``+00:00``, fractions), so the text
+    comparison orders correctly. Returned oldest first, newest *limit* rows.
+    """
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM (
+                   SELECT * FROM normalized_events
+                   WHERE device_id = ? AND id < ? AND timestamp >= ?
+                   ORDER BY id DESC LIMIT ?
+               ) ORDER BY id ASC""",
+            (device_id, before_id, since, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
 def get_events_for_user(
     user_id: str, synthetic: bool = False, limit: int = 5000
 ) -> List[Dict[str, Any]]:
@@ -552,8 +575,9 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
                 severity_score, severity_label,
                 is_anomaly, threat_type, attack_type,
                 mitre_technique, mitre_confidence,
-                narrative, shap_values, incident_id, is_synthetic)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                narrative, shap_values, incident_id, is_synthetic,
+                rule_id, rule_version, mitre_tactics)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 anomaly.get("event_id"),
                 anomaly.get("device_id"),
@@ -574,6 +598,9 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
                 json.dumps(anomaly.get("shap_values", {})),
                 anomaly.get("incident_id"),
                 anomaly.get("is_synthetic", False),
+                anomaly.get("rule_id"),
+                anomaly.get("rule_version"),
+                json.dumps(anomaly.get("mitre_tactics") or []),
             ),
         )
         row_id = cur.lastrowid

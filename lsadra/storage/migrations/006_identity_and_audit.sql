@@ -1,6 +1,6 @@
 -- ============================================================================
 -- LSADRA — Identity hardening and audit trail
--- Migration: 005_identity_and_audit
+-- Migration: 006_identity_and_audit
 -- Created:   2026-11-18
 --
 -- users:   token_version (bumped on logout, role, password or disable, so every

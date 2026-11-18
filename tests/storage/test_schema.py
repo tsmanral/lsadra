@@ -25,7 +25,7 @@ EXPECTED_TABLES = {
     "feature_drift",
     "alerts_feedback",
     "ingestion_stats",
-    "audit_events",  # migration 005 (G-26)
+    "audit_events",  # migration 006 (G-26)
 }
 
 
