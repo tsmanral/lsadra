@@ -4,7 +4,7 @@
 
 ### Local Security Anomaly Detection & Risk Assessment — open-source, explainable, built to run anywhere.
 
-**Real-time, multi-source log detection with ML ensembles, SHAP explainability, and human-readable threat narratives — no LLM API keys required.**
+**Real-time, multi-source log detection with ML ensembles, rule-based ATT&CK mapping, and human-readable threat narratives — no LLM API keys required.**
 
 <br/>
 
@@ -26,7 +26,7 @@
 Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, expensive, and opaque. Lightweight consumer tools watch the network but have no real detection intelligence. **LSADRA fills the gap**: a self-hostable SOC platform that explains *why* every alert fired.
 
 - 🧠 **Multi-layer ML detection** — statistical baselining (Z-score), ensemble models (Isolation Forest, LOF, One-Class SVM), and a PyTorch autoencoder, with drift tracking via Population Stability Index.
-- 🔍 **Explainable by design** — SHAP feature attribution, composite severity scoring with a plain-English breakdown per alert, and MITRE ATT&CK technique mapping with confidence scores.
+- 🔍 **Explainable by design** — every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline today; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
 - 🚨 **Detection rules that matter** — 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
@@ -171,6 +171,30 @@ The dashboard signs in only through `POST /api/auth/login`. There is no offline 
 
 The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
+## Model Integrity and Training
+
+Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
+
+Training is gated:
+
+- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies and events inside an open or investigating incident. With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
+- **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
+- **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
+- **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
+- **Audit trail and model cards.** Every attempt (promoted, rejected, skipped, refused, rolled back) is a row in `model_training_runs`. Each promoted model gets a JSON model card: type, file hash, features, training window and event counts, exclusions, canary result and library versions.
+
+Per-entity baselines are saved as plain JSON and survive restarts. Drift is measured daily (and on `POST /api/dashboard/run-drift`): the last `LSADRA_DRIFT_WINDOW_HOURS` of events (default 24) are compared by PSI against quantiles stored at training time; a drifted feature marks the models stale and logs a warning that the cause may be poisoned training data. `GET /api/models/status` (ADMIN, ANALYST) reports model cards, baseline coverage, the latest drift per feature and recent training runs.
+
+## LLM Guardrails (before the LLM ships)
+
+The optional LLM tier (M4, [ADR 0007](docs/architecture/adr/)) will triage incidents and recommend next steps; it is never on the detection path and never acts. Its controls are in place first, in `lsadra/llm/`:
+
+- **Fixed output.** The model must return JSON matching `TRIAGE_SCHEMA` (summary, verdict, confidence, cited event ids, up to five recommended actions from a closed list). The runtime enforces it as a grammar and LSADRA validates it again: no extra keys, every cited event id must belong to the incident, every action target must be a host, user or IP from that evidence, and no URLs, links, HTML or tool calls anywhere. Anything else is discarded and the deterministic narrative is shown.
+- **Spotlighting.** Log-derived text is cleaned and placed only inside a data block fenced by a random per-request delimiter that never occurs in the data.
+- **Recommend-only.** The action broker can only store recommendations as `PROPOSED` actions (`proposed_actions` table); an ADMIN approves or rejects them, and approval executes nothing.
+- **Local by default.** A bring-your-own-model endpoint must be on this machine (loopback or `localhost`) unless `LSADRA_LLM_ALLOW_REMOTE=true`, and a remote one must use HTTPS. Downloaded GGUF/ONNX weights load only if their SHA-256 matches a pin in `lsadra/llm/pinned_models.json` or `LSADRA_LLM_MODEL_SHA256`.
+- **Red-team corpus.** [`demo/llm_redteam/`](demo/llm_redteam/) holds synthetic injection payloads with deterministic scorers. CI runs them offline on every PR; `python scripts/llm_redteam.py --endpoint http://127.0.0.1:8080` runs them against a local `llama-server`. Add payloads by PR.
+
 ## Architecture
 
 ```mermaid
@@ -184,7 +208,7 @@ graph TD
     RE --> SV[Dynamic Severity Scoring]
     C --> SV
     SV --> INC[Incident Grouping]
-    INC --> NB[Narrative Builder<br/>SHAP + MITRE ATT&CK]
+    INC --> NB[Narrative Builder<br/>Layer scores + MITRE ATT&CK]
     NB --> DB[(SQLite)]
     DB --> DASH[React SOC Dashboard]
     NB -->|/ws/alerts, JWT at handshake| DASH
@@ -210,9 +234,12 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
+  llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
-                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table)
+                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table;
+                    llm_redteam.py — runs the LLM injection corpus)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
+  detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
@@ -282,6 +309,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
 - **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
 - **Ingest benchmark:** [`benchmarks/`](benchmarks/) drives the real API at rising rates and records sustained events/s, request latency percentiles, event-loop lag and RSS. The committed baseline for today's synchronous stack is in [`benchmarks/README.md`](benchmarks/README.md) — M1 is measured against it.
+- **Detection bench:** [`benchmarks/detection/`](benchmarks/detection/) replays labelled attacks (the demo corpus plus pinned subsets of splunk/attack_data and EVTX-ATTACK-SAMPLES, downloaded on demand and never committed) inside seeded synthetic background traffic through the real detection pipeline, and records the true-positive rate per MITRE ATT&CK technique at 1 % and 0.1 % false-positive rate plus alerts per host per day. The committed baseline is [`benchmarks/detection/results/baseline-2026-11-18.md`](benchmarks/detection/results/baseline-2026-11-18.md); detection changes are measured against it ([ADR 0007](docs/architecture/adr/0007-detection-stack.md)).
 
 **What's next (M1 — async core)**
 
