@@ -4,3 +4,8 @@ rules:
   # long-supported `./` form until it is widely documented.
   self-repository:
     disable: true
+  # commitlint.yml installs exact versions of @commitlint/cli and
+  # config-conventional with npm; moving it to a lockfile is a follow-up.
+  adhoc-packages:
+    ignore:
+      - commitlint.yml
