@@ -125,6 +125,16 @@ Training is gated:
 
 Per-entity baselines are saved as plain JSON and survive restarts. Drift is measured daily (and on `POST /api/dashboard/run-drift`): the last `LSADRA_DRIFT_WINDOW_HOURS` of events (default 24) are compared by PSI against quantiles stored at training time; a drifted feature marks the models stale and logs a warning that the cause may be poisoned training data. `GET /api/models/status` (ADMIN, ANALYST) reports model cards, baseline coverage, the latest drift per feature and recent training runs.
 
+## LLM Guardrails (before the LLM ships)
+
+The optional LLM tier (M4, [ADR 0007](docs/architecture/adr/)) will triage incidents and recommend next steps; it is never on the detection path and never acts. Its controls are in place first, in `lsadra/llm/`:
+
+- **Fixed output.** The model must return JSON matching `TRIAGE_SCHEMA` (summary, verdict, confidence, cited event ids, up to five recommended actions from a closed list). The runtime enforces it as a grammar and LSADRA validates it again: no extra keys, every cited event id must belong to the incident, every action target must be a host, user or IP from that evidence, and no URLs, links, HTML or tool calls anywhere. Anything else is discarded and the deterministic narrative is shown.
+- **Spotlighting.** Log-derived text is cleaned and placed only inside a data block fenced by a random per-request delimiter that never occurs in the data.
+- **Recommend-only.** The action broker can only store recommendations as `PROPOSED` actions (`proposed_actions` table); an ADMIN approves or rejects them, and approval executes nothing.
+- **Local by default.** A bring-your-own-model endpoint must be on this machine (loopback or `localhost`) unless `LSADRA_LLM_ALLOW_REMOTE=true`, and a remote one must use HTTPS. Downloaded GGUF/ONNX weights load only if their SHA-256 matches a pin in `lsadra/llm/pinned_models.json` or `LSADRA_LLM_MODEL_SHA256`.
+- **Red-team corpus.** [`demo/llm_redteam/`](demo/llm_redteam/) holds synthetic injection payloads with deterministic scorers. CI runs them offline on every PR; `python scripts/llm_redteam.py --endpoint http://127.0.0.1:8080` runs them against a local `llama-server`. Add payloads by PR.
+
 ## Architecture
 
 ```mermaid
@@ -164,7 +174,8 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
+  llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode; llm_redteam.py — runs the LLM injection corpus)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records

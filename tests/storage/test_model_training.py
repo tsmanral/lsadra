@@ -57,3 +57,26 @@ def test_open_incident_windows(seeded):
         "first_seen": "2026-01-01T00:00:00", "last_seen": "2026-01-01T00:00:00",
     }]
     assert open_id
+
+
+def test_proposed_actions_are_only_proposed_until_a_human_decides(seeded):
+    inc = seeded.create_incident(DEVICE_ID, "192.0.2.10", "Brute Force", "HIGH",
+                                 "2026-01-01T00:00:00")
+    pid = seeded.insert_proposed_action(inc, "block_source_ip", "192.0.2.10", "burst",
+                                        evidence_event_ids=[1, 2])
+    other = seeded.insert_proposed_action(inc, "escalate", DEVICE_ID)
+
+    pending = seeded.get_proposed_actions(incident_id=inc, status="PROPOSED")
+    assert [p["id"] for p in pending] == [other, pid]
+    assert pending[1]["evidence_event_ids"] == [1, 2]
+    assert pending[0]["evidence_event_ids"] == []
+
+    assert seeded.decide_proposed_action(pid, "APPROVED", "user-1") is True
+    assert seeded.decide_proposed_action(pid, "REJECTED", "user-1") is False  # already decided
+    approved = seeded.get_proposed_actions(status="APPROVED")
+    assert len(approved) == 1 and approved[0]["decided_by"] == "user-1"
+    assert seeded.get_proposed_actions(incident_id=inc + 99) == []
+    import pytest
+
+    with pytest.raises(ValueError):
+        seeded.decide_proposed_action(other, "EXECUTE", "user-1")

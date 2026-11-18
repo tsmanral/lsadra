@@ -1355,3 +1355,78 @@ def get_recent_events(limit: int) -> List[Dict[str, Any]]:
             "SELECT * FROM normalized_events ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
     return [dict(r) for r in rows]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CRUD: proposed actions (G-30 action broker; recommend-only)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def insert_proposed_action(
+    incident_id: int,
+    action: str,
+    target: str,
+    rationale: str = "",
+    source: str = "llm",
+    evidence_event_ids: Optional[List[int]] = None,
+) -> int:
+    """Store a recommendation as PROPOSED. There is no execute counterpart."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO proposed_actions
+               (incident_id, action, target, rationale, source, evidence_event_ids,
+                status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'PROPOSED', ?)""",
+            (
+                incident_id,
+                action,
+                target,
+                rationale,
+                source,
+                json.dumps(evidence_event_ids or []),
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+
+
+def get_proposed_actions(
+    incident_id: Optional[int] = None, status: Optional[str] = None, limit: int = 100
+) -> List[Dict[str, Any]]:
+    """Proposed actions, newest first, optionally for one incident and/or status."""
+    query = "SELECT * FROM proposed_actions WHERE 1=1"
+    params: List[Any] = []
+    if incident_id is not None:
+        query += " AND incident_id = ?"
+        params.append(incident_id)
+    if status is not None:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with _connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["evidence_event_ids"] = json.loads(d.get("evidence_event_ids") or "[]")
+        except ValueError:
+            d["evidence_event_ids"] = []
+        out.append(d)
+    return out
+
+
+def decide_proposed_action(proposal_id: int, decision: str, decided_by: str) -> bool:
+    """Move a PROPOSED action to APPROVED or REJECTED. False if it was not pending."""
+    if decision not in ("APPROVED", "REJECTED"):
+        raise ValueError("decision must be APPROVED or REJECTED")
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE proposed_actions SET status = ?, decided_by = ?, decided_at = ?
+               WHERE id = ? AND status = 'PROPOSED'""",
+            (decision, decided_by, datetime.utcnow().isoformat(), proposal_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1

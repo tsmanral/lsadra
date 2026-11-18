@@ -107,6 +107,9 @@ CALLS = {
     "get_training_events": (10,),
     "get_open_incident_windows": (),
     "get_recent_events": (10,),
+    "insert_proposed_action": (1, "escalate", "dev-1"),
+    "get_proposed_actions": (),
+    "decide_proposed_action": (1, "APPROVED", "user-1"),
 }
 
 # Functions that accept a caller-owned connection as their first argument.
