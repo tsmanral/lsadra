@@ -65,6 +65,17 @@ To validate the full pipeline (parsers, rules, severity, narratives, DB, schedul
 venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 ```
 
+### Desktop app (preview)
+
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. For now it runs the server from a source checkout set up as in step 1 above; a self-contained server bundle comes later.
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+cd desktop && npm ci && npm run dev      # or: npm run build  (installers in src-tauri/target/release/bundle)
+```
+
+See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
+
 ### Docker (production)
 
 ```bash
@@ -154,6 +165,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
 frontend/           React (Vite + TypeScript) SOC dashboard
+desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations
@@ -166,7 +178,7 @@ docs/               Documentation tree
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, desktop app build, DCO, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
