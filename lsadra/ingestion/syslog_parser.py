@@ -34,12 +34,67 @@ _RFC5424_RE = re.compile(
 )
 
 # Sub-patterns for message classification
-_SUDO_RE      = re.compile(r"sudo.*COMMAND=(.*)")
-_CRON_RE      = re.compile(r"(crond?|CRON)\s*\[.*\].*CMD\s+\((.*)\)")
+# Patterns with several unbounded ".*" gaps backtrack super-linearly on long,
+# attacker-shaped lines, so sudo, cron and failed-su lines are matched with
+# string searches plus single-gap patterns instead (see _match_* below).
+_CRON_PREFIX_RE = re.compile(r"(?:crond?|CRON)\s*\[")
+_CRON_CMD_RE  = re.compile(r"CMD\s+\(")
 _SERVICE_RE   = re.compile(r"(systemd|service)\[.*\]:\s+(Starting|Started|Stopping|Stopped)\s+(.*)")
 _KERNEL_RE    = re.compile(r"kernel\s*:.*(\bmodule\b|\binsmod\b|\brmmod\b|\bModuleCore\b)")
 _NETIF_RE     = re.compile(r"kernel\s*:.*\b(eth\d+|ens\d+|wlan\d+|tun\d+)\s+(up|down|SLAVE|MASTER)")
-_FAILED_SU_RE = re.compile(r"su\[.*\].*FAILED SU.*for\s+(\S+)")
+_FOR_USER_RE  = re.compile(r"for\s+(\S+)")
+
+
+def _match_sudo(message: str) -> Optional[str]:
+    """Command of a sudo line ("sudo ... COMMAND=<cmd>"), else None."""
+    start = message.find("sudo")
+    if start < 0:
+        return None
+    at = message.rfind("COMMAND=")
+    if at < start + len("sudo"):
+        return None
+    return message[at + len("COMMAND="):]
+
+
+def _match_cron(message: str) -> Optional[str]:
+    """Command of a cron line ("CRON[pid] ... CMD (<cmd>)"), else None."""
+    prefix = _CRON_PREFIX_RE.search(message)
+    if not prefix:
+        return None
+    close = message.find("]", prefix.end())
+    if close < 0:
+        return None
+    end = message.rfind(")")
+    cmd = None
+    for found in _CRON_CMD_RE.finditer(message, close + 1):
+        if found.end() > end:
+            break
+        cmd = found  # the last "CMD (" that still has a ")" after it wins
+    if cmd is None:
+        return None
+    return message[cmd.end():end]
+
+
+def _match_failed_su(message: str) -> Optional[str]:
+    """Target user of a failed su ("su[pid] ... FAILED SU ... for <user>")."""
+    start = message.find("su[")
+    if start < 0:
+        return None
+    close = message.find("]", start + 3)
+    if close < 0:
+        return None
+    failed = message.find("FAILED SU", close + 1)
+    if failed < 0:
+        return None
+    lo = failed + len("FAILED SU")
+    at = len(message)
+    while True:  # the last "for <user>" wins, as with a greedy match
+        at = message.rfind("for", lo, at + 2)
+        if at < 0:
+            return None
+        user = _FOR_USER_RE.match(message, at)
+        if user:
+            return user.group(1)
 
 
 class SyslogParser(BaseParser):
@@ -159,16 +214,16 @@ class SyslogParser(BaseParser):
         """Classify syslog message into event_type, success, extra dict."""
         extra: Dict[str, Any] = {}
 
-        sudo = _SUDO_RE.search(message)
-        if sudo:
-            extra["command"] = sudo.group(1).strip()
+        sudo_cmd = _match_sudo(message)
+        if sudo_cmd is not None:
+            extra["command"] = sudo_cmd.strip()
             extra["username"] = self._extract_sudo_user(message)
             return "privilege_escalation", True, extra
 
-        cron = _CRON_RE.search(message)
-        if cron:
-            extra["cron_user"] = cron.group(2)
-            extra["command"] = cron.group(2)
+        cron_cmd = _match_cron(message)
+        if cron_cmd is not None:
+            extra["cron_user"] = cron_cmd
+            extra["command"] = cron_cmd
             return "cron_modified", True, extra
 
         svc = _SERVICE_RE.search(message)
@@ -189,9 +244,9 @@ class SyslogParser(BaseParser):
             extra["state"] = netif.group(2)
             return "network_interface_change", True, extra
 
-        failed_su = _FAILED_SU_RE.search(message)
-        if failed_su:
-            extra["username"] = failed_su.group(1)
+        failed_su_user = _match_failed_su(message)
+        if failed_su_user is not None:
+            extra["username"] = failed_su_user
             return "login_attempt", False, extra
 
         return "syslog_event", True, {"message_snippet": message[:200]}

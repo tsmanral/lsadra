@@ -22,7 +22,10 @@ _AUTH_RE = re.compile(
     r"(?:for\s+)?(\S+)\s+from\s+(\S+)\s+port\s+(\d+)"
 )
 _SESSION_RE = re.compile(r"session (opened|closed) for user\s+(\S+)")
-_SUDO_RE = re.compile(r"(\S+)\s*:\s*.*COMMAND=(.*)")
+# Anchored at the start of the message, and the user part cannot contain ':'
+# or whitespace, so matching is linear in the line length. (An unanchored
+# "(\S+)\s*:\s*.*COMMAND=" backtracks super-linearly on long lines.)
+_SUDO_RE = re.compile(r"\s*([^\s:]+)\s*:.*?COMMAND=(.*)")
 
 
 class LinuxSSHParser:
@@ -98,7 +101,7 @@ class LinuxSSHParser:
             return event
 
         # Sudo command execution
-        sudo = _SUDO_RE.search(msg)
+        sudo = _SUDO_RE.match(msg)
         if sudo:
             event["event_type"] = "sudo_command"
             event["effective_username"] = sudo.group(1)

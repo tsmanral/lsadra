@@ -52,10 +52,47 @@ _CONNLOG_RE = re.compile(
 )
 
 # iptables/pfSense DENY: "... SRC=1.2.3.4 DST=5.6.7.8 ... DPT=22 ..."
-_FIREWALL_RE = re.compile(
-    r"SRC=(?P<src_ip>[\d.]+).*DST=(?P<dst_ip>[\d.]+).*DPT=(?P<dst_port>\d+)"
-    r"(?:.*SPT=(?P<src_port>\d+))?"
-)
+# Firewall lines ("... SRC=<ip> ... DST=<ip> ... DPT=<port> [... SPT=<port>]")
+# are matched field by field (_match_firewall) rather than with one pattern:
+# a single regex with several unbounded ".*" gaps backtracks super-linearly on
+# long, attacker-shaped lines.
+_FW_SRC_RE = re.compile(r"SRC=([\d.]+)")
+_FW_DST_RE = re.compile(r"DST=([\d.]+)")
+_FW_DPT_RE = re.compile(r"DPT=(\d+)")
+_FW_SPT_RE = re.compile(r"SPT=(\d+)")
+
+
+def _last_field(line: str, rx: "re.Pattern[str]", key: str, lo: int, hi: int):
+    """Last match of ``rx`` (which starts with ``key``) inside line[lo:hi]."""
+    at = hi
+    while True:
+        at = line.rfind(key, lo, at + len(key) - 1)
+        if at < 0:
+            return None
+        m = rx.match(line, at, hi)
+        if m:
+            return m
+
+
+def _match_firewall(line: str) -> Optional[Dict[str, Optional[str]]]:
+    """Fields of a firewall log line, with the same choices a greedy
+    ``SRC=..*DST=..*DPT=..(?:.*SPT=..)?`` search would make, in linear time."""
+    src = _FW_SRC_RE.search(line)
+    if not src:
+        return None
+    dpt = _last_field(line, _FW_DPT_RE, "DPT=", src.end(), len(line))
+    if not dpt:
+        return None
+    dst = _last_field(line, _FW_DST_RE, "DST=", src.end(), dpt.start())
+    if not dst:
+        return None
+    spt = _last_field(line, _FW_SPT_RE, "SPT=", dpt.end(), len(line))
+    return {
+        "src_ip": src.group(1),
+        "dst_ip": dst.group(1),
+        "dst_port": dpt.group(1),
+        "src_port": spt.group(1) if spt else None,
+    }
 _FIREWALL_TS_RE = re.compile(r"^(?P<ts>[A-Z][a-z]{2}\s+\d+\s+\d{2}:\d{2}:\d{2})")
 
 
@@ -92,7 +129,7 @@ class NetworkFlowParser(BaseParser):
             return True
         if _CONNLOG_RE.match(line):
             return True
-        if _FIREWALL_RE.search(line):
+        if _match_firewall(line):
             return True
         return False
 
@@ -170,16 +207,16 @@ class NetworkFlowParser(BaseParser):
 
     def _parse_firewall(self, line: str) -> Optional[tuple]:
         """Parse iptables/pfSense DENY firewall log line."""
-        m = _FIREWALL_RE.search(line)
+        m = _match_firewall(line)
         if not m:
             return None
         ts_m = _FIREWALL_TS_RE.match(line)
         ts = self._normalise_ts(ts_m.group("ts")) if ts_m else datetime.utcnow().isoformat()
-        src_port = int(m.group("src_port")) if m.group("src_port") else 0
+        src_port = int(m["src_port"]) if m["src_port"] else 0
         return (
             ts,
-            m.group("src_ip"), m.group("dst_ip"),
-            src_port, int(m.group("dst_port")),
+            m["src_ip"], m["dst_ip"],
+            src_port, int(m["dst_port"]),
             "TCP", 0, True,
         )
 

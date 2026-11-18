@@ -67,7 +67,10 @@ _AUTH_RE = re.compile(
     r"(Failed|Accepted)\s+(password|publickey)\s+(?:for invalid user\s+)?"
     r"(?:for\s+)?(\S+)\s+from\s+(\S+)\s+port\s+(\d+)"
 )
-_SUDO_RE = re.compile(r"(\S+)\s*:\s*.*COMMAND=(.*)")
+# Anchored at the start of the message, and the user part cannot contain ':'
+# or whitespace, so matching is linear in the line length. (An unanchored
+# "(\S+)\s*:\s*.*COMMAND=" backtracks super-linearly on long lines.)
+_SUDO_RE = re.compile(r"\s*([^\s:]+)\s*:.*?COMMAND=(.*)")
 
 # Hybrid Syslog Regex (Supports BSD and ISO 8601 formats)
 _SYSLOG_RE = re.compile(
@@ -131,7 +134,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         }
 
     # 2. Check for sudo commands
-    ms = _SUDO_RE.search(msg)
+    ms = _SUDO_RE.match(msg)
     if ms:
         user, cmd = ms.groups()
         return {
