@@ -1,0 +1,41 @@
+name: commitlint
+
+# Checks every commit in a PR against commitlint.config.js (Conventional
+# Commits). Content-free merge commits are skipped with the same test the DCO
+# job uses, so "Update branch" merges never fail it. Not a required check yet.
+on:
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  commitlint:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Install commitlint
+        run: npm install --no-save --no-audit --no-fund @commitlint/cli@21.2.4 @commitlint/config-conventional@21.2.4
+      - name: Lint PR commit messages
+        env:
+          BASE: ${{ github.event.pull_request.base.sha }}
+          HEAD: ${{ github.event.pull_request.head.sha }}
+        run: |
+          failed=0
+          for c in $(git rev-list --reverse "$BASE..$HEAD"); do
+            parents=$(git rev-list --parents -n1 "$c" | wc -w)
+            if [ "$parents" -gt 2 ] && [ -z "$(git diff-tree --cc --no-commit-id "$c")" ]; then
+              echo "skipping content-free merge commit $c"
+              continue
+            fi
+            if ! git log -1 --format=%B "$c" | npx --no-install commitlint; then
+              echo "::error::commit $c does not follow Conventional Commits (see CONTRIBUTING.md)"
+              failed=1
+            fi
+          done
+          exit "$failed"

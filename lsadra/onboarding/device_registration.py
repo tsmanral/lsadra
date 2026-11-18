@@ -12,7 +12,7 @@ import time
 import uuid
 from typing import Any, Dict, List, Optional
 
-from fastapi import APIRouter, HTTPException, Request
+from fastapi import APIRouter, Depends, HTTPException, Request
 import bcrypt
 from pydantic import BaseModel, Field, constr
 from starlette.concurrency import run_in_threadpool
@@ -22,9 +22,10 @@ from lsadra.config import (
     RATE_LIMIT_MAX_KEYS,
     RATE_LIMIT_REGISTER_PER_MIN,
 )
+from lsadra.ingestion.api_ingestion import _authenticate_device
 from lsadra.ratelimit import SlidingWindowRateLimiter
 from lsadra.onboarding.token_manager import validate_and_consume
-from lsadra.storage.database import create_device, get_device, get_devices_for_user
+from lsadra.storage.database import create_device, get_devices_for_user
 
 logger = logging.getLogger(__name__)
 
@@ -149,15 +150,18 @@ async def register_device(body: RegisterRequest, request: Request) -> RegisterRe
 
 
 @router.get("/config/{device_id}", response_model=DeviceConfig, summary="Get device config")
-async def get_device_config(device_id: str) -> DeviceConfig:
+async def get_device_config(
+    device_id: str,
+    device: Dict[str, Any] = Depends(_authenticate_device),
+) -> DeviceConfig:
     """
     Return the current configuration for a registered device.
 
     The agent can call this periodically to pick up config changes
-    (e.g., new log paths, rotated API key).
+    (e.g., new log paths, rotated API key). It authenticates with its
+    X-Device-Id / X-Api-Key headers and may read only its own config.
     """
-    device = await run_in_threadpool(get_device, device_id)
-    if device is None:
+    if device_id != device["id"]:
         raise HTTPException(status_code=404, detail="Device not found.")
 
     return DeviceConfig(

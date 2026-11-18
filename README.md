@@ -29,7 +29,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful — and heavy, 
 - 🔍 **Explainable by design** — every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline today; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion** — parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall), and endpoint telemetry through a single raw-log API.
 - 📖 **Threat narratives without an LLM** — a pure-template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter** — brute force, credential stuffing, port scans, exfiltration, LOLBin abuse, persistence, and lateral movement, all with tunable thresholds and analyst feedback loops.
+- 🚨 **Detection rules that matter** — 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
 - 📊 **Full SOC dashboard** — modern React (Vite) command center with live threat feed, incident drill-down, multi-source health, threat intel (AbuseIPDB), model analytics, device behavior, feedback & threshold tuning, and admin management with RBAC + JWT auth. A legacy Streamlit interface is also included.
 
 ## Quick Start
@@ -43,8 +43,11 @@ cd lsadra
 py -3.12 -m venv venv            # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
 
-# 2. Start the API server (creates the database on first launch)
-venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
+# 2. Start the API server in local dev mode (creates the database on first launch).
+#    Dev mode uses a per-boot JWT secret and plain HTTP; CORS lets the dashboard call the API.
+#    PowerShell: $env:LSADRA_DEV_MODE="true"; $env:LSADRA_CORS_ORIGINS="http://localhost:5173"
+export LSADRA_DEV_MODE=true LSADRA_CORS_ORIGINS=http://localhost:5173
+venv/Scripts/python -m uvicorn server:app --host 127.0.0.1 --port 8000
 
 # 3. In a second terminal, start the React dashboard
 cd frontend
@@ -52,12 +55,24 @@ npm install
 npm run dev
 ```
 
-Open **http://localhost:5173**, register an account, and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
+Without `LSADRA_DEV_MODE=true` the server refuses to start (it requires `LSADRA_JWT_SECRET` and TLS outside dev mode), and without `LSADRA_CORS_ORIGINS` the browser blocks the dashboard's API calls. Never use dev mode in production. To fill the dashboard with synthetic demo data, run `venv/Scripts/python scripts/seed_demo.py` in a third terminal.
+
+Open **http://localhost:5173**, register an account (sign-up is on in dev mode; see [First admin account](#first-admin-account) for production), and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The command downloads the installer to a file and checks its SHA-256 before running it with `sudo`, and the installer checks the agent's SHA-256 before installing it. Against a plain-HTTP server it needs `--allow-insecure-http`, which the page adds and warns about; use that only on a trusted local network. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
 
 To validate the full pipeline (parsers, rules, severity, narratives, DB, scheduler):
 
 ```bash
 venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
+```
+
+### First admin account
+
+Self-service sign-up is **off by default** outside dev mode (`LSADRA_ALLOW_SIGNUP=false`), so nobody who merely reaches the port can create an account. When it is turned on, sign-ups are analysts. Create the first admin from a shell on the server; after that, admins add accounts with `POST /api/dashboard/users` (`{"username", "password", "role"}`, password 12+ characters, role `ADMIN`, `ANALYST` or `VIEWER`) and change roles from the **Admin** page. Run it with the server's environment (`LSADRA_JWT_SECRET` set, or `LSADRA_DEV_MODE=true` for local dev), otherwise it stops with a message naming those settings:
+
+```bash
+venv/Scripts/python -m lsadra.admin_cli create-admin --username alice   # prompts for a password (12+ characters)
+venv/Scripts/python -m lsadra.admin_cli promote --username bob          # make an existing account an admin
+# Docker: docker compose exec api python -m lsadra.admin_cli create-admin --username alice
 ```
 
 ### Docker (production)
@@ -67,7 +82,9 @@ cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
 
-This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+`LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+This starts the API (`:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
 
 ## Ingesting Logs
 
@@ -98,6 +115,22 @@ curl -X POST http://localhost:8000/api/events/raw \
 
 Per-source ingestion health is available at `GET /api/events/stats`.
 
+Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
+
+## Detection Rules
+
+Rules live in one registry, [`lsadra/detection/rule_engine.py`](lsadra/detection/rule_engine.py), and the detection orchestrator runs every one of them on every scored event. What you get on each alert:
+
+- **Rule attribution.** Each rule has a stable ID (for example `lsadra-auth-brute-force`), a version, a status and a [Sigma-style level](https://sigmahq.io/docs/basics/rules.html#level). Alerts store the rule ID and version (`anomalies.rule_id`, `rule_version`), so every alert traces back to one rule version.
+- **When a rule alerts.** A `medium`, `high` or `critical` match raises an alert on its own and sets a severity floor. A `low` match (off-hours login, a lone LOLBin, a large transfer to an internal or documentation address) only names the technique of an event the anomaly layers already flagged. Activity from the same address in a second log source raises the level one step.
+- **ATT&CK.** One map, pinned to MITRE ATT&CK Enterprise **20.1** ([`lsadra/detection/attack_map.py`](lsadra/detection/attack_map.py), table generated by `scripts/update_attack_data.py`). Alerts carry the technique and its tactics (`mitre_tactics`). CI fails if any rule, narrative or corpus label names a technique that is unknown, revoked or deprecated in that release.
+- **Confidence.** `mitre_confidence` is the matched rule's author-set confidence that a match is that technique (0.4 to 0.9). It is `0` when no rule matched. It is not a model probability.
+- **Time windows that span runs.** Rule windows (5, 10, 15 and 30 minutes) are computed over the new events plus the device's last 30 minutes of stored events, so an attack paced across several detection runs still crosses its threshold. Stored history is context only and is never alerted on twice.
+- **Event types.** Detection uses a closed list of about 30 event types, each mapped to an OCSF 1.9 class and ECS 9.5 categories ([`lsadra/detection/event_types.py`](lsadra/detection/event_types.py)). The bundled parsers and agents emit these names; older names such as `ssh_failed_password` or `process_create` are mapped; anything else is stored but treated as `other`, which no rule matches. The ingestion contract is unchanged: `event_type` is still a free string in event schema v1.
+- **Scorecard.** [`docs/detection/scorecard.md`](docs/detection/scorecard.md) scores every rule on the labelled demo corpus: today 3 of 3 attack scenarios detected and 0 alerts on the benign control set. It is regenerated with `python scripts/detection_scorecard.py`, and CI fails when it is stale or when the benign set raises an alert. It measures the rules only; the ML layers are measured separately.
+
+To add a rule, register it with the `@rule(...)` decorator, add positive and negative cases to `tests/test_rules.py`, and regenerate the scorecard.
+
 ## Live Alerts
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -110,6 +143,10 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data)); // {"type":"ready",...} t
 Scoping matches the REST API: an ADMIN receives every alert, other roles only their own. A missing, invalid or expired token, or plain `ws://` while TLS is required, is refused with close code `1008` (an HTTP `403` at the handshake). An open socket is closed with `1008` when its token expires, so the client reconnects with a fresh one. A client that stops reading is closed with `1013` once `LSADRA_WS_ALERT_QUEUE_SIZE` alerts (default 256) are waiting for it; it should reconnect and backfill from `GET /api/dashboard/anomalies`. The React dashboard's Command Center and Live Stream pages use this socket: they load recent alerts over REST, then add each pushed alert as it arrives. After any disconnect they reconnect with backoff (1 s doubling to 30 s) and backfill over REST, and while the socket is down the Command Center falls back to polling every 5 s. Incidents, KPIs and ingestion health still refresh over REST, every 10 s and shortly after each new alert.
 
 The dashboard signs in only through `POST /api/auth/login`. There is no offline login: if the backend is unreachable, sign-in fails.
+
+### Demo data in the dashboard
+
+The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
 ## Architecture
 
@@ -143,23 +180,27 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project Structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
-frontend/           React (Vite + TypeScript) SOC dashboard
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
+                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
+  detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
+.devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
+.github/workflows/  CI matrix, DCO, commitlint, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
+requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -191,7 +232,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 LSADRA treats logs as **attacker-controlled input** — they reach parsers, the detection pipeline, and (later) an LLM and a RAG index. The threat model is written down in [`docs/threat-models/`](docs/threat-models/).
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
-- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
 - **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
 
 ## License
@@ -212,7 +253,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 **Where the project is now**
 
 - **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). One item remains deferred by design: signed agent distribution (lands with release engineering). The `/ws/alerts` live feed authenticates at the handshake (see [Live Alerts](#live-alerts)).
-- **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
+- **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, a DCO check, and a commitlint check of every commit message. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
