@@ -20,7 +20,7 @@ repos:
       - id: detect-private-key
 
   - repo: https://github.com/astral-sh/ruff-pre-commit
-    rev: v0.8.6
+    rev: v0.17.5  # same ruff as CI (requirements/ci-tools.txt)
     hooks:
       - id: ruff
         args: ["--fix"]
