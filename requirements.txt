@@ -46,7 +46,7 @@ apscheduler>=3.10.0
 fpdf2>=2.8.7
 
 # Image export for Plotly charts in reports
-kaleido>=0.2.1
+kaleido>=1.5.1
 
 # Geolocation
 geopy>=2.5.0
