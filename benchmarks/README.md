@@ -6,6 +6,7 @@ async work is measured against.
 
 - [`run_ingest_bench.py`](run_ingest_bench.py) — the harness.
 - [`_bench_server.py`](_bench_server.py) — starts the unmodified `server:app` on a throwaway data directory.
+- [`_bench_trace.py`](_bench_trace.py) — opt-in per-request tracing for `--trace` runs.
 - [`baseline-2026-09-30.json`](baseline-2026-09-30.json) — the committed baseline (detection on and off, 1/10/20 devices, two runs each).
 - [`baseline-2026-09-30-detection-ceiling.json`](baseline-2026-09-30-detection-ceiling.json) — supplementary: detection-on throughput ceiling (10/20 devices, two runs).
 - Load generator: `scripts/seed_demo.py --rate/--duration/--devices` (rate mode), which the harness imports.
@@ -14,12 +15,20 @@ async work is measured against.
 
 ```bash
 pip install -r requirements.txt
-python benchmarks/run_ingest_bench.py                       # full baseline, ~25 min
+python benchmarks/run_ingest_bench.py                       # full baseline, ~35 min
 python benchmarks/run_ingest_bench.py --detection on --devices 10 20 \
     --stop-on throughput                                    # detection-on ceiling, ~20 min
 python benchmarks/run_ingest_bench.py --detection off --devices 1 --rates 50 \
     --duration 5 --min-requests 1 --repeats 1 --output /tmp/check.json   # 30 s sanity check
 ```
+
+`--trace` adds a `trace` block to every step: for each request, the server's
+own time split into device lookup, inline bcrypt and storage, plus garbage
+collection and detection running at the same time and the part spent outside
+the server; the five slowest requests and a count of what each slow (≥ 150 ms)
+request mostly waited on. It wraps the core from outside
+([`_bench_trace.py`](_bench_trace.py)) and is off by default, so committed
+runs measure the untraced server.
 
 Run on an otherwise idle machine. The harness never touches `data/`: each run
 gets a fresh temp directory with its own database and model store.
@@ -72,8 +81,14 @@ part of any step.
 | `server_cpu_cores_avg` | server CPU seconds ÷ wall seconds |
 
 Before each step the harness waits until the server is idle (CPU < 25 % of a
-core and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does not
-leak into the next.
+core, no detection queued or running per the dev-mode `detection_pending`
+telemetry, and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does
+not leak into the next. Without the detection check, a gap between two long
+detection runs could pass for idle; the settle after the auth re-warm then
+waited out the rest of the backlog while the re-warmed cache entries expired,
+and every device paid bcrypt at the start of the step (the PC trace on
+4324c5a). If that settle still takes longer than 10 s, the harness re-warms
+again, up to 3 rounds (`auth_rewarm_rounds`).
 After that settle, and before measuring, every device in the step makes one
 authenticated `GET /api/events/stats` (`auth_rewarm_s` in the JSON). Settling
 can take longer than the device-auth cache TTL (60 s), which would otherwise
@@ -86,6 +101,24 @@ so the harness settles once more after the re-warm (`settle_before_s` is the
 sum of both waits). Before refresh-ahead, every device re-ran bcrypt inline
 once per TTL wherever its entry happened to expire, which put a 200–300 ms
 tail into most steps (the PC results on 28c13d8).
+
+Refresh-ahead only renews an entry that is hit past half its TTL. In a step
+where each device sends less often than that (the 25 ev/s step at 10 and 20
+devices, where a device sends every 40 or 80 s, and 50 ev/s at 20 devices), a
+re-warm read can land on an entry younger than half its TTL, queue nothing,
+and leave it to expire before that device's next batch, which then pays
+bcrypt inline. Which devices did depended only on where the previous step left
+each entry's age, so the first 25 ev/s step after a device count change
+sometimes showed one ~250 ms request (the PC results on ec1d66e). For those
+steps the harness now waits half the TTL plus 1 s after settling and before
+re-warming (`auth_fresh_wait_s`), so every re-warm read either queues a
+background re-verify or verifies inline, and the step starts with every entry
+freshly verified. It reads the TTL from `LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS`
+like the server does. This keeps such steps measuring ingestion rather than
+cache phase. It does not change what a sparse agent sees: one that sends less
+often than once per TTL still pays bcrypt on every batch, and one whose gap
+between batches exceeds half the TTL can occasionally pay it once. Agents that
+flush every few seconds never do.
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,
