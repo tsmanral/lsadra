@@ -1,0 +1,5 @@
+# Optional extras for `run_detection_bench.py --challengers` (Phase 1 challenger models).
+# Not product dependencies: the shipped pipeline does not import these.
+onnxruntime>=1.20
+skl2onnx>=1.18
+lightgbm>=4.5
