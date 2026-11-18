@@ -1,0 +1,38 @@
+name: zizmor
+
+# Static analysis of the GitHub Actions workflows themselves (template
+# injection, over-broad permissions, credential persistence, unpinned uses).
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+      - ".github/zizmor.yml"
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/**"
+      - ".github/dependabot.yml"
+      - ".github/zizmor.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  zizmor:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned tools (hash-checked)
+        run: pip install --require-hashes -r requirements/ci-tools.txt
+      - name: Audit workflows
+        env:
+          # Read-only token for the online audits (known-vulnerable actions,
+          # impostor commits).
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: zizmor --format=github .github/
