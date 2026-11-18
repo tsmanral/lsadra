@@ -5,7 +5,7 @@ Allows analysts to review false-positive patterns, inspect FP rates by
 source type, and apply suggested threshold changes derived from the
 analyze_false_positive() decision tree.
 
-[MYTHOS ALIGNMENT — adaptive feedback reasoning]
+[Capability: adaptive feedback reasoning]
 [V4 ENHANCEMENT — gap: analyst feedback loop]
 """
 
@@ -54,7 +54,7 @@ def _render_fp_review():
     """
     Section 1: Recent false positives table with FP pattern analysis.
 
-    [MYTHOS ALIGNMENT — adaptive feedback reasoning]
+    [Capability: adaptive feedback reasoning]
     """
     st.subheader("🚩 Recent False Positives")
 
@@ -147,7 +147,7 @@ def _render_threshold_tuning():
 
     Allows applying threshold suggestions stored in alerts_feedback.
 
-    [MYTHOS ALIGNMENT — adaptive feedback reasoning]
+    [Capability: adaptive feedback reasoning]
     [V4 ENHANCEMENT — gap: analyst feedback loop]
     """
     st.subheader("⚙️ Suggested Threshold Changes")
