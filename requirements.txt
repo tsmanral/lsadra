@@ -1,61 +1,13 @@
-# LSADRA V3 — Python Dependencies
-# Core
-pandas>=3.0.6
-scikit-learn>=1.9.0
-numpy>=2.5.3
-
-# Web framework
-fastapi>=0.100.0
-uvicorn[standard]>=0.51.0
-pydantic>=2.13.5
-
-# Dashboard
-streamlit>=1.30.0
-plotly>=5.14.0
-
-# ML & Deep Learning
-torch --index-url https://download.pytorch.org/whl/cpu
-shap>=0.52.0
-joblib>=1.4.0
-
-# Explainability & Visualization
-matplotlib>=3.11.2
-
-# Auth & Security
-# PyJWT replaced python-jose (slow upstream maintenance); HS256 needs no extras
-PyJWT>=2.10.0
-# bcrypt used directly (passlib dropped — unmaintained + broke with bcrypt>=4; §6 #15)
-bcrypt>=4.0.0
-# Self-signed TLS certificate on first boot for non-loopback listeners (G-8)
-cryptography>=44.0.0
-
-# HTTP client (agents, threat intel)
-httpx>=0.24.0
-requests>=2.31.0
-
-# Logging
-loguru>=0.7.3
-
-# Config
-pyyaml>=6.0
-
-# Background jobs
-apscheduler>=3.10.0
-
-# PDF reports
-fpdf2>=2.8.7
-
-# Image export for Plotly charts in reports
-kaleido>=0.2.1
-
-# Geolocation
-geopy>=2.5.0
-
-# Testing
-pytest>=9.1.1
-# Property-based parser fuzzing (tests/fuzz/)
-hypothesis>=6.100.0
-# Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
-jsonschema>=4.26.0
-# Ingest benchmark harness (benchmarks/): server RSS + CPU sampling
-psutil>=7.0.0
+# LSADRA Python dependencies: full install (server + explanations + legacy
+# Streamlit UI + tests). Every package is pinned with hashes; pip checks them.
+#
+#   pip install -r requirements.txt                # everything except torch
+#   pip install -r requirements/torch.txt          # optional autoencoder (CPU)
+#   pip install -r requirements/base.txt           # API server only (Lite)
+#
+# Edit requirements/*.in, never the .txt locks; regenerate with
+# scripts/lock-deps.sh (needs uv). See requirements/README.md.
+-r requirements/base.txt
+-r requirements/ml.txt
+-r requirements/ui.txt
+-r requirements/dev.txt

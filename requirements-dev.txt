@@ -1,6 +1,5 @@
-# Contributor tooling, on top of requirements.txt:
+# Contributor tooling (pytest, ruff, pre-commit), on top of requirements.txt:
 #   pip install -r requirements.txt -r requirements-dev.txt
-# CI installs the latest ruff; keep the pre-commit ruff hook in step with it.
-pytest>=9.1.1
-ruff>=0.8.6
-pre-commit>=4.0.0
+# Hash-locked in requirements/dev.txt (edit requirements/dev.in, then run
+# scripts/lock-deps.sh). ruff is pinned to the same version CI runs.
+-r requirements/dev.txt
