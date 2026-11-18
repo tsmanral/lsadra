@@ -60,7 +60,7 @@ const Login = () => {
             <Shield size={32} className="text-[var(--color-primary)]" />
           </div>
           <h1 className="text-3xl font-bold tracking-widest text-white font-display uppercase">
-            Glass Sentinel
+            LSADRA
           </h1>
           <p className="text-[var(--color-primary)] font-mono text-xs tracking-widest mt-1 uppercase">Authentication Required</p>
         </div>
