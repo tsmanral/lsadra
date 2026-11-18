@@ -1,0 +1,146 @@
+{
+  "_comment": "Pinned external subsets for the detection bench. Files are downloaded by fetch_datasets.py into benchmarks/detection/.cache/ (gitignored) and verified by sha256. Nothing listed here is ever committed to this repository. 'positive_event_types' names the contract event types (after mapping, see bench_events.py) that carry the attack; every other event in the file is context: it is replayed so features see realistic traffic, but it is excluded from both the true-positive and the false-positive counts.",
+  "sources": {
+    "splunk_attack_data": {
+      "repo": "https://github.com/splunk/attack_data",
+      "commit": "eb3ab7424aaa4bd7ac8e97fd0af6c1d29944d23c",
+      "license": "Apache-2.0",
+      "url_template": "https://media.githubusercontent.com/media/splunk/attack_data/{commit}/{path}"
+    },
+    "evtx_attack_samples": {
+      "repo": "https://github.com/sbousseaden/EVTX-ATTACK-SAMPLES",
+      "commit": "4ceed2f4706daf601c212a8f91c113dd85349a2c",
+      "license": "GPL-3.0",
+      "test_only": true,
+      "url_template": "https://raw.githubusercontent.com/sbousseaden/EVTX-ATTACK-SAMPLES/{commit}/{path}"
+    }
+  },
+  "datasets": [
+    {
+      "id": "splunk/T1110.003/password_spray",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1110.003/generic_password_spray/password_spray_attack.log",
+      "sha256": "0b1f90ae5e05cac0d21aa10dbc921734b74e9259674f79c9484ea54d77930807",
+      "format": "windows_xml",
+      "technique": "T1110.003",
+      "positive_event_types": ["auth_failure"]
+    },
+    {
+      "id": "splunk/T1110.003/purplesharp_disabled_users_kerberos",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1110.003/purplesharp_disabled_users_kerberos/windows-security.log",
+      "sha256": "fdd7f3fc5bd4881eb207a6fa329a4f9f0fdd32608b6effbaa77ec141b283fcbe",
+      "format": "splunk_wineventlog",
+      "technique": "T1110.003",
+      "positive_event_types": ["auth_failure"]
+    },
+    {
+      "id": "splunk/T1110.001/rdp_brute_sysmon",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1110.001/rdp_brute_sysmon/sysmon.log",
+      "sha256": "b015189928b8b892dfd7b3cb7e7314015bdfb8cc06019a59f68f3e46ca359b96",
+      "format": "windows_xml",
+      "technique": "T1110.001",
+      "positive_event_types": ["network_flow"]
+    },
+    {
+      "id": "splunk/T1053.005/schtask_4698",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1053.005/atomic_red_team/4698_windows-security.log",
+      "sha256": "caecdaf2af3ae17bb835f63f7bee7c7e6269f00d17aa6fe5423aaf8d0abb9c0a",
+      "format": "windows_xml",
+      "technique": "T1053.005",
+      "positive_event_types": ["scheduled_task_create"]
+    },
+    {
+      "id": "splunk/T1543.003/service_install",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1543.003/atomic_red_team/windows-system.log",
+      "sha256": "affb0f7c66423a41d62f71863990c13c538c2e91f3c2d78be6b0a3064bd1afdc",
+      "format": "splunk_wineventlog",
+      "technique": "T1543.003",
+      "positive_event_types": ["service_install"]
+    },
+    {
+      "id": "splunk/T1021.002/smbexec_4688",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1021.002/atomic_red_team/4688_smbexec_windows-security.log",
+      "sha256": "7955b3f4120d70399726ad877fa9612009a539eb09c4eb490009658ef86657f1",
+      "format": "windows_xml",
+      "technique": "T1021.002",
+      "positive_event_types": ["process_exec"]
+    },
+    {
+      "id": "splunk/T1059.001/encoded_powershell_4688",
+      "source": "splunk_attack_data",
+      "path": "datasets/attack_techniques/T1059.001/encoded_powershell/windows-security.log",
+      "sha256": "9f4cc04679371d7e7699a85bb812adae3e2f000def8ac73213b868845e389371",
+      "format": "windows_xml",
+      "technique": "T1059.001",
+      "positive_event_types": ["process_exec"]
+    },
+    {
+      "id": "evtx/T1110.003/kerberos_pwd_spray_4771",
+      "source": "evtx_attack_samples",
+      "path": "Credential Access/kerberos_pwd_spray_4771.evtx",
+      "sha256": "4a0a1c7132e216dbc704c806e9429df9ae3ac00485d5238e50c776e3099ae11d",
+      "format": "evtx",
+      "technique": "T1110.003",
+      "positive_event_types": ["auth_failure"]
+    },
+    {
+      "id": "evtx/T1053.005/temp_scheduled_task_4698",
+      "source": "evtx_attack_samples",
+      "path": "Execution/temp_scheduled_task_4698_4699.evtx",
+      "sha256": "a7decf0fbabc340e37de7e7c39fddd5398a7106a4f6acded0ea1d2ffa6bf8b70",
+      "format": "evtx",
+      "technique": "T1053.005",
+      "positive_event_types": ["scheduled_task_create"]
+    },
+    {
+      "id": "evtx/T1543.003/remote_service_7045",
+      "source": "evtx_attack_samples",
+      "path": "Lateral Movement/LM_Remote_Service02_7045.evtx",
+      "sha256": "af758eb492b6d5ab6665f7e4c44b31490f57be78c37dc0a8b1da714bb0d3d458",
+      "format": "evtx",
+      "technique": "T1543.003",
+      "positive_event_types": ["service_install"]
+    },
+    {
+      "id": "evtx/T1047/wmi_target_host",
+      "source": "evtx_attack_samples",
+      "path": "Lateral Movement/LM_WMI_4624_4688_TargetHost.evtx",
+      "sha256": "3ff3fcdb55c08ec0eaa39b25c1e02a205314f367bcedc662586bd063185ca41d",
+      "format": "evtx",
+      "technique": "T1047",
+      "positive_event_types": ["process_exec"]
+    },
+    {
+      "id": "evtx/T1550.002/mimikatz_pth_source",
+      "source": "evtx_attack_samples",
+      "path": "Lateral Movement/LM_4624_mimikatz_sekurlsa_pth_source_machine.evtx",
+      "sha256": "bbfd87cacdd56a9135de1838666937cd6c74daba47b366bba0c11f95ce97f461",
+      "format": "evtx",
+      "technique": "T1550.002",
+      "positive_event_types": ["auth_success"]
+    },
+    {
+      "id": "evtx/T1098/guest_added_to_admins_4732",
+      "source": "evtx_attack_samples",
+      "path": "Persistence/Network_Service_Guest_added_to_admins_4732.evtx",
+      "sha256": "9619b9d9d7bb8a277080167ff639fd9162e3d88d61d674cf1606beadce17ea5a",
+      "format": "evtx",
+      "technique": "T1098",
+      "positive_event_types": ["group_member_add"]
+    },
+    {
+      "id": "evtx/T1569.002/psexec_sysmon",
+      "source": "evtx_attack_samples",
+      "path": "Lateral Movement/LM_sysmon_psexec_smb_meterpreter.evtx",
+      "sha256": "18ffdda9c24e593d6b1414b6e05c7f7a5dbffb8588a387c165431b61ab52d76f",
+      "format": "evtx",
+      "technique": "T1569.002",
+      "positive_event_types": ["process_exec"]
+    }
+  ]
+}

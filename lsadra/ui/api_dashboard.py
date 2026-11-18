@@ -6,7 +6,8 @@ import logging
 
 logger = logging.getLogger(__name__)
 
-from lsadra.auth import require_role
+from lsadra.auth import hash_password, require_role
+from lsadra.authz import owns_device, visible_device_ids
 from lsadra.ui.data_layer import (
     get_dashboard_kpis,
     get_dashboard_recent_anomalies,
@@ -54,9 +55,43 @@ async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(_recent_events, uid, limit)
 
+def _scoped_metrics(user: dict, device_id: Optional[str], start: str, end: str) -> List[Dict]:
+    """Metrics the caller may see: one owned device, or the sum over theirs."""
+    if device_id:
+        if not owns_device(user, device_id):
+            raise HTTPException(status_code=404, detail="Device not found or access denied.")
+        return get_dashboard_metrics(device_id, start, end)
+    device_ids = visible_device_ids(user)
+    if device_ids is None:  # ADMIN: every device
+        return get_dashboard_metrics(None, start, end)
+    if not device_ids:
+        return []
+    placeholders = ",".join("?" for _ in device_ids)
+    conn = get_connection()
+    try:
+        rows = conn.execute(
+            f"""SELECT window_start,
+                      SUM(event_count) as event_count,
+                      SUM(anomaly_count) as anomaly_count,
+                      AVG(avg_severity) as avg_severity,
+                      MAX(max_severity) as max_severity,
+                      SUM(unique_ips) as unique_ips,
+                      SUM(unique_users) as unique_users
+               FROM metrics_5min
+               WHERE window_start BETWEEN ? AND ?
+                 AND device_id IN ({placeholders})
+               GROUP BY window_start
+               ORDER BY window_start ASC""",
+            (start, end, *device_ids),
+        ).fetchall()
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
 @router.get("/metrics")
 async def api_metrics(start: str, end: str, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
-    return await run_in_threadpool(get_dashboard_metrics, device_id, start, end)
+    return await run_in_threadpool(_scoped_metrics, user, device_id, start, end)
 
 @router.get("/health")
 async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
@@ -123,10 +158,14 @@ def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
 
         conn.commit()
         return {"status": "ok", "message": f"Device {device_id} and all related telemetry deleted."}
-    except Exception as e:
+    except HTTPException:
         conn.rollback()
-        logger.error(f"Failed to delete device {device_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise
+    except Exception:
+        conn.rollback()
+        # G-11: log the cause; never echo exception text to the client.
+        logger.exception("Failed to delete device %s", device_id)
+        raise HTTPException(status_code=500, detail="Could not delete the device.")
     finally:
         conn.close()
 
@@ -154,7 +193,10 @@ def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict
             raise HTTPException(status_code=404, detail="Device not found or access denied.")
             
         status = "ONLINE" if active else "OFFLINE"
-        conn.execute("UPDATE devices SET status = ? WHERE id = ?", (status, device_id))
+        conn.execute(
+            "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
+            (status, device_id),
+        )
         conn.commit()
         return {"status": "ok", "device_id": device_id, "new_status": status}
     finally:
@@ -192,8 +234,19 @@ async def api_export(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEW
         headers={"Content-Disposition": "attachment; filename=report.pdf"}
     )
 
-from lsadra.storage.database import list_users, update_user_role, get_connection
-from pydantic import BaseModel
+from lsadra.storage.database import (
+    create_user,
+    get_connection,
+    get_user_by_username,
+    list_users,
+    update_user_role,
+)
+from pydantic import BaseModel, Field
+from typing import Literal
+import sqlite3
+import uuid
+
+Role = Literal["ADMIN", "ANALYST", "VIEWER"]
 
 @router.get("/users")
 async def api_users(user: dict = Depends(require_role("ADMIN"))):
@@ -201,12 +254,61 @@ async def api_users(user: dict = Depends(require_role("ADMIN"))):
 
 class RoleUpdate(BaseModel):
     user_id: str
-    role: str
+    role: Role
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
-    await run_in_threadpool(update_user_role, req.user_id, req.role)
+    def _do() -> None:
+        from lsadra.security import audit
+
+        update_user_role(req.user_id, req.role)  # also ends the user's sessions (G-9)
+        audit.record("user.role.change", actor=user, target=req.user_id, details={"role": req.role})
+        if req.role == "ADMIN":
+            audit.record("user.role.grant_admin", actor=user, target=req.user_id)  # self-alert (G-26)
+
+    await run_in_threadpool(_do)
     return {"status": "ok"}
+
+class UserCreate(BaseModel):
+    username: str = Field(..., min_length=1, max_length=64)
+    password: str = Field(..., min_length=12, max_length=128)
+    role: Role = "ANALYST"
+
+
+def _create_user_account(req: "UserCreate") -> Optional[Dict[str, str]]:
+    if get_user_by_username(req.username):
+        return None
+    uid = str(uuid.uuid4())
+    try:
+        create_user(uid, req.username, hash_password(req.password), req.role)
+    except sqlite3.IntegrityError:
+        return None
+    return {"user_id": uid, "role": req.role}
+
+
+@router.post("/users")
+async def api_create_user(req: UserCreate, user: dict = Depends(require_role("ADMIN"))):
+    """Create an account. With sign-up off (the default outside dev mode) this,
+    and ``python -m lsadra.admin_cli``, are how accounts are made."""
+    from lsadra.security import audit
+    from lsadra.security.passwords import PasswordPolicyError, check_password_policy
+
+    try:
+        check_password_policy(req.password, req.username)  # same policy as every other password (G-10)
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
+    account = await run_in_threadpool(_create_user_account, req)
+    if account is None:
+        raise HTTPException(status_code=400, detail="Username already taken.")
+    await run_in_threadpool(
+        audit.record, "user.create", actor=user, target=account["user_id"],
+        details={"username": req.username, "role": req.role},
+    )
+    if req.role == "ADMIN":
+        await run_in_threadpool(audit.record, "user.role.grant_admin", actor=user,
+                                target=account["user_id"])
+    return {"status": "ok", **account}
+
 
 def _table_counts() -> Dict[str, int]:
     conn = get_connection()
@@ -260,37 +362,43 @@ async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWE
     return await run_in_threadpool(_drift_records)
 
 @router.post("/run-drift")
-async def api_run_drift(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+async def api_run_drift(user: dict = Depends(require_role("ADMIN"))):
+    # Drift runs over every device's data, so it is an admin action.
     from lsadra.detection.drift_detector import run as run_drift
-    run_drift()
-    return {"status": "ok"}
+    drifted = await run_in_threadpool(run_drift)
+    return {"status": "ok", "drifted_features": drifted}
 
-def _retrain() -> Dict[str, Any]:
-    from lsadra.detection.detection_orchestrator import DetectionOrchestrator
-    from lsadra.features.feature_extractor import build_features
-    conn = get_connection()
-    rows = conn.execute(
-        "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT 10000"
-    ).fetchall()
-    conn.close()
-    if not rows:
-        return {"status": "error", "detail": "No events found"}
-    df = build_features([dict(r) for r in rows])
-    if df.empty:
-        return {"status": "error", "detail": "Empty features"}
-    orchestrator = DetectionOrchestrator()
-    orchestrator.train(df)
-    return {"status": "ok", "events": len(df)}
+def _retrain(user_id: str) -> Dict[str, Any]:
+    from lsadra.detection import model_lifecycle as lifecycle
+    from lsadra.ingestion.api_ingestion import _get_orchestrator
+
+    try:
+        return _get_orchestrator().retrain(trigger="api", requested_by=user_id)
+    except lifecycle.TrainingRefused as exc:
+        headers = {"Retry-After": str(exc.retry_after)} if exc.retry_after else None
+        raise HTTPException(status_code=exc.status_code, detail=exc.reason, headers=headers)
 
 
 @router.post("/retrain")
-async def api_retrain(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
-    return await run_in_threadpool(_retrain)
+async def api_retrain(user: dict = Depends(require_role("ADMIN"))):
+    """Train now (ADMIN only; one run at a time, cooldown, canary before promotion).
 
+    Retraining reads every device's events and rewrites the shared models, so
+    only an admin may trigger it (same rule as POST /admin/retrain).
+    """
+    from lsadra.security import audit
+
+    await run_in_threadpool(audit.record, "model.retrain", actor=user)
+    return await run_in_threadpool(_retrain, user["user_id"])
+
+from lsadra.onboarding.agent_files import install_hashes
 from lsadra.onboarding.token_manager import generate_token
 
 @router.post("/generate-token")
-async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+    # Enrolling a device adds a data source, so VIEWER (read-only) may not.
     user_id = user["user_id"]
     token = await run_in_threadpool(generate_token, user_id)
-    return {"token": token}
+    # Hashes for the install command: the command checks the installer and the
+    # installer checks the agent before anything runs as root.
+    return {"token": token, **await run_in_threadpool(install_hashes)}

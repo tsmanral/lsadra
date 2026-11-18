@@ -13,13 +13,14 @@ from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 
-from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException, Request
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
 from lsadra.auth import (
+    burn_password_check,
     create_access_token,
     get_current_user,
     hash_password,
@@ -27,16 +28,24 @@ from lsadra.auth import (
     verify_password,
 )
 from lsadra import config
+from lsadra.authz import owned_incident
 from lsadra.config import BENCH_SKIP_DETECTION, CORS_ALLOWED_ORIGINS, DEV_MODE, REQUIRE_TLS
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ingestion.api_ingestion import router as events_router
-from lsadra.ingestion.api_ingestion import run_online_detection
+from lsadra.ingestion.api_ingestion import _authenticate_device, run_online_detection
 from lsadra.jobs.scheduler import start_scheduler, stop_scheduler
+from lsadra.onboarding.agent_files import AGENT_FILE, INSTALLER_FILE, agent_extra_files
 from lsadra.onboarding.device_registration import router as devices_router
+from lsadra.security import audit, tls, totp
+from lsadra.security.filesystem import restrict_data_dir
+from lsadra.security.headers import SecurityHeadersMiddleware, install_error_handlers
+from lsadra.security.totp_cli import warn_if_admin_without_totp
+from lsadra.security.login_throttle import login_throttle
+from lsadra.security.request_ip import client_ip
 from lsadra.storage.database import (
+    claim_totp_step,
     create_user,
     get_all_incidents,
-    get_incident,
     get_user_by_username,
     init_db,
     record_heartbeat,
@@ -45,6 +54,7 @@ from lsadra.storage.database import (
 )
 from lsadra.tls_middleware import TLSEnforcementMiddleware
 from lsadra.ui.alert_stream import router as alert_stream_router
+from lsadra.ui.api_identity import router as identity_router
 from lsadra.ui.api_dashboard import router as dashboard_router
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -77,8 +87,12 @@ async def lifespan(app: FastAPI):
     logger.info("Initializing LSADRA V3 Backend...")
     previous_switch_interval = sys.getswitchinterval()
     sys.setswitchinterval(config.THREAD_SWITCH_INTERVAL_MS / 1000.0)
+    if config.RESTRICT_DATA_PERMISSIONS:
+        restrict_data_dir(config.DB_PATH.parent)  # G-27: 0700 / 0600, umask 077
     init_db()
     Path("data/models").mkdir(parents=True, exist_ok=True)
+    tls.adopt_configured_certificate()  # fingerprint for /api/server/identity (G-8)
+    await run_in_threadpool(warn_if_admin_without_totp)  # G-33
     sampler = asyncio.create_task(_sample_loop_lag()) if DEV_MODE else None
     # Online detection worker: ingestion handlers only enqueue; detection runs
     # here, on one dedicated thread — never on the loop, never in a request.
@@ -103,12 +117,19 @@ async def lifespan(app: FastAPI):
 app = FastAPI(
     title="LSADRA V3 API",
     lifespan=lifespan,
+    # G-11: the API inventory (OpenAPI schema and its pages) is dev-only.
+    docs_url="/docs" if config.EXPOSE_API_DOCS else None,
+    redoc_url="/redoc" if config.EXPOSE_API_DOCS else None,
+    openapi_url="/openapi.json" if config.EXPOSE_API_DOCS else None,
 )
+install_error_handlers(app)  # G-11: generic 500 body with a request ID
 
 # ── Middleware ────────────────────────────────────────────────────────────
 
 if REQUIRE_TLS:
     app.add_middleware(TLSEnforcementMiddleware)
+
+app.add_middleware(SecurityHeadersMiddleware)  # G-11: CSP, nosniff, HSTS, ...
 
 app.add_middleware(
     CORSMiddleware,
@@ -120,13 +141,28 @@ app.add_middleware(
 
 # ── Static Files ─────────────────────────────────────────────────────────
 
-STATIC_DIR = Path(__file__).parent / "lsadra" / "onboarding"
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Only the two files the Linux install flow downloads are served, by exact
+# path. The source folders they live in are not exposed. The dashboard shows
+# each file's SHA-256 next to the install command, and the command and the
+# installer check those hashes before anything runs (lsadra/onboarding/agent_files.py).
 
-AGENT_DIR = Path(__file__).parent / "lsadra" / "endpoint_agent"
-if AGENT_DIR.exists():
-    app.mount("/agent", StaticFiles(directory=str(AGENT_DIR)), name="agent")
+
+@app.get("/static/installer_linux.sh", include_in_schema=False)
+async def installer_script():
+    return FileResponse(INSTALLER_FILE, media_type="text/x-shellscript")
+
+
+@app.get("/agent/linux_agent.py", include_in_schema=False)
+async def agent_script():
+    return FileResponse(AGENT_FILE, media_type="text/x-python")
+
+
+@app.get("/agent/{name}", include_in_schema=False)
+async def agent_extra_file(name: str):
+    path = agent_extra_files().get(name)  # allow-list lookup, never a path join
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return FileResponse(path, media_type="text/plain")
 
 
 # ── Routers ──────────────────────────────────────────────────────────────
@@ -135,6 +171,7 @@ app.include_router(events_router, prefix="/api/events")
 app.include_router(devices_router, prefix="/api/devices")
 app.include_router(dashboard_router, prefix="/api/dashboard")
 app.include_router(alert_stream_router)  # /ws/alerts
+app.include_router(identity_router)  # logout, TOTP, device revoke/rotate, audit (G-9, G-26, G-33)
 
 
 # ── Utility endpoints ───────────────────────────────────────────────────
@@ -175,6 +212,7 @@ async def api_health():
 class LoginRequest(BaseModel):
     username: str
     password: str
+    totp_code: Optional[str] = None
 
 
 class TokenResponse(BaseModel):
@@ -182,31 +220,89 @@ class TokenResponse(BaseModel):
     token_type: str = "bearer"
     role: str
     user_id: str
+    expires_in: int
 
 
-def _authenticated_user(username: str, password: str) -> Optional[Dict[str, Any]]:
-    """User row if *password* verifies, else None (threadpool: DB read + bcrypt)."""
+def _login(username: str, password: str, totp_code: Optional[str], ip: str) -> Dict[str, Any]:
+    """Run one login attempt (threadpool: DB reads, bcrypt, audit write).
+
+    Returns the user row on success; raises HTTPException otherwise. Order
+    matters: the throttle is checked before any bcrypt work (G-10), and every
+    outcome is written to the audit trail (G-26).
+    """
+    wait = login_throttle.retry_after(username, ip)
+    if wait:
+        audit.record("auth.login.throttled", "denied", target=username, source_ip=ip)
+        raise HTTPException(
+            status_code=429,
+            detail="Too many failed logins. Try again later.",
+            headers={"Retry-After": str(wait)},
+        )
+
+    def _fail(reason: str, detail: Any = "Invalid credentials.") -> HTTPException:
+        login_throttle.record_failure(username, ip)
+        audit.record("auth.login.failure", "failure", target=username, source_ip=ip,
+                     details={"reason": reason})
+        if login_throttle.retry_after(username, ip):
+            audit.record("auth.login.lockout", "denied", target=username, source_ip=ip)
+        return HTTPException(status_code=401, detail=detail)
+
     user = get_user_by_username(username)
-    if not user or not verify_password(password, user["password_hash"]):
-        return None
+    if user is None:
+        burn_password_check(password)  # same timing as a wrong password
+        raise _fail("unknown_user")
+    if not verify_password(password, user["password_hash"]):
+        raise _fail("bad_password")
+    if user.get("disabled"):
+        raise _fail("disabled")
+
+    if user.get("totp_enabled") and user.get("totp_secret"):
+        if not totp_code:
+            # The password was right; ask for the second factor. Not counted
+            # as a failure, so a normal two-step login never trips the throttle.
+            raise HTTPException(
+                status_code=401,
+                detail={"code": "totp_required", "message": "Enter your authenticator code."},
+            )
+        step = totp.verify(user["totp_secret"], totp_code, int(user.get("totp_last_step") or 0))
+        if step is None or not claim_totp_step(user["id"], step):
+            raise _fail("bad_totp", {"code": "totp_invalid", "message": "Invalid authenticator code."})
+    elif config.ADMIN_TOTP == "required" and user.get("role") == "ADMIN":
+        audit.record("auth.login.denied", "denied", target=username, source_ip=ip,
+                     details={"reason": "totp_enrolment_required"})
+        raise HTTPException(
+            status_code=403,
+            detail={
+                "code": "totp_enrolment_required",
+                "message": "Admin accounts need an authenticator. On the server run: "
+                           "python -m lsadra.security.totp_cli enroll <username>",
+            },
+        )
+
+    login_throttle.record_success(username)
+    audit.record("auth.login.success", "success",
+                 actor={"user_id": user["id"], "username": user["username"]},
+                 target=username, source_ip=ip)
     return user
 
 
 @app.post("/api/auth/login", response_model=TokenResponse, tags=["auth"])
-async def login(req: LoginRequest):
-    user = await run_in_threadpool(_authenticated_user, req.username, req.password)
-    if user is None:
-        raise HTTPException(status_code=401, detail="Invalid credentials.")
-
+async def login(req: LoginRequest, request: Request):
+    user = await run_in_threadpool(
+        _login, req.username, req.password, req.totp_code, client_ip(request)
+    )
+    role = user.get("role") or "ANALYST"
     token = create_access_token(
         user_id=user["id"],
         username=user["username"],
-        role=user.get("role", "ANALYST"),
+        role=role,
+        token_version=int(user.get("token_version") or 0),
     )
     return TokenResponse(
         access_token=token,
-        role=user.get("role", "ANALYST"),
+        role=role,
         user_id=user["id"],
+        expires_in=config.JWT_EXPIRATION_MINUTES * 60,
     )
 
 class RegisterRequest(BaseModel):
@@ -223,7 +319,9 @@ def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
     """
     if get_user_by_username(username):
         return None
-    role = "ADMIN" if username.lower() == "admin" else "ANALYST"
+    # Self-registration never grants ADMIN, whatever the username. Admins are
+    # created by an operator with shell access: python -m lsadra.admin_cli.
+    role = "ANALYST"
     uid = str(uuid.uuid4())
     try:
         create_user(uid, username, hash_password(password), role)
@@ -234,6 +332,17 @@ def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
 
 @app.post("/api/auth/register", tags=["auth"])
 async def register(req: RegisterRequest):
+    if not config.ALLOW_SIGNUP:
+        raise HTTPException(
+            status_code=403,
+            detail="Sign-up is disabled on this server. Ask an admin to create your account.",
+        )
+    from lsadra.security.passwords import PasswordPolicyError, check_password_policy
+
+    try:
+        check_password_policy(req.password, req.username)  # G-10
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     account = await run_in_threadpool(_create_account, req.username, req.password)
     if account is None:
         raise HTTPException(status_code=400, detail="Username already taken.")
@@ -244,18 +353,25 @@ async def register(req: RegisterRequest):
 
 
 class HeartbeatRequest(BaseModel):
-    device_id: str
+    # The device is identified by its X-Device-Id / X-Api-Key headers, like
+    # ingestion. A device_id in the body is optional and must match them.
+    device_id: Optional[str] = None
     cpu_pct: Optional[float] = None
     mem_pct: Optional[float] = None
     agent_version: Optional[str] = None
 
 
 @app.post("/heartbeat", tags=["heartbeat"])
-async def heartbeat(req: HeartbeatRequest):
+async def heartbeat(
+    req: HeartbeatRequest,
+    device: Dict[str, Any] = Depends(_authenticate_device),
+):
+    if req.device_id is not None and req.device_id != device["id"]:
+        raise HTTPException(status_code=403, detail="device_id does not match the credentials.")
     # One connection, one write transaction (was four separate connect/commits).
     recorded = await run_in_threadpool(
         record_heartbeat,
-        device_id=req.device_id,
+        device_id=device["id"],
         cpu_pct=req.cpu_pct,
         mem_pct=req.mem_pct,
         agent_version=req.agent_version,
@@ -263,7 +379,7 @@ async def heartbeat(req: HeartbeatRequest):
     if not recorded:
         raise HTTPException(status_code=404, detail="Unknown device.")
 
-    return {"status": "ok", "device_id": req.device_id}
+    return {"status": "ok", "device_id": device["id"]}
 
 
 # ── Incident endpoints ──────────────────────────────────────────────────
@@ -278,17 +394,17 @@ class IncidentAssignRequest(BaseModel):
     user_id: str
 
 
-def _set_incident_status(incident_id: int, status: str, notes: str) -> bool:
-    """False if the incident does not exist (threadpool: DB read + write)."""
-    if not get_incident(incident_id):
+def _set_incident_status(user: Dict[str, Any], incident_id: int, status: str, notes: str) -> bool:
+    """False if the incident does not exist or is not the caller's (threadpool)."""
+    if owned_incident(user, incident_id) is None:
         return False
     update_incident_status(incident_id, status, notes)
     return True
 
 
-def _assign_incident(incident_id: int, user_id: str) -> bool:
-    """False if the incident does not exist (threadpool: DB read + write)."""
-    if not get_incident(incident_id):
+def _assign_incident(user: Dict[str, Any], incident_id: int, user_id: str) -> bool:
+    """False if the incident does not exist or is not the caller's (threadpool)."""
+    if owned_incident(user, incident_id) is None:
         return False
     db_assign_incident(incident_id, user_id)
     return True
@@ -300,7 +416,7 @@ async def update_incident(
     req: IncidentStatusRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    if not await run_in_threadpool(_set_incident_status, incident_id, req.status, req.notes):
+    if not await run_in_threadpool(_set_incident_status, user, incident_id, req.status, req.notes):
         raise HTTPException(status_code=404, detail="Incident not found.")
     return {"status": "ok", "incident_id": incident_id, "new_status": req.status}
 
@@ -311,7 +427,7 @@ async def assign_incident(
     req: IncidentAssignRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    if not await run_in_threadpool(_assign_incident, incident_id, req.user_id):
+    if not await run_in_threadpool(_assign_incident, user, incident_id, req.user_id):
         raise HTTPException(status_code=404, detail="Incident not found.")
     return {"status": "ok", "incident_id": incident_id, "assigned_to": req.user_id}
 
@@ -335,38 +451,48 @@ async def retrain_models(
     background_tasks: BackgroundTasks,
     user: dict = Depends(require_role("ADMIN")),
 ):
+    """Start a training run in the background (ADMIN only, one at a time, cooldown).
+
+    The candidate replaces the live models only if it passes the canary; the
+    outcome is recorded in the model training audit trail
+    (``GET /api/models/status``).
+    """
+    from lsadra.detection import model_lifecycle as lifecycle
+
+    if lifecycle.is_training():
+        raise HTTPException(status_code=409, detail="A training run is already in progress.")
+    remaining = lifecycle.cooldown_remaining()
+    if remaining > 0:
+        raise HTTPException(
+            status_code=429,
+            detail="Models were trained recently; try again later.",
+            headers={"Retry-After": str(int(remaining) + 1)},
+        )
+
     def _do_retrain():
+        from lsadra.ingestion.api_ingestion import _get_orchestrator
+
         try:
-            from lsadra.detection.detection_orchestrator import DetectionOrchestrator
-            from lsadra.features.feature_extractor import build_features
-            from lsadra.storage.database import get_connection
-
-            conn = get_connection()
-            rows = conn.execute(
-                "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT 10000"
-            ).fetchall()
-            conn.close()
-
-            if not rows:
-                return
-
-            df = build_features([dict(r) for r in rows])
-            if df.empty:
-                return
-
-            orchestrator = DetectionOrchestrator()
-            orchestrator.train(df)
-            logger.info("Model retrain completed.")
+            result = _get_orchestrator().retrain(trigger="admin", requested_by=user["user_id"])
+            logger.info("Model retrain finished: %s", result.get("status"))
+        except lifecycle.TrainingRefused as exc:
+            logger.info("Model retrain not started: %s", exc.reason)
         except Exception:
             logger.exception("Model retrain failed.")
 
     background_tasks.add_task(_do_retrain)
+    await run_in_threadpool(audit.record, "model.retrain", actor=user)
     return {"status": "accepted", "message": "Started."}
 
 
 from lsadra.ui.api_dashboard import router as dashboard_router
 app.include_router(dashboard_router, prefix="/api/dashboard")
 
+from lsadra.ui.api_models import router as models_router  # noqa: E402
+app.include_router(models_router, prefix="/api/models")
+
 if __name__ == "__main__":
-    import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8000)
+    # Same listener policy as `python -m lsadra.serve` (G-8): loopback by default.
+    from lsadra.serve import main as _serve
+
+    sys.exit(_serve())

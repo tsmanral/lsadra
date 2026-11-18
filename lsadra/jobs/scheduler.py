@@ -24,6 +24,7 @@ still going is coalesced into a single catch-up run.
 
 import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -146,6 +147,18 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
+    # ── Audit chain check (every 6 h) ────────────────────────────────────
+    # G-26: a broken hash chain means someone edited the audit log; it is
+    # raised as a CRITICAL LSADRA alert (once per break).
+    _scheduler.add_job(
+        _run_audit_chain_check,
+        IntervalTrigger(hours=6),
+        id="audit_chain_check",
+        name="Audit trail hash-chain check",
+        replace_existing=True,
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
+    )
+
     _scheduler.start()
     logger.info("Background scheduler started with %d jobs.", len(_scheduler.get_jobs()))
 
@@ -263,6 +276,28 @@ def _run_data_cleanup() -> None:
         logger.info("Data cleanup: removed %d expired rows.", deleted)
     except Exception:
         logger.exception("Data cleanup job failed.")
+
+
+_audit_break_reported: Optional[int] = None
+
+
+def _run_audit_chain_check() -> None:
+    """Verify the audit trail's hash chain; alert once per newly found break."""
+    global _audit_break_reported
+    try:
+        from lsadra.security import audit
+
+        intact, first_bad, checked = audit.verify_chain()
+        if intact:
+            _audit_break_reported = None
+            logger.info("Audit chain intact (%d rows).", checked)
+            return
+        logger.error("Audit chain broken at row %s (%d rows checked).", first_bad, checked)
+        if first_bad != _audit_break_reported:
+            _audit_break_reported = first_bad
+            audit.raise_self_alert("audit.chain.broken", target=f"audit_events row {first_bad}")
+    except Exception:
+        logger.exception("Audit chain check failed.")
 
 
 # ============================================================================

@@ -10,6 +10,7 @@ import os
 import secrets
 import warnings
 from pathlib import Path
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -57,7 +58,10 @@ if BENCH_SKIP_DETECTION and not DEV_MODE:
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------
-API_HOST: str = os.getenv("LSADRA_API_HOST", "0.0.0.0")
+# Loopback by default (G-8). Listening on another interface is an explicit
+# opt-in, and the launcher (lsadra/serve.py) then refuses to serve plain HTTP
+# unless TLS is configured, generated, or terminated by a trusted proxy.
+API_HOST: str = os.getenv("LSADRA_API_HOST", "127.0.0.1")
 API_PORT: int = int(os.getenv("LSADRA_API_PORT", "8000"))
 DASHBOARD_PORT: int = int(os.getenv("LSADRA_DASH_PORT", "8501"))
 
@@ -92,7 +96,46 @@ TLS_KEY_PATH: str = os.getenv("LSADRA_TLS_KEY", "")
 # the server refuses to start without LSADRA_JWT_SECRET. The old silent
 # SECRET_KEY -> JWT_SECRET fallback is removed. (§6 #4)
 _jwt_secret_env = os.getenv("LSADRA_JWT_SECRET")
+
+# A JWT secret must be secret: anything copied from documentation, or short
+# enough to guess, lets whoever reads the docs forge ADMIN tokens. Outside dev
+# mode such a value is refused like a missing one. (Placeholders are compared
+# case-insensitively; length is counted in bytes.)
+JWT_SECRET_MIN_BYTES: int = 32
+_KNOWN_PLACEHOLDER_SECRETS = frozenset({
+    "changeme-in-production",
+    "changeme",
+    "change-me",
+    "changeit",
+    "secret",
+    "your-secret-key",
+    "your-jwt-secret",
+    "replace-me",
+})
+
+
+def _jwt_secret_problem(value: str) -> Optional[str]:
+    """Why *value* is unsafe as a JWT secret, or None when it is acceptable."""
+    if value.strip().lower() in _KNOWN_PLACEHOLDER_SECRETS:
+        return "it is a documented placeholder"
+    if len(value.encode("utf-8")) < JWT_SECRET_MIN_BYTES:
+        return f"it is shorter than {JWT_SECRET_MIN_BYTES} bytes"
+    return None
+
+
+_JWT_SECRET_HOWTO = (
+    'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+)
+
 if _jwt_secret_env:
+    _problem = _jwt_secret_problem(_jwt_secret_env)
+    if _problem and not DEV_MODE:
+        raise RuntimeError(
+            f"LSADRA_JWT_SECRET is not safe to use: {_problem}. Refusing to start "
+            f"with a guessable token-signing key. {_JWT_SECRET_HOWTO}"
+        )
+    if _problem:
+        logger.warning("LSADRA_DEV_MODE: LSADRA_JWT_SECRET is weak (%s).", _problem)
     JWT_SECRET: str = _jwt_secret_env
 elif DEV_MODE:
     JWT_SECRET = secrets.token_urlsafe(32)
@@ -105,10 +148,20 @@ else:
     raise RuntimeError(
         "LSADRA_JWT_SECRET is required outside dev mode. Refusing to start with "
         "an insecure per-boot secret. Set LSADRA_JWT_SECRET, or set "
-        "LSADRA_DEV_MODE=true for local development."
+        f"LSADRA_DEV_MODE=true for local development. {_JWT_SECRET_HOWTO}"
     )
 TOKEN_ALGORITHM: str = "HS256"
-JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "480"))
+
+# Self-service sign-up on /api/auth/register. Off by default outside dev mode:
+# otherwise anyone who can reach the port can create an account. Admins are
+# created with `python -m lsadra.admin_cli create-admin`, and an admin can add
+# users through POST /api/dashboard/users. Set true to open sign-up on purpose.
+ALLOW_SIGNUP: bool = os.getenv(
+    "LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false"
+).lower() == "true"
+# 60-minute sessions (G-9). Logout, a role or password change, or disabling the
+# account also ends every earlier session at once (users.token_version).
+JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "60"))
 REGISTRATION_TOKEN_LIFETIME_MINUTES: int = 15  # single-use, short-lived
 
 # ---------------------------------------------------------------------------
@@ -223,6 +276,36 @@ AUTOENCODER_EPOCHS: int = 50
 AUTOENCODER_LR: float = 1e-3
 
 # ---------------------------------------------------------------------------
+# Model integrity and training controls (G-17, G-18)
+# ---------------------------------------------------------------------------
+# Every model file is listed in a manifest whose HMAC is keyed by a secret
+# that lives outside the models folder, and is verified before it is
+# deserialized. Defaults to a key derived from LSADRA_JWT_SECRET, so rotating
+# that secret makes the current models unverifiable and they are retrained.
+MODEL_SIGNING_KEY: str = os.getenv("LSADRA_MODEL_SIGNING_KEY", "")
+
+# Training needs this many usable events across all devices (after events
+# tied to anomalies or open incidents are dropped).
+MIN_TRAINING_EVENTS: int = int(os.getenv("LSADRA_MIN_TRAINING_EVENTS", "50"))
+# Most recent events considered for one training run.
+TRAINING_MAX_EVENTS: int = int(os.getenv("LSADRA_TRAINING_MAX_EVENTS", "10000"))
+# With more than one device, no device may supply more than this share of the
+# training set, so one noisy or compromised host cannot define "normal".
+TRAINING_MAX_DEVICE_SHARE: float = float(os.getenv("LSADRA_TRAINING_MAX_DEVICE_SHARE", "0.5"))
+# Minimum gap between two training runs (manual or automatic).
+RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECONDS", "600"))
+# A candidate model is promoted only if its ML layers still flag at least this
+# share of the attack events in each canary scenario of the demo corpus.
+CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+CANARY_SCENARIOS: List[str] = [
+    s.strip()
+    for s in os.getenv("LSADRA_CANARY_SCENARIOS", "ssh_bruteforce,injection_attempts").split(",")
+    if s.strip()
+]
+# Drift is measured over this many hours of recent events.
+DRIFT_WINDOW_HOURS: int = int(os.getenv("LSADRA_DRIFT_WINDOW_HOURS", "24"))
+
+# ---------------------------------------------------------------------------
 # Feature Drift Detection
 # ---------------------------------------------------------------------------
 PSI_DRIFT_THRESHOLD: float = float(os.getenv("LSADRA_PSI_DRIFT_THRESHOLD", "0.2"))
@@ -305,3 +388,66 @@ LARGE_TRANSFER_BYTES: int = int(os.getenv("LSADRA_V4_LARGE_TRANSFER_BYTES", "100
 
 # Analyst feedback: maximum FP patterns to load for threshold tuning
 MAX_FP_PATTERNS_FOR_TUNING: int = int(os.getenv("LSADRA_V4_MAX_FP_PATTERNS", "100"))
+
+
+# ---------------------------------------------------------------------------
+# Identity hardening (G-9, G-10, G-33)
+# ---------------------------------------------------------------------------
+# Password policy: minimum length plus a bundled offline list of common
+# passwords (lsadra/security/common_passwords.txt). bcrypt reads 72 bytes at
+# most, so longer passwords are refused rather than silently truncated.
+MIN_PASSWORD_LENGTH: int = max(8, int(os.getenv("LSADRA_MIN_PASSWORD_LENGTH", "12")))
+
+# Login throttling, checked before bcrypt runs. Failures are counted per
+# username and per client IP over a sliding window; at the limit, the login
+# route answers 429 with Retry-After until the oldest failure ages out.
+LOGIN_FAILURE_WINDOW_SECONDS: int = int(os.getenv("LSADRA_LOGIN_FAILURE_WINDOW_SECONDS", "900"))
+LOGIN_MAX_FAILURES_PER_USER: int = int(os.getenv("LSADRA_LOGIN_MAX_FAILURES_PER_USER", "5"))
+LOGIN_MAX_FAILURES_PER_IP: int = int(os.getenv("LSADRA_LOGIN_MAX_FAILURES_PER_IP", "20"))
+
+# TOTP second factor. "optional" (default): any account may enrol, and an
+# enrolled account always needs a code. "required": ADMIN accounts cannot log
+# in until they enrol (python -m lsadra.security.totp_cli enroll <user>).
+ADMIN_TOTP: str = os.getenv("LSADRA_ADMIN_TOTP", "optional").strip().lower()
+if ADMIN_TOTP not in ("optional", "required"):
+    raise RuntimeError("LSADRA_ADMIN_TOTP must be 'optional' or 'required'.")
+
+# Device key rotation: how long the previous key keeps working after a rotation,
+# so an agent can pick up its new key without dropping events.
+DEVICE_KEY_ROTATION_OVERLAP_MINUTES: int = int(
+    os.getenv("LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES", "10")
+)
+
+# ---------------------------------------------------------------------------
+# Listener and TLS (G-8)
+# ---------------------------------------------------------------------------
+# Where a generated self-signed certificate is kept (first boot on a
+# non-loopback address without LSADRA_TLS_CERT / LSADRA_TLS_KEY).
+TLS_DIR: Path = DATA_DIR / "tls"
+# Escape hatch for a container whose port is published on loopback only, or a
+# lab network: serve plain HTTP on a non-loopback address. Logged loudly.
+ALLOW_PLAINTEXT_LISTENER: bool = (
+    os.getenv("LSADRA_ALLOW_PLAINTEXT_LISTENER", "false").lower() == "true"
+)
+
+# ---------------------------------------------------------------------------
+# API surface and browser hardening (G-11)
+# ---------------------------------------------------------------------------
+# OpenAPI docs (/docs, /redoc, /openapi.json) are served in dev mode only.
+EXPOSE_API_DOCS: bool = (
+    os.getenv("LSADRA_EXPOSE_API_DOCS", "true" if DEV_MODE else "false").lower() == "true"
+)
+# Strict-Transport-Security max-age, sent only on HTTPS responses.
+HSTS_MAX_AGE_SECONDS: int = int(os.getenv("LSADRA_HSTS_MAX_AGE_SECONDS", "31536000"))
+
+# ---------------------------------------------------------------------------
+# Audit trail and data at rest (G-26, G-27)
+# ---------------------------------------------------------------------------
+# audit_events rows are kept at least 365 days; the table's own trigger refuses
+# an earlier delete, so a lower value is raised to 365.
+AUDIT_RETENTION_DAYS: int = max(365, int(os.getenv("LSADRA_AUDIT_RETENTION_DAYS", "365")))
+# Restrict the data directory to the server's own account at start-up
+# (0700 directories, 0600 files; POSIX only).
+RESTRICT_DATA_PERMISSIONS: bool = (
+    os.getenv("LSADRA_RESTRICT_DATA_PERMISSIONS", "true").lower() == "true"
+)
