@@ -122,9 +122,28 @@ npm run dev
 
 Open **http://localhost:5173** and sign in as `demo.admin` / `demo-only-not-a-secret` (the sign-in button is labelled **Initialize**). You can also create your own account with **Register**.
 
+The dashboard only ever shows data from the API. Front-end developers who want canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and sign in as `testuser`; that switch exists only in the dev server and is compiled out of production builds.
+
+### 5. Create an admin
+
+Accounts created with **Register**, including `demo.admin`, get the `ANALYST` role, which sees only its own data and cannot open the **Admin** page. Admins are made from a shell on the server, with the same settings as the API (here, dev mode):
+
+```bash
+# Linux / macOS: promote the demo account, or create a new admin (prompts for a password of 12+ characters)
+LSADRA_DEV_MODE=true venv/bin/python -m lsadra.admin_cli promote --username demo.admin
+LSADRA_DEV_MODE=true venv/bin/python -m lsadra.admin_cli create-admin --username alice
+```
+
+```powershell
+# Windows PowerShell (in a shell where $env:LSADRA_DEV_MODE = "true" is already set)
+venv\Scripts\python -m lsadra.admin_cli promote --username demo.admin
+```
+
+Sign out and back in for the new role to apply. After that, admins can manage users and roles from the **Admin** page. For scripts and containers, `create-admin --password-stdin` reads the password from standard input instead of prompting.
+
 > The dashboard calls the API at `http://localhost:8000`, which is set in [`frontend/src/services/api.ts`](frontend/src/services/api.ts). If you run the API elsewhere, change it there and add the dashboard's origin to `LSADRA_CORS_ORIGINS`.
 
-### 5. Check everything works
+### 6. Check everything works
 
 ```bash
 venv/bin/python tests/test_v4_smoke.py        # expected: 27/27 passed
@@ -132,7 +151,7 @@ venv/bin/python tests/test_v4_smoke.py        # expected: 27/27 passed
 
 ## Dashboard tour
 
-The screenshots below were taken from the quick start above: one demo device, 217 replayed events, 1440×900 window. Accounts created with **Register** get the `ANALYST` role; `ADMIN` sees every user's data, other roles see only their own.
+The screenshots below were taken by following the quick start above, signed in as `demo.admin` after promoting it to admin: one demo device, 217 replayed events, 1440×900 window. `ADMIN` sees every user's data; `ANALYST` and `VIEWER` see only their own.
 
 ### Sign in
 
@@ -144,7 +163,7 @@ Sign-in goes only through `POST /api/auth/login`; there is no offline login, so 
 
 <img src="docs/screenshots/command-center.png" alt="Command Center" width="720"/>
 
-The home screen. The tiles at the top count events in the last 24 hours, active threats, open and closed incidents, and devices currently sending. **Top Active Incidents** lists open incidents by recency with their severity, source IP and attack type. The **Live Threat Feed** on the right is pushed over the `/ws/alerts` WebSocket as detection stores each anomaly. If the socket drops, the page reconnects with backoff and polls every 5 seconds in the meantime.
+The home screen. The tiles at the top count events in the last 24 hours, active threats, open and closed incidents, and devices currently sending. **Ingestion Health** shows the measured event rate over the last minute; latency and drop rate say "not measured" until the API measures them. **Top Active Incidents** lists open incidents by recency with their severity, source IP and attack type. The **Live Threat Feed** on the right is pushed over the `/ws/alerts` WebSocket as detection stores each anomaly. If the socket drops, the page reconnects with backoff and polls every 5 seconds in the meantime.
 
 ### Live Alerts
 
@@ -182,6 +201,12 @@ Generates a one-time registration token and the one-line Linux install command f
 
 Per-source ingestion health: which log sources are active, events per second and latency, and the ingestion nodes (devices) behind them.
 
+### Admin
+
+<img src="docs/screenshots/admin.png" alt="Admin user management" width="720"/>
+
+Admins only. List users, change their roles, and create accounts with a chosen role.
+
 ### Pages that still show placeholder data
 
 Some screens are designed but not yet wired to the API. They render, but parts of what they show are fixed sample content rather than your data. They are good first contributions:
@@ -192,15 +217,10 @@ Some screens are designed but not yet wired to the API. They render, but parts o
 | Investigate | The API has no entity endpoint yet (`GET /api/entity/{id}` returns 404), so every search shows a generic profile with a fixed risk score of 42 |
 | Threat Intel | The lookup box does not call the API yet, so it returns nothing; the server-side AbuseIPDB cache (`LSADRA_ABUSEIPDB_API_KEY`) is not shown here |
 | Response | Playbook steps, the console and the response metrics |
-| Feedback | The feedback history list starts with sample entries |
 | Live Alerts header and footer | The ingestion rate, uptime and status line |
-| Command Center "Ingestion Health" | Events/sec and latency are fixed values from `GET /api/dashboard/health` |
 | Sources | The average latency tile |
-| Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours, and with no data yet the charts show generated sample series |
+| Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours |
 | Device Behavior | "Last seen" shows `NaNh ago` |
-| Admin | User management needs the `ADMIN` role, and registration only creates `ANALYST` accounts, so a fresh install has no admin yet |
-
-One more thing to know while testing: the dashboard serves built-in sample data to an account named exactly `testuser`, so pick any other username when you want to see your own data.
 
 ## Connect a real device
 
@@ -225,6 +245,7 @@ cp .env.example .env
 # Edit .env: set LSADRA_JWT_SECRET to a long random value, for example the output of
 #   python -c "import secrets; print(secrets.token_urlsafe(32))"
 docker compose -f docker-compose.yml up -d --build
+docker compose -f docker-compose.yml exec api python -m lsadra.admin_cli create-admin --username alice
 ```
 
 Name `docker-compose.yml` explicitly as above. A plain `docker compose up` also loads [`docker-compose.override.yml`](docker-compose.override.yml), the development override: it mounts the source tree, turns on hot reload and forces TLS off.
@@ -350,7 +371,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
 frontend/           React (Vite + TypeScript) SOC dashboard
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding

@@ -67,38 +67,28 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 
 ## Development Setup
 
-The README's [quick start](README.md#quick-start-local-about-10-minutes) is the full walkthrough, with Windows PowerShell variants and demo data. The short version for Linux/macOS (on Windows use `py -3.12` and `venv\Scripts\...`):
-
-### Backend (Python 3.12)
+### Backend (Python 3.12 required)
 
 ```bash
-python3.12 -m venv venv
-venv/bin/pip install -r requirements.txt
-# Dev mode allows a per-boot JWT secret; the CORS origin lets the dashboard call the API
-LSADRA_DEV_MODE=true LSADRA_CORS_ORIGINS=http://localhost:5173 \
-  venv/bin/python -m uvicorn server:app --host 127.0.0.1 --port 8000
-venv/bin/python scripts/seed_demo.py     # optional: load the synthetic demo corpus
+py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
+venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
+venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
 ```
 
 ### Frontend
 
 ```bash
 cd frontend
-npm ci
-npm run dev        # dashboard at http://localhost:5173 (demo login: demo.admin / demo-only-not-a-secret)
+npm install
+npm run dev        # dashboard at http://localhost:5173
 ```
 
 ### Running Tests
 
 ```bash
-venv/bin/python tests/test_v4_smoke.py                              # smoke gate (expected: 27/27)
-venv/bin/python -m pytest tests/security/ -q                        # security regression gate (0 failures)
-venv/bin/python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q # full backend suite
-ruff check .                                                        # lint, as in CI
-cd frontend && npm run build                                        # when frontend/ changes
+venv/Scripts/python -m pytest tests/           # unit + integration tests
+venv/Scripts/python tests/test_v4_smoke.py     # end-to-end smoke test (expected: 27/27)
 ```
-
-Set `LSADRA_DEV_MODE=true` in the shell first if it has no `LSADRA_JWT_SECRET`, as CI does. The [Testing](README.md#testing) section of the README lists expected results and timings.
 
 Please make sure the smoke test passes before opening a PR.
 
