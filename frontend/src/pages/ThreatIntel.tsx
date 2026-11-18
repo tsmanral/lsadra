@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Search, Globe, AlertTriangle, Activity, Database, Zap } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, CartesianGrid, Cell } from 'recharts';
+import { isTestUser } from '../services/api';
 // For demo purposes we use the builtin intel from python
 const BUILTIN_INTEL: Record<string, any> = {
   "185.15.202.13": { abuse_score: 92, country_code: "RU", isp: "Rostelecom", domain: "rostelecom.ru", total_reports: 847, is_tor: false, last_reported: "2026-04-01T12:00:00" },
@@ -11,7 +12,7 @@ const BUILTIN_INTEL: Record<string, any> = {
 };
 
 const ThreatIntel = () => {
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   const [searchParams] = useSearchParams();
   const initialIp = searchParams.get('ip') || '';
   

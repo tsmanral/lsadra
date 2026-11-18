@@ -5,7 +5,7 @@ import {
   XAxis, YAxis, CartesianGrid, Tooltip, Legend,
   ResponsiveContainer, ZAxis
 } from 'recharts';
-import { getKpis, getAnomalies, getIncidents, exportReport, getIngestionStats, saveActiveDeviceFilter } from '../services/api';
+import { getKpis, getAnomalies, getIncidents, exportReport, getIngestionStats, saveActiveDeviceFilter, isTestUser } from '../services/api';
 import DataDrawer from '../components/DataDrawer'; import type { DrawerType } from '../components/DataDrawer';
 import {
   Activity, Database, TrendingUp, BarChart3,
@@ -30,9 +30,7 @@ const TICK_STYLE = { fill: '#8899aa', fontFamily: 'monospace', fontSize: 11 };
 
 // ── deterministic "random" data seeded by index ───────────────────────────────
 const seed = (i: number, base: number, spread: number) => {
-  const user = localStorage.getItem('sentinel_username');
-  const role = localStorage.getItem('sentinel_role');
-  if (user !== 'testuser') return 0;
+  if (!isTestUser()) return 0;
   return base + Math.abs(Math.sin(i * 31.7 + 5.9) * spread);
 };
 
@@ -316,7 +314,9 @@ const Analytics = () => {
       const link = document.createElement('a');
       link.href = url; link.download = 'lsadra_report.pdf';
       document.body.appendChild(link); link.click(); link.remove();
-    } catch { /**/ }
+    } catch (err) {
+      window.alert(`Report export failed: ${(err as Error)?.message || 'the API did not answer'}`);
+    }
   };
 
   const openDrill = (payload: any, extra: object) => {
