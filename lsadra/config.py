@@ -10,6 +10,7 @@ import os
 import secrets
 import warnings
 from pathlib import Path
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -95,7 +96,46 @@ TLS_KEY_PATH: str = os.getenv("LSADRA_TLS_KEY", "")
 # the server refuses to start without LSADRA_JWT_SECRET. The old silent
 # SECRET_KEY -> JWT_SECRET fallback is removed. (§6 #4)
 _jwt_secret_env = os.getenv("LSADRA_JWT_SECRET")
+
+# A JWT secret must be secret: anything copied from documentation, or short
+# enough to guess, lets whoever reads the docs forge ADMIN tokens. Outside dev
+# mode such a value is refused like a missing one. (Placeholders are compared
+# case-insensitively; length is counted in bytes.)
+JWT_SECRET_MIN_BYTES: int = 32
+_KNOWN_PLACEHOLDER_SECRETS = frozenset({
+    "changeme-in-production",
+    "changeme",
+    "change-me",
+    "changeit",
+    "secret",
+    "your-secret-key",
+    "your-jwt-secret",
+    "replace-me",
+})
+
+
+def _jwt_secret_problem(value: str) -> Optional[str]:
+    """Why *value* is unsafe as a JWT secret, or None when it is acceptable."""
+    if value.strip().lower() in _KNOWN_PLACEHOLDER_SECRETS:
+        return "it is a documented placeholder"
+    if len(value.encode("utf-8")) < JWT_SECRET_MIN_BYTES:
+        return f"it is shorter than {JWT_SECRET_MIN_BYTES} bytes"
+    return None
+
+
+_JWT_SECRET_HOWTO = (
+    'Generate one with: python -c "import secrets; print(secrets.token_urlsafe(48))"'
+)
+
 if _jwt_secret_env:
+    _problem = _jwt_secret_problem(_jwt_secret_env)
+    if _problem and not DEV_MODE:
+        raise RuntimeError(
+            f"LSADRA_JWT_SECRET is not safe to use: {_problem}. Refusing to start "
+            f"with a guessable token-signing key. {_JWT_SECRET_HOWTO}"
+        )
+    if _problem:
+        logger.warning("LSADRA_DEV_MODE: LSADRA_JWT_SECRET is weak (%s).", _problem)
     JWT_SECRET: str = _jwt_secret_env
 elif DEV_MODE:
     JWT_SECRET = secrets.token_urlsafe(32)
@@ -108,9 +148,17 @@ else:
     raise RuntimeError(
         "LSADRA_JWT_SECRET is required outside dev mode. Refusing to start with "
         "an insecure per-boot secret. Set LSADRA_JWT_SECRET, or set "
-        "LSADRA_DEV_MODE=true for local development."
+        f"LSADRA_DEV_MODE=true for local development. {_JWT_SECRET_HOWTO}"
     )
 TOKEN_ALGORITHM: str = "HS256"
+
+# Self-service sign-up on /api/auth/register. Off by default outside dev mode:
+# otherwise anyone who can reach the port can create an account. Admins are
+# created with `python -m lsadra.admin_cli create-admin`, and an admin can add
+# users through POST /api/dashboard/users. Set true to open sign-up on purpose.
+ALLOW_SIGNUP: bool = os.getenv(
+    "LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false"
+).lower() == "true"
 # 60-minute sessions (G-9). Logout, a role or password change, or disabling the
 # account also ends every earlier session at once (users.token_version).
 JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "60"))

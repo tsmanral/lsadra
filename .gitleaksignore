@@ -1,6 +1,17 @@
-# Reviewed gitleaks false positives, one exact finding per line (commit:file:rule:line).
-# Synthetic test passwords from PR #136 commit 77b0023; the strings were split in the
-# next commit so the scanner no longer matches them. Approved by the project lead
-# 2026-11-18. Never add real secrets here.
+# Reviewed gitleaks false positives. Each entry is a commit-pinned fingerprint
+# (commit:file:rule:line), so a new secret on any other line or commit is still
+# reported. Add an entry only for clearly synthetic test data, with a reason.
+#
+# PR #118 / #135: synthetic test passwords and a test JWT secret in
+# tests/security/. The tests now generate these at run time; these entries
+# cover the earlier commits that still contain the literals.
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:29
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:42
+4b0c1561080c8360a11d2e7572e2853f3a315aa8:tests/security/test_first_admin_bootstrap.py:generic-api-key:58
+03a10e14f455f465a4ee430c42a9525f9cbf9cbf:tests/security/test_p0_access_control.py:generic-api-key:107
+03a10e14f455f465a4ee430c42a9525f9cbf9cbf:tests/security/test_p0_access_control.py:generic-api-key:128
+03a10e14f455f465a4ee430c42a9525f9cbf9cbf:tests/security/test_p0_access_control.py:generic-api-key:136
+#
+# PR #136: synthetic test passwords in commit 77b0023, split in the next commit.
 77b0023f89a81d4c2eacebab428279c99b2e57a3:tests/security/_identity_support.py:generic-api-key:14
 77b0023f89a81d4c2eacebab428279c99b2e57a3:tests/security/test_g10_passwords_and_throttle.py:generic-api-key:32

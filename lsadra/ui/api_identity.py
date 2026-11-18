@@ -294,8 +294,8 @@ async def device_rotate_key(device_id: str, request: Request,
 
 
 @router.get("/api/server/identity", tags=["system"])
-async def server_identity():
-    """The TLS certificate fingerprint agents and installers pin. Public by design."""
+async def server_identity(user: dict = Depends(get_current_user)):
+    """The TLS certificate fingerprint agents and installers pin (any signed-in user)."""
     from lsadra.security import tls
 
     return {"tls": tls.ACTIVE_FINGERPRINT is not None, "cert_sha256": tls.ACTIVE_FINGERPRINT}

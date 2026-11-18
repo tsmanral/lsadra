@@ -20,6 +20,7 @@ from lsadra import config
 from lsadra.auth import verify_password
 from lsadra.security.passwords import PasswordPolicyError, check_password_policy
 from tests.security._identity_support import (  # noqa: F401 — fixture
+    OTHER_STRONG_PASSWORD,
     STRONG_PASSWORD,
     bearer,
     identity_env,
@@ -63,6 +64,33 @@ def test_admin_password_reset_enforces_policy(identity_env):
     ok = client.post("/api/dashboard/users/password", headers=bearer(token),
                      json={"user_id": uid, "password": "violet-ember-canyon-09"})
     assert ok.status_code == 200
+
+
+def test_admin_create_user_enforces_policy(identity_env):
+    client = identity_env
+    make_user("root.demo", role="ADMIN")
+    token = login(client, "root.demo").json()["access_token"]
+    weak = client.post("/api/dashboard/users", headers=bearer(token),
+                       json={"username": "new.demo", "password": "password" + "1234"})
+    assert weak.status_code == 422
+    from lsadra.storage.database import get_user_by_username
+
+    assert get_user_by_username("new.demo") is None
+    ok = client.post("/api/dashboard/users", headers=bearer(token),
+                     json={"username": "new.demo", "password": OTHER_STRONG_PASSWORD})
+    assert ok.status_code == 200, ok.text
+
+
+def test_signup_and_admin_cli_enforce_policy(identity_env, monkeypatch):
+    client = identity_env
+    monkeypatch.setattr(config, "ALLOW_SIGNUP", True)
+    weak = client.post("/api/auth/register",
+                       json={"username": "self.demo", "password": "password" + "1234"})
+    assert weak.status_code == 422
+    from lsadra.admin_cli import create_admin
+
+    with pytest.raises(ValueError):
+        create_admin("boot.demo", "password" + "1234")
 
 
 def test_username_lockout_returns_429_without_running_bcrypt(identity_env, monkeypatch):

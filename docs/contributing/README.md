@@ -5,7 +5,7 @@ See the repository [CONTRIBUTING.md](../../CONTRIBUTING.md) for the full guide
 
 Quick notes:
 
-- **Conventional Commits** are enforced (commitlint).
+- **Conventional Commits** are checked by the commitlint pre-commit hook.
 - **Sign off** every commit — `git commit -s` (DCO).
 - Run the gates before pushing: `python tests/test_v4_smoke.py` and
   `python -m pytest tests/security/`.

@@ -6,16 +6,23 @@ const ConnectDevice = () => {
   const [token, setToken] = useState<string | null>(null);
   const [fingerprint, setFingerprint] = useState<string | null>(null);
   useEffect(() => { getServerIdentity().then((id) => setFingerprint(id.cert_sha256)); }, []);
+  const [hashes, setHashes] = useState<{ installer: string; agent: string; extra: Record<string, string> } | null>(null);
   const [copied, setCopied] = useState(false);
   const [loading, setLoading] = useState(false);
   const hostIP = window.location.hostname;
-  const serverAddress = `http://${hostIP}:8000`;
+  // Same scheme as this page: an HTTPS dashboard yields an HTTPS install command.
+  const scheme = window.location.protocol === 'https:' ? 'https' : 'http';
+  const serverAddress = `${scheme}://${hostIP}:8000`;
+  const insecure = scheme === 'http';
 
   const handleGenerate = async () => {
     setLoading(true);
     try {
       const res = await generateToken();
       setToken(res.data.token);
+      setHashes(res.data.installer_sha256 && res.data.agent_sha256
+        ? { installer: res.data.installer_sha256, agent: res.data.agent_sha256, extra: res.data.extra_files || {} }
+        : null);
       setCopied(false);
     } catch (err) {
       console.error("Failed to generate token", err);
@@ -31,7 +38,16 @@ const ConnectDevice = () => {
     setTimeout(() => setCopied(false), 2000);
   };
 
-  const linuxCommand = `curl -s ${serverAddress}/static/installer_linux.sh | sudo bash -s -- --token ${token || '<YOUR_TOKEN>'} --server ${serverAddress}`;
+  // Mirrors lsadra/onboarding/agent_files.py: the installer is saved to a file and
+  // its SHA-256 checked before sudo runs it; the installer then checks the agent.
+  const linuxCommand = token && hashes
+    ? `curl -fsSLo lsadra-install.sh ${serverAddress}/static/installer_linux.sh` +
+      ` && echo '${hashes.installer}  lsadra-install.sh' | sha256sum -c -` +
+      ` && sudo bash lsadra-install.sh --token ${token} --server ${serverAddress}` +
+      ` --agent-sha256 ${hashes.agent}` +
+      Object.keys(hashes.extra).sort().map(name => ` --file ${name}=${hashes.extra[name]}`).join('') +
+      (insecure ? ' --allow-insecure-http' : '')
+    : 'Generate a token above to get the install command.';
   const windowsCommand = `python windows_agent_simulator.py`;
 
   return (
@@ -49,7 +65,7 @@ const ConnectDevice = () => {
           <div>
             <h3 className="text-xl font-display text-white mb-2">Secure Registration</h3>
             <p className="text-[var(--color-muted)] font-mono text-sm mb-6 max-w-3xl">
-              Add a new device to your LSADRA workspace. Generate a one-time registration token below, then run the installer on your target machine. The agent will automatically configure TLS and begin streaming logs to the ingestion pipeline.
+              Add a new device to your LSADRA workspace. Generate a one-time registration token below, then run the installer on your target machine. The agent registers with this server and begins streaming logs to the ingestion pipeline.
             </p>
             
             <button 
@@ -113,7 +129,10 @@ const ConnectDevice = () => {
               {linuxCommand}
             </pre>
           </div>
-          <p className="text-xs text-[var(--color-muted)] mt-2 font-mono">Run this command as root or with sudo privileges.</p>
+          <p className="text-xs text-[var(--color-muted)] mt-2 font-mono">Run this command as root or with sudo privileges. It checks the installer's SHA-256 before running it, and the installer checks the agent's.</p>
+          {insecure && (
+            <p className="text-xs text-[#FF4444] mt-2 font-mono">This dashboard is served over plain HTTP, so the device key travels unencrypted. Use it only on a trusted local network; serve LSADRA over HTTPS otherwise.</p>
+          )}
         </section>
 
         <section>

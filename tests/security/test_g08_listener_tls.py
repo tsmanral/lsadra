@@ -26,7 +26,12 @@ import pytest
 
 from lsadra.endpoint_agent import linux_agent
 from lsadra.security import tls
-from tests.security._identity_support import identity_env  # noqa: F401 — fixture
+from tests.security._identity_support import (  # noqa: F401 — fixture
+    bearer,
+    identity_env,
+    login,
+    make_user,
+)
 
 ROOT = Path(__file__).resolve().parents[2]
 
@@ -74,7 +79,10 @@ def test_identity_endpoint_serves_the_fingerprint(identity_env, tmp_path, monkey
                              allow_plaintext=False, tls_dir=tmp_path)
     monkeypatch.setattr(tls, "ACTIVE_FINGERPRINT", None)
     tls.activate(plan)
-    body = identity_env.get("/api/server/identity").json()
+    assert identity_env.get("/api/server/identity").status_code == 401
+    make_user("viewer.demo", role="VIEWER")
+    token = login(identity_env, "viewer.demo").json()["access_token"]
+    body = identity_env.get("/api/server/identity", headers=bearer(token)).json()
     assert body == {"tls": True, "cert_sha256": tls.fingerprint_pem(plan.certfile)}
 
 
