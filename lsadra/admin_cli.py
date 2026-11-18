@@ -12,6 +12,11 @@ party that should be able to grant that role on a fresh install:
 account into an admin. Both work on the same database the server uses
 (``data/sentinel_v3.db``), and create it if it doesn't exist yet. Once one admin
 exists, further role changes can also be made from the dashboard's Admin page.
+
+Run it with the same environment as the server: ``LSADRA_JWT_SECRET`` set, or
+``LSADRA_DEV_MODE=true`` on a local development install. The settings module
+refuses to load without one of them, and this command says so instead of
+printing a traceback.
 """
 
 from __future__ import annotations
@@ -78,6 +83,15 @@ def main(argv: Optional[List[str]] = None) -> int:
     p_promote.add_argument("--username", required=True)
 
     args = parser.parse_args(argv)
+    try:
+        import lsadra.config  # noqa: F401  (fails fast without the server's settings)
+    except RuntimeError:
+        print(
+            "error: LSADRA settings are missing. Run this with the same environment as the "
+            "server: set LSADRA_JWT_SECRET, or LSADRA_DEV_MODE=true on a local dev install.",
+            file=sys.stderr,
+        )
+        return 2
     try:
         if args.command == "create-admin":
             create_admin(args.username, _read_password(args.password_stdin))

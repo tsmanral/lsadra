@@ -62,7 +62,7 @@ venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 
 ### First admin account
 
-Accounts created from the dashboard's sign-up form are analysts. Create the first admin from a shell on the server; after that, admins can change roles from the **Admin** page:
+Accounts created from the dashboard's sign-up form are analysts. Create the first admin from a shell on the server; after that, admins can change roles from the **Admin** page. Run it with the server's environment (`LSADRA_JWT_SECRET` set, or `LSADRA_DEV_MODE=true` for local dev), otherwise it stops with a message naming those settings:
 
 ```bash
 venv/Scripts/python -m lsadra.admin_cli create-admin --username alice   # prompts for a password (12+ characters)
