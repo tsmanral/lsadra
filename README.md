@@ -180,6 +180,7 @@ docs/               Documentation tree
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
+.devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
 .github/workflows/  CI matrix, DCO, commitlint, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
