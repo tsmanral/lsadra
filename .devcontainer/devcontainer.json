@@ -1,0 +1,31 @@
+// One-click LSADRA dev environment for GitHub Codespaces and VS Code Dev Containers.
+// Python 3.12 and Node 24 match CI. Dev mode is set for this container only:
+// it relaxes the production boot guards (JWT secret, TLS) and must never be
+// copied into a deployment.
+{
+  "name": "LSADRA",
+  "image": "mcr.microsoft.com/devcontainers/python:1-3.12-bookworm",
+  "features": {
+    "ghcr.io/devcontainers/features/node:1": { "version": "24" }
+  },
+  "containerEnv": {
+    "LSADRA_DEV_MODE": "true",
+    "LSADRA_CORS_ORIGINS": "http://localhost:5173,http://127.0.0.1:5173",
+    "PYTHONUTF8": "1"
+  },
+  "postCreateCommand": "bash .devcontainer/post-create.sh",
+  "forwardPorts": [8000, 5173],
+  "portsAttributes": {
+    "8000": { "label": "LSADRA API" },
+    "5173": { "label": "Dashboard", "onAutoForward": "openBrowser" }
+  },
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python",
+        "charliermarsh.ruff",
+        "dbaeumer.vscode-eslint"
+      ]
+    }
+  }
+}
