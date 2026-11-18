@@ -173,7 +173,7 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
-scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode)
+scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode) and check_tier_boundary.py (Lite/Team import check, ADR 0008)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
@@ -190,6 +190,15 @@ windows_live_agent.py       Live Windows event agent
 server.py           FastAPI entry point
 CLAUDE.md           Rules for AI coding agents working in this repo
 ```
+
+## Editions
+
+LSADRA comes in two editions, and the line between them is recorded in [ADR 0008](docs/architecture/adr/0008-lite-team-line.md).
+
+- **Lite** is this repository: free, AGPL-3.0, and complete on its own. It watches several devices for one owner, with one local admin created from the command line, the existing `ADMIN` / `ANALYST` / `VIEWER` roles, correlation across your own devices, and keyless bundled threat intel. Nothing Lite ships will ever move to the paid edition.
+- **Team** is a separate, private, paid edition for startups and managed service providers. It adds multi-tenant fleets, SSO, cross-tenant correlation, approval workflows and OCSF export. It talks to a Lite core only through the event schema and the HTTP API, and is written fresh rather than copied from contributed code.
+
+Lite never depends on Team code: [`scripts/check_tier_boundary.py`](scripts/check_tier_boundary.py) runs in CI and fails any change that imports from the reserved `lsadra_team` / `lsadra.team` / `@lsadra/team` namespaces.
 
 ## Contributing
 
