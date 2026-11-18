@@ -104,3 +104,6 @@ fable_handover.md
 # Bundled intel tier (ADR 0004): the signed SQLite bundle is the one database
 # the repo ships on purpose. Everything else above stays ignored.
 !lsadra/intel/data/intel-*.sqlite
+
+# Detection bench: downloaded public datasets (never committed; EVTX samples are GPL-3.0, test only)
+benchmarks/detection/.cache/
