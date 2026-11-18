@@ -223,7 +223,9 @@ def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
     """
     if get_user_by_username(username):
         return None
-    role = "ADMIN" if username.lower() == "admin" else "ANALYST"
+    # Self-registration never grants ADMIN, whatever the username. Admins are
+    # created by an operator with shell access: python -m lsadra.admin_cli.
+    role = "ANALYST"
     uid = str(uuid.uuid4())
     try:
         create_user(uid, username, hash_password(password), role)

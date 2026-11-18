@@ -60,6 +60,16 @@ To validate the full pipeline (parsers, rules, severity, narratives, DB, schedul
 venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 ```
 
+### First admin account
+
+Accounts created from the dashboard's sign-up form are analysts. Create the first admin from a shell on the server; after that, admins can change roles from the **Admin** page:
+
+```bash
+venv/Scripts/python -m lsadra.admin_cli create-admin --username alice   # prompts for a password (12+ characters)
+venv/Scripts/python -m lsadra.admin_cli promote --username bob          # make an existing account an admin
+# Docker: docker compose exec api python -m lsadra.admin_cli create-admin --username alice
+```
+
 ### Docker (production)
 
 ```bash
@@ -143,7 +153,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project Structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
 frontend/           React (Vite + TypeScript) SOC dashboard
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
