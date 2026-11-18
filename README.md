@@ -15,6 +15,7 @@
 [![Tests](https://img.shields.io/badge/smoke_tests-27%2F27_passing-brightgreen.svg?style=flat-square)](tests/test_v4_smoke.py)
 [![Security Tests](https://img.shields.io/badge/security_regressions-44_passing-brightgreen.svg?style=flat-square)](tests/security/)
 [![CI](https://img.shields.io/github/actions/workflow/status/tsmanral/lsadra/ci.yml?branch=main&style=flat-square&logo=githubactions&logoColor=white&label=CI)](https://github.com/tsmanral/lsadra/actions/workflows/ci.yml)
+[![OpenSSF Scorecard](https://api.scorecard.dev/projects/github.com/tsmanral/lsadra/badge?style=flat-square)](https://scorecard.dev/viewer/?uri=github.com/tsmanral/lsadra)
 [![GitHub Stars](https://img.shields.io/github/stars/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra/stargazers)
 
 </div>
@@ -42,6 +43,8 @@ git clone https://github.com/tsmanral/lsadra.git
 cd lsadra
 py -3.12 -m venv venv            # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
+# Optional: CPU torch for the autoencoder model (the server runs without it)
+venv/Scripts/pip install --no-deps -r requirements/torch.txt
 
 # 2. Start the API server in local dev mode (creates the database on first launch).
 #    Dev mode uses a per-boot JWT secret; CORS lets the dashboard call the API.
@@ -84,7 +87,16 @@ docker compose up -d
 
 `LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
 
-This starts the API (`127.0.0.1:8000`) and the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), both published on the host's loopback only, plus an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+This starts the API (`127.0.0.1:8000`) and the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), both published on the host's loopback only, plus an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. The legacy Streamlit dashboard is off by default; `docker compose --profile legacy up -d` starts it on `127.0.0.1:8501`. The image builds in two stages from a digest-pinned `python:3.12-slim`, installs only hash-checked dependencies, and runs as an unprivileged user (uid 10001) that can write only `/app/data` and `/app/logs`.
+
+A versioned image is published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release, only after the full CI suite passes on the tagged commit. Each image carries an SBOM and SLSA provenance, a GitHub attestation and a keyless Sigstore signature. Verify one before you run it:
+
+```bash
+gh attestation verify oci://ghcr.io/tsmanral/lsadra:<version> --owner tsmanral
+cosign verify ghcr.io/tsmanral/lsadra:<version> \
+  --certificate-identity-regexp '^https://github.com/tsmanral/lsadra/.github/workflows/release.yml@refs/tags/v' \
+  --certificate-oidc-issuer https://token.actions.githubusercontent.com
+```
 
 ### Network exposure and TLS
 
@@ -238,6 +250,8 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table;
                     llm_redteam.py — runs the LLM injection corpus)
+requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools; see requirements/README.md
+                    (lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
@@ -248,10 +262,10 @@ docs/               Documentation tree
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix, DCO, commitlint, strict docs build, release, security scanning, label sync, Discord notifications
+.github/workflows/  CI matrix, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
+requirements.txt    Full install from the hash-locked files in requirements/ (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
 requirements-docs.txt  Pinned docs-site toolchain (MkDocs Material); `mkdocs build --strict` runs in CI
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
@@ -285,7 +299,7 @@ LSADRA treats logs as **attacker-controlled input** — they reach parsers, the 
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
-- **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
+- **Supply chain:** hash-locked Python dependencies ([`requirements/`](requirements/)) and SHA-pinned Actions; secret scanning on every PR diff plus a weekly full-history scan; dependency review, `pip-audit` and `npm audit` on every PR and weekly; CodeQL; `zizmor` on workflow changes; a ruff security-rule ratchet; OpenSSF Scorecard; Dependabot for pip/npm/Actions/Docker. Release images are built only after CI passes and ship with an SBOM, SLSA provenance, a GitHub attestation and a Sigstore signature (see [Docker](#docker-production)).
 
 ## License
 
