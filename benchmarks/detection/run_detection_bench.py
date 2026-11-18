@@ -250,12 +250,16 @@ class ProductionTrainer:
     if it passes the real canary (``run_canary``), otherwise the full
     ``RETRAIN_COOLDOWN_SECONDS`` applies before the next attempt. The bench has
     no incidents, so the open-incident exclusion never removes anything.
+    Once trained, it retrains each time the stored event count has grown by
+    ``AUTO_RETRAIN_GROWTH`` (``_maybe_growth_retrain``).
     """
 
     def __init__(self, orch) -> None:
         self.orch = orch
         self.next_allowed = -math.inf
         self.attempts: List[Dict[str, Any]] = []
+        self.trained_on: Optional[int] = None
+        self.growth_base: Optional[int] = None
 
     def maybe_train(self, now: float, stored: List[Dict[str, Any]], results: Dict[int, Dict[str, Any]]) -> None:
         from lsadra import config as cfg
@@ -264,8 +268,17 @@ class ProductionTrainer:
         from lsadra.models.ensemble_model import EnsembleModel
         from lsadra.models.statistical_baseline import StatisticalBaselineModel
 
-        if self.orch._trained or now < self.next_allowed:
+        from lsadra.detection.detection_orchestrator import growth_retrain_due
+
+        if now < self.next_allowed:
             return
+        trigger = "auto"
+        if self.orch._trained:
+            clock = len(stored)  # stored-event count, as the newest event id is in the product
+            if not growth_retrain_due(clock, self.growth_base, self.trained_on):
+                return
+            self.growth_base = clock
+            trigger = "auto-growth"
         recent = stored[-cfg.TRAINING_MAX_EVENTS:]
         events = [r for r in recent if not results.get(r["id"], {}).get("is_anomaly")]
         excluded_anomalies = len(recent) - len(events)
@@ -273,7 +286,7 @@ class ProductionTrainer:
         attempt: Dict[str, Any] = {
             "at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"),
             "events": len(events), "excluded_anomalies": excluded_anomalies,
-            "excluded_device_cap": capped,
+            "excluded_device_cap": capped, "trigger": trigger,
         }
         self.attempts.append(attempt)
         df = _features(events) if len(events) >= cfg.MIN_TRAINING_EVENTS else None
@@ -302,6 +315,8 @@ class ProductionTrainer:
         self.orch.baseline, self.orch.ensemble, self.orch.autoencoder = baseline, ensemble, autoencoder
         self.orch.shadow_ecod = fit_shadow_ecod(df)
         self.orch._trained = True
+        self.trained_on = len(df)
+        self.growth_base = max(self.growth_base or 0, len(df))
 
 
 def _clean(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:

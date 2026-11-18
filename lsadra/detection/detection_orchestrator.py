@@ -86,6 +86,8 @@ class DetectionOrchestrator:
         self._batch_failures: Dict[str, int] = {}  # device_id → consecutive failed runs
         self._trained = False
         self._generation = None
+        self._trained_on: Optional[int] = None   # usable events behind the live models
+        self._growth_base: Optional[int] = None  # event clock at the last training run
 
         # Attempt to load persisted models
         self._load_models()
@@ -109,6 +111,7 @@ class DetectionOrchestrator:
             self.ensemble = ensemble
             self._trained = True
             logger.info("Loaded persisted ensemble model.")
+            self._note_trained_on(_card_event_count(store))
         except ModelIntegrityError as exc:
             self.ensemble = EnsembleModel()
             self._trained = False
@@ -243,6 +246,7 @@ class DetectionOrchestrator:
         self.shadow_ecod = ecod
         self._trained = True
         self._generation = lifecycle.bump_generation()
+        self._note_trained_on(int(selection.get("event_count", 0) or len(df)))
 
     def _register_and_card(
         self,
@@ -442,6 +446,8 @@ class DetectionOrchestrator:
         # If models still aren't trained, try training now
         if not self._trained:
             self._auto_train(device_id)
+        else:
+            self._maybe_growth_retrain(max(int(ev.get("id", 0) or 0) for ev in new_events))
 
         # Run full detection pipeline
         results = self._run_layers(df)
@@ -493,6 +499,36 @@ class DetectionOrchestrator:
             logger.debug("Auto-training not started: %s", exc.reason)
         except Exception:
             logger.exception("Auto-training failed for device %s", device_id)
+
+    def _note_trained_on(self, event_count: Optional[int]) -> None:
+        """Remember how many events the live models learned from (growth retrain base)."""
+        self._trained_on = event_count
+        if event_count:
+            self._growth_base = max(getattr(self, "_growth_base", None) or 0, event_count)
+
+    def _maybe_growth_retrain(self, event_clock: int) -> None:
+        """Retrain once stored events have grown by AUTO_RETRAIN_GROWTH since the last run.
+
+        *event_clock* is the newest event id, a free and monotonic count of
+        stored events, so nothing is read from the database until a run is due.
+        Only while the live models saw fewer than TRAINING_MAX_EVENTS events.
+        The base moves to the clock before every attempt, so a candidate the
+        canary rejects is retried only after the next doubling, not every
+        cooldown.
+        """
+        if not growth_retrain_due(event_clock, getattr(self, "_growth_base", None),
+                                  getattr(self, "_trained_on", None)):
+            return
+        if lifecycle.is_training() or lifecycle.cooldown_remaining() > 0:
+            return
+        self._growth_base = event_clock
+        try:
+            result = self.retrain(trigger="auto-growth")
+            logger.info("Growth retrain at %d stored events: %s", event_clock, result.get("status"))
+        except lifecycle.TrainingRefused as exc:
+            logger.debug("Growth retrain not started: %s", exc.reason)
+        except Exception:
+            logger.exception("Growth retrain failed.")
 
     # ── batch mode ────────────────────────────────────────────────────────
 
@@ -636,6 +672,25 @@ class DetectionOrchestrator:
             })
 
         return merged
+
+
+def _card_event_count(store: Any) -> Optional[int]:
+    """Training-set size recorded on the live ensemble's model card, if any."""
+    try:
+        card = store.load_json(lifecycle.card_file("ensemble"))
+        return int(card["training_data"]["event_count"])
+    except Exception:
+        return None
+
+
+def growth_retrain_due(event_clock: int, base: Optional[int], trained_on: Optional[int]) -> bool:
+    """Whether the stored-event count has outgrown the live models (see ``_maybe_growth_retrain``)."""
+    growth = config.AUTO_RETRAIN_GROWTH
+    if growth <= 1 or not base or trained_on is None:
+        return False
+    if trained_on >= config.TRAINING_MAX_EVENTS:
+        return False
+    return event_clock >= base * growth
 
 
 def fit_shadow_ecod(df: pd.DataFrame) -> Optional[ECODModel]:
