@@ -32,6 +32,15 @@ logger = logging.getLogger(__name__)
 # V3 rule (preserved exactly)
 # ============================================================================
 
+# What evaluate_rules returns when no rule matches. Callers compare against it.
+NO_RULE_MATCH: Tuple[str, str] = ("None", "N/A")
+# Label for an anomaly flagged by layers 1-3 that no rule explains. It carries
+# no ATT&CK technique: guessing one (this used to say T1190) mislabels the
+# alert and, because "no match" was not distinguishable from a match, it also
+# turned every scored event into an alert.
+UNMAPPED_ANOMALY: Tuple[str, str] = ("Unknown Anomalous Activity", "N/A")
+
+
 def evaluate_rules(feature_row: Dict[str, Any]) -> Tuple[str, str]:
     """
     Evaluate V3 heuristic rules to classify an anomaly.
@@ -40,7 +49,8 @@ def evaluate_rules(feature_row: Dict[str, Any]) -> Tuple[str, str]:
         feature_row: Dict containing behavioural and temporal features.
 
     Returns:
-        (Threat Name, MITRE ATT&CK Technique ID).
+        (Threat Name, MITRE ATT&CK Technique ID), or ``NO_RULE_MATCH``
+        (``("None", "N/A")``) when no rule matches.
     """
     failures   = float(feature_row.get("failures_15m", 0))
     users      = float(feature_row.get("unique_users_15m", 0))
@@ -63,7 +73,7 @@ def evaluate_rules(feature_row: Dict[str, Any]) -> Tuple[str, str]:
         return "Low and Slow Attack", "T1110.001"
     if success > 0 and off_hours == 1 and failures == 0:
         return "Anomalous Off-Hour Access", "T1078"
-    return "Unknown Anomalous Activity", "T1190"
+    return NO_RULE_MATCH
 
 
 # ============================================================================
