@@ -43,14 +43,19 @@ cd lsadra
 py -3.12 -m venv venv            # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt   # Linux/macOS: venv/bin/pip
 
-# 2. Start the API server (creates the database on first launch)
-venv/Scripts/python -m uvicorn server:app --host 0.0.0.0 --port 8000
+# 2. Start the API server in local dev mode (creates the database on first launch).
+#    Dev mode uses a per-boot JWT secret and plain HTTP; CORS lets the dashboard call the API.
+#    PowerShell: $env:LSADRA_DEV_MODE="true"; $env:LSADRA_CORS_ORIGINS="http://localhost:5173"
+export LSADRA_DEV_MODE=true LSADRA_CORS_ORIGINS=http://localhost:5173
+venv/Scripts/python -m uvicorn server:app --host 127.0.0.1 --port 8000
 
 # 3. In a second terminal, start the React dashboard
 cd frontend
 npm install
 npm run dev
 ```
+
+Without `LSADRA_DEV_MODE=true` the server refuses to start (it requires `LSADRA_JWT_SECRET` and TLS outside dev mode), and without `LSADRA_CORS_ORIGINS` the browser blocks the dashboard's API calls. Never use dev mode in production. To fill the dashboard with synthetic demo data, run `venv/Scripts/python scripts/seed_demo.py` in a third terminal.
 
 Open **http://localhost:5173**, register an account, and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
 
@@ -160,6 +165,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix, DCO, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
+requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
@@ -191,7 +197,7 @@ This project follows the [Contributor Covenant Code of Conduct](CODE_OF_CONDUCT.
 LSADRA treats logs as **attacker-controlled input** — they reach parsers, the detection pipeline, and (later) an LLM and a RAG index. The threat model is written down in [`docs/threat-models/`](docs/threat-models/).
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
-- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/) — 44 tests, run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Regression suite:** every remediated finding is pinned by a test in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
 - **Supply chain:** secret scanning on every PR diff plus a weekly full-history scan, Dependabot for pip/npm/Actions, and signed release artifacts from M5 onward.
 
 ## License
