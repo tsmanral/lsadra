@@ -148,6 +148,30 @@ The dashboard signs in only through `POST /api/auth/login`. There is no offline 
 
 The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
 
+## Model Integrity and Training
+
+Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
+
+Training is gated:
+
+- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies and events inside an open or investigating incident. With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
+- **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
+- **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
+- **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
+- **Audit trail and model cards.** Every attempt (promoted, rejected, skipped, refused, rolled back) is a row in `model_training_runs`. Each promoted model gets a JSON model card: type, file hash, features, training window and event counts, exclusions, canary result and library versions.
+
+Per-entity baselines are saved as plain JSON and survive restarts. Drift is measured daily (and on `POST /api/dashboard/run-drift`): the last `LSADRA_DRIFT_WINDOW_HOURS` of events (default 24) are compared by PSI against quantiles stored at training time; a drifted feature marks the models stale and logs a warning that the cause may be poisoned training data. `GET /api/models/status` (ADMIN, ANALYST) reports model cards, baseline coverage, the latest drift per feature and recent training runs.
+
+## LLM Guardrails (before the LLM ships)
+
+The optional LLM tier (M4, [ADR 0007](docs/architecture/adr/)) will triage incidents and recommend next steps; it is never on the detection path and never acts. Its controls are in place first, in `lsadra/llm/`:
+
+- **Fixed output.** The model must return JSON matching `TRIAGE_SCHEMA` (summary, verdict, confidence, cited event ids, up to five recommended actions from a closed list). The runtime enforces it as a grammar and LSADRA validates it again: no extra keys, every cited event id must belong to the incident, every action target must be a host, user or IP from that evidence, and no URLs, links, HTML or tool calls anywhere. Anything else is discarded and the deterministic narrative is shown.
+- **Spotlighting.** Log-derived text is cleaned and placed only inside a data block fenced by a random per-request delimiter that never occurs in the data.
+- **Recommend-only.** The action broker can only store recommendations as `PROPOSED` actions (`proposed_actions` table); an ADMIN approves or rejects them, and approval executes nothing.
+- **Local by default.** A bring-your-own-model endpoint must be on this machine (loopback or `localhost`) unless `LSADRA_LLM_ALLOW_REMOTE=true`, and a remote one must use HTTPS. Downloaded GGUF/ONNX weights load only if their SHA-256 matches a pin in `lsadra/llm/pinned_models.json` or `LSADRA_LLM_MODEL_SHA256`.
+- **Red-team corpus.** [`demo/llm_redteam/`](demo/llm_redteam/) holds synthetic injection payloads with deterministic scorers. CI runs them offline on every PR; `python scripts/llm_redteam.py --endpoint http://127.0.0.1:8080` runs them against a local `llama-server`. Add payloads by PR.
+
 ## Architecture
 
 ```mermaid
@@ -187,8 +211,10 @@ tests/              Test suite + end-to-end smoke tests
   storage/          Storage contract suite — every public storage function, on the real migrations
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
+  llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
-                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table)
+                    detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table;
+                    llm_redteam.py — runs the LLM injection corpus)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree

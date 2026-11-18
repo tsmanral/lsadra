@@ -128,27 +128,21 @@ def render():
         if st.button("🚀 Retrain Models Now", use_container_width=True, type="primary"):
             with st.spinner("Training models... this may take a moment."):
                 try:
+                    from lsadra.detection import model_lifecycle as lifecycle
                     from lsadra.detection.detection_orchestrator import DetectionOrchestrator
-                    from lsadra.features.feature_extractor import build_features
 
-                    conn = get_connection()
-                    rows = conn.execute(
-                        "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT 10000"
-                    ).fetchall()
-                    conn.close()
-
-                    if not rows:
-                        st.warning("No events found for training.")
+                    # Same controls as the API: one run at a time, cooldown,
+                    # clean training data and the canary before promotion.
+                    result = DetectionOrchestrator().retrain(trigger="other")
+                    if result.get("status") == "promoted":
+                        st.success(f"✅ Models retrained on {result.get('events', 0):,} events!")
+                        st.rerun()
+                    elif result.get("status") == "rejected":
+                        st.warning("The new models failed the canary check; the current models were kept.")
                     else:
-                        events = [dict(r) for r in rows]
-                        df = build_features(events)
-                        if df.empty:
-                            st.warning("Feature extraction returned empty DataFrame.")
-                        else:
-                            orchestrator = DetectionOrchestrator()
-                            orchestrator.train(df)
-                            st.success(f"✅ Models retrained on {len(df):,} events!")
-                            st.rerun()
+                        st.warning(f"Not retrained: {result.get('detail', result.get('status'))}")
+                except lifecycle.TrainingRefused as e:
+                    st.warning(e.reason)
                 except Exception as e:
                     st.error(f"Retrain failed: {e}")
 
