@@ -83,7 +83,7 @@ const RemediationPlaybook = () => {
         {/* Right Col: Terminal Console */}
         <div className="col-span-7 hud-panel flex flex-col overflow-hidden">
           <div className="bg-[#0a0f18] px-4 py-2 border-b border-[rgba(0,240,255,0.15)] flex items-center justify-between">
-            <span className="font-display text-sm text-[var(--color-primary)] tracking-widest flex items-center"><Terminal size={14} className="mr-2"/> AUTOMATION_CONSOLE</span>
+            <span className="font-display text-sm text-[var(--color-primary)] tracking-widest flex items-center"><Terminal size={14} className="mr-2"/> AUTOMATION_CONSOLE · SIMULATION</span>
             <span className="w-2 h-2 rounded-full bg-[var(--color-safe)] shadow-[0_0_5px_var(--color-safe)] animate-pulse"></span>
           </div>
           <div className="p-4 font-mono text-xs text-gray-300 flex-1 overflow-y-auto bg-black">
@@ -91,12 +91,12 @@ const RemediationPlaybook = () => {
             <div className="mb-1 text-white">&gt; Executing step: Identify Source Endpoint</div>
             <div className="mb-1 text-[var(--color-primary)]">[INFO] Correlating events for INC-4092...</div>
             <div className="mb-1 text-[var(--color-primary)]">[INFO] Source IP identified: 192.168.1.105</div>
-            <div className="mb-4 text-[var(--color-safe)]">[SUCCESS] Step completed.</div>
+            <div className="mb-4 text-[var(--color-safe)]">[DRY-RUN] Step simulated, not executed.</div>
             
             <div className="mb-1 text-white">&gt; Executing step: Isolate Compromised Endpoint</div>
-            <div className="mb-1 text-[var(--color-primary)]">[INFO] Initiating network containment via EDR API...</div>
-            <div className="mb-1 text-[var(--color-primary)]">[INFO] Updating firewall group: BLOCK_192.168.1.105</div>
-            <div className="mb-4 text-[var(--color-safe)]">[SUCCESS] Host isolated successfully.</div>
+            <div className="mb-1 text-[var(--color-primary)]">[SIMULATED] Network containment via EDR API (not run)</div>
+            <div className="mb-1 text-[var(--color-primary)]">[SIMULATED] Firewall group update (not run)</div>
+            <div className="mb-4 text-[var(--color-safe)]">[DRY-RUN] Isolation simulated. No host was isolated.</div>
 
             <div className="mb-1 text-white">&gt; Waiting for manual trigger: Revoke Privileged Access</div>
             <div className="mb-1 text-[var(--color-warning)] blink">[WAITING] Action required by operator...</div>
