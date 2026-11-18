@@ -84,6 +84,8 @@ py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv
 venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
 ```
 
+Every package is pinned and hash-checked; see [requirements/README.md](requirements/README.md).
+
 Start the API in **local dev mode**. Outside dev mode the server refuses to start without a
 `LSADRA_JWT_SECRET` and TLS, which is what you want in production and not what you want on your
 laptop. `LSADRA_CORS_ORIGINS` lets the dashboard on port 5173 call the API.

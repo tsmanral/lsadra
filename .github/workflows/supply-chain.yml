@@ -1,0 +1,77 @@
+name: supply-chain
+
+# Dependency vulnerability gates (audit gap G-23). Runs on every PR, on main,
+# and weekly so advisories published after a merge still surface.
+on:
+  pull_request:
+  push:
+    branches: [main]
+  schedule:
+    - cron: "41 4 * * 1"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: supply-chain-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  dependency-review:
+    name: dependency-review (new deps in this PR)
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/dependency-review-action@bbc44d14a204704ccc493733616cd1e93a0321ec # v5.0.1
+        with:
+          # Blocks a PR that adds or bumps to a dependency with a known
+          # high or critical advisory.
+          fail-on-severity: high
+
+  pip-audit:
+    name: pip-audit (Python locks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install pinned tools (hash-checked)
+        run: pip install --require-hashes -r requirements/ci-tools.txt
+      - name: Audit every hash-locked requirement file
+        # --disable-pip: audit the pinned versions as written, no resolver run.
+        run: |
+          pip-audit --require-hashes --disable-pip --progress-spinner off \
+            -r requirements/base.txt \
+            -r requirements/ml.txt \
+            -r requirements/ui.txt \
+            -r requirements/dev.txt \
+            -r requirements/ci-tools.txt
+
+  npm-audit:
+    name: npm audit (frontend lockfile)
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: frontend
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Report all advisories (high and below are listed, not blocking)
+        run: npm audit || true
+      - name: Gate on critical advisories
+        # High advisories without an upstream fix (e.g. a ReDoS in build-time
+        # glob matching) would otherwise block every PR; dependency-review
+        # still blocks PRs that introduce new high ones.
+        run: npm audit --audit-level=critical
