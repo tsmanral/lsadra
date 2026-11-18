@@ -98,6 +98,8 @@ curl -X POST http://localhost:8000/api/events/raw \
 
 Per-source ingestion health is available at `GET /api/events/stats`.
 
+**Posture checks** — the Linux agent also runs about ten read-only host checks once a day (SSH root login and password authentication, an active firewall, automatic updates, disk encryption, system logging, extra UID-0 accounts, `/etc/shadow` and `/etc/passwd` permissions), each tagged with the CIS Controls v8.1 IG1 safeguard it supports. Results arrive as `posture_check` events with `check_id`, `cis_safeguards`, `status` (`pass`, `fail`, `not_applicable`, `error`) and `detail` attributes. The checks only read files and run allow-listed status commands; they never change the host. Set `posture_interval_hours: 0` in the agent config to turn them off, or run `python3 posture.py` on a host to see the report locally. The checks live in [`lsadra/endpoint_agent/posture_checks_linux.yml`](lsadra/endpoint_agent/posture_checks_linux.yml); the agent needs `posture.py` and that file next to `linux_agent.py`.
+
 ## Live Alerts
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
