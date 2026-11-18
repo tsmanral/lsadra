@@ -190,6 +190,7 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
 scripts/            Operator tooling (seed_demo.py — replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py — refreshes the pinned ATT&CK table)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
+  detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
 docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
@@ -259,6 +260,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.
 - **Event schema v1 frozen and enforced.** [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json) is the collector ↔ core contract; `POST /api/events/batch` rejects any event that violates it with a `422` naming the field, and a contract test keeps the core's model and the schema from drifting ([ADR 0006](docs/architecture/adr/0006-event-schema-v1-freeze.md)).
 - **Ingest benchmark:** [`benchmarks/`](benchmarks/) drives the real API at rising rates and records sustained events/s, request latency percentiles, event-loop lag and RSS. The committed baseline for today's synchronous stack is in [`benchmarks/README.md`](benchmarks/README.md) — M1 is measured against it.
+- **Detection bench:** [`benchmarks/detection/`](benchmarks/detection/) replays labelled attacks (the demo corpus plus pinned subsets of splunk/attack_data and EVTX-ATTACK-SAMPLES, downloaded on demand and never committed) inside seeded synthetic background traffic through the real detection pipeline, and records the true-positive rate per MITRE ATT&CK technique at 1 % and 0.1 % false-positive rate plus alerts per host per day. The committed baseline is [`benchmarks/detection/results/baseline-2026-11-18.md`](benchmarks/detection/results/baseline-2026-11-18.md); detection changes are measured against it ([ADR 0007](docs/architecture/adr/0007-detection-stack.md)).
 
 **What's next (M1 — async core)**
 
