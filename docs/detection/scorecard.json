@@ -1,0 +1,442 @@
+{
+  "attack_version": "20.1",
+  "ocsf_version": "1.9.0",
+  "rule_count": 19,
+  "summary": {
+    "attack_events": 89,
+    "attack_events_alerted": 50,
+    "benign_events": 99,
+    "benign_events_alerted": 0,
+    "scenarios_detected": 3,
+    "scenarios_with_attacks": 3
+  },
+  "scenarios": {
+    "benign_background": {
+      "events": 64,
+      "attack_events": 0,
+      "benign_events": 64,
+      "attack_events_alerted": 0,
+      "benign_events_alerted": 0,
+      "technique_named_correctly": 0,
+      "detected": false,
+      "detection_scenario": true
+    },
+    "data_movement_offhours": {
+      "events": 41,
+      "attack_events": 25,
+      "benign_events": 16,
+      "attack_events_alerted": 7,
+      "benign_events_alerted": 0,
+      "technique_named_correctly": 0,
+      "detected": true,
+      "detection_scenario": true
+    },
+    "injection_attempts": {
+      "events": 29,
+      "attack_events": 29,
+      "benign_events": 0,
+      "attack_events_alerted": 0,
+      "benign_events_alerted": 0,
+      "technique_named_correctly": 0,
+      "detected": false,
+      "detection_scenario": false
+    },
+    "persistence_new_service": {
+      "events": 35,
+      "attack_events": 20,
+      "benign_events": 15,
+      "attack_events_alerted": 6,
+      "benign_events_alerted": 0,
+      "technique_named_correctly": 6,
+      "detected": true,
+      "detection_scenario": true
+    },
+    "ssh_bruteforce": {
+      "events": 48,
+      "attack_events": 44,
+      "benign_events": 4,
+      "attack_events_alerted": 37,
+      "benign_events_alerted": 0,
+      "technique_named_correctly": 36,
+      "detected": true,
+      "detection_scenario": true
+    }
+  },
+  "rules": {
+    "lsadra-auth-credential-stuffing": {
+      "title": "Credential Stuffing",
+      "version": 2,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1110.004"
+      ],
+      "tactics": [
+        "Credential Access"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "ssh_bruteforce",
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "ssh_bruteforce"
+      ]
+    },
+    "lsadra-auth-brute-force": {
+      "title": "Brute Force Attack",
+      "version": 2,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1110.001"
+      ],
+      "tactics": [
+        "Credential Access"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "ssh_bruteforce",
+      "alerts_on_attack_events": 36,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "ssh_bruteforce"
+      ]
+    },
+    "lsadra-auth-low-and-slow": {
+      "title": "Low and Slow Attack",
+      "version": 2,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1110.001"
+      ],
+      "tactics": [
+        "Credential Access"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-auth-success-after-failures": {
+      "title": "Successful Login After Repeated Failures",
+      "version": 1,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1110.001"
+      ],
+      "tactics": [
+        "Credential Access"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "ssh_bruteforce",
+      "alerts_on_attack_events": 1,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "ssh_bruteforce"
+      ]
+    },
+    "lsadra-auth-off-hours-access": {
+      "title": "Anomalous Off-Hour Access",
+      "version": 2,
+      "status": "stable",
+      "level": "low",
+      "techniques": [
+        "T1078"
+      ],
+      "tactics": [
+        "Initial Access",
+        "Persistence",
+        "Privilege Escalation",
+        "Stealth"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 5,
+      "fired_in": [
+        "benign_background",
+        "ssh_bruteforce"
+      ]
+    },
+    "lsadra-net-port-scan": {
+      "title": "Port Scan",
+      "version": 2,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1046"
+      ],
+      "tactics": [
+        "Discovery"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-net-large-outbound-transfer": {
+      "title": "Large Outbound Transfer",
+      "version": 2,
+      "status": "stable",
+      "level": "low",
+      "techniques": [
+        "T1048"
+      ],
+      "tactics": [
+        "Exfiltration"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "data_movement_offhours",
+      "alerts_on_attack_events": 2,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 6,
+      "fired_in": [
+        "benign_background",
+        "data_movement_offhours"
+      ]
+    },
+    "lsadra-file-hidden-staging-dir": {
+      "title": "Data Staged in a Hidden Directory",
+      "version": 1,
+      "status": "test",
+      "level": "medium",
+      "techniques": [
+        "T1074.001"
+      ],
+      "tactics": [
+        "Collection"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "data_movement_offhours",
+      "alerts_on_attack_events": 5,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "data_movement_offhours"
+      ]
+    },
+    "lsadra-proc-encoded-powershell": {
+      "title": "Encoded PowerShell Command",
+      "version": 1,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1059.001"
+      ],
+      "tactics": [
+        "Execution"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "persistence_new_service",
+      "alerts_on_attack_events": 1,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "persistence_new_service"
+      ]
+    },
+    "lsadra-proc-lolbin-proxy-execution": {
+      "title": "Suspicious LOLBin Execution",
+      "version": 2,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1218"
+      ],
+      "tactics": [
+        "Stealth"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-proc-suspicious-cmdline": {
+      "title": "Suspicious Command Line",
+      "version": 1,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1059"
+      ],
+      "tactics": [
+        "Execution"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-persist-service-install": {
+      "title": "New Service Installed",
+      "version": 2,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1543.003",
+        "T1543.002"
+      ],
+      "tactics": [
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "persistence_new_service",
+      "alerts_on_attack_events": 1,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "persistence_new_service"
+      ]
+    },
+    "lsadra-persist-service-registry": {
+      "title": "Service Registry Key Modified",
+      "version": 1,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1543.003"
+      ],
+      "tactics": [
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "persistence_new_service",
+      "alerts_on_attack_events": 2,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "persistence_new_service"
+      ]
+    },
+    "lsadra-persist-registry-run-key": {
+      "title": "Autostart Registry Key Modified",
+      "version": 1,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1547.001"
+      ],
+      "tactics": [
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-persist-scheduled-task": {
+      "title": "Scheduled Task Created",
+      "version": 2,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1053.005"
+      ],
+      "tactics": [
+        "Execution",
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": "persistence_new_service",
+      "alerts_on_attack_events": 2,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": [
+        "persistence_new_service"
+      ]
+    },
+    "lsadra-persist-cron-modified": {
+      "title": "Crontab Modified",
+      "version": 2,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1053.003"
+      ],
+      "tactics": [
+        "Execution",
+        "Persistence",
+        "Privilege Escalation"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-persist-local-account-created": {
+      "title": "Local Account Created",
+      "version": 1,
+      "status": "stable",
+      "level": "medium",
+      "techniques": [
+        "T1136.001"
+      ],
+      "tactics": [
+        "Persistence"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-impair-event-log-cleared": {
+      "title": "Event Log Cleared",
+      "version": 1,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1685.005"
+      ],
+      "tactics": [
+        "Defense Impairment"
+      ],
+      "evaluated_by": "event",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    },
+    "lsadra-lateral-remote-services": {
+      "title": "Lateral Movement",
+      "version": 2,
+      "status": "stable",
+      "level": "high",
+      "techniques": [
+        "T1021"
+      ],
+      "tactics": [
+        "Lateral Movement"
+      ],
+      "evaluated_by": "scheduler",
+      "corpus_scenario": null,
+      "alerts_on_attack_events": 0,
+      "alerts_on_benign_events": 0,
+      "label_only_matches": 0,
+      "fired_in": []
+    }
+  }
+}

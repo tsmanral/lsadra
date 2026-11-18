@@ -15,8 +15,10 @@ nav:
       - "0003 · Apple-less strategy": architecture/adr/0003-apple-less-strategy.md
       - "0004 · Intel two-tier": architecture/adr/0004-intel-two-tier-licensing.md
       - "0006 · Event schema v1 freeze": architecture/adr/0006-event-schema-v1-freeze.md
+      - "0007 · Detection stack": architecture/adr/0007-detection-stack.md
       - "0008 · Lite and Team line": architecture/adr/0008-lite-team-line.md
   - Threat models: threat-models/README.md
   - Contracts: contracts/README.md
+  - Detection scorecard: detection/scorecard.md
   - Security: security/README.md
   - Contributing: contributing/README.md
