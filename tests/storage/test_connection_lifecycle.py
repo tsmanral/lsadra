@@ -102,6 +102,15 @@ CALLS = {
     "get_fp_rate_by_source_type": (None,),
     "update_ingestion_stats": (None, "ssh_log", 1, 0),
     "get_ingestion_stats": (None,),
+    "insert_training_run": ("api", "user-1", "promoted"),
+    "finish_training_run": (1, "promoted"),
+    "get_training_runs": (),
+    "get_training_events": (10,),
+    "get_open_incident_windows": (),
+    "get_recent_events": (10,),
+    "insert_proposed_action": (1, "escalate", "dev-1"),
+    "get_proposed_actions": (),
+    "decide_proposed_action": (1, "APPROVED", "user-1"),
 }
 
 # Functions that accept a caller-owned connection as their first argument.

@@ -16,21 +16,24 @@ Runs the full detection stack:
 import json
 import logging
 import time
+from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from lsadra import config
 from lsadra.config import (
     DETECTION_THROTTLE_SECONDS,
     MIN_BASELINE_EVENTS,
-    MODEL_DIR,
 )
+from lsadra.detection import model_lifecycle as lifecycle
 from lsadra.detection.incident_manager import IncidentManager
 from lsadra.detection.severity import apply_rule_floor, compute_severity_score, severity_context
 from lsadra.features.feature_extractor import FEATURE_COLS, build_features
 from lsadra.features.rule_features import RULE_LOOKBACK_MINUTES, build_rule_features
 from lsadra.models.autoencoder_model import AutoencoderModel
 from lsadra.models.ensemble_model import EnsembleModel
+from lsadra.models.integrity import ModelIntegrityError
 from lsadra.models.statistical_baseline import StatisticalBaselineModel
 from lsadra.session.session_builder import SessionBuilder
 from lsadra.session.user_profile_store import UserProfileStore
@@ -39,9 +42,11 @@ from lsadra.storage.database import (
     get_event_count_for_device,
     get_events_before,
     get_events_since,
+    get_latest_model,
     get_watermark,
     increment_device_event_count,
     insert_anomaly,
+    insert_training_run,
     register_model,
     set_watermark,
     update_device_status,
@@ -59,7 +64,12 @@ class DetectionOrchestrator:
     Respects the MIN_BASELINE_EVENTS threshold before running ML detection.
     """
 
-    def __init__(self) -> None:
+    # Model generation this instance loaded. None (also the class default, for
+    # instances built without __init__ whose layers are injected) never reloads.
+    _generation: Optional[int] = None
+
+    def __init__(self, model_dir: Optional[Path] = None) -> None:
+        self.model_dir = Path(model_dir) if model_dir else lifecycle.model_dir()
         self.baseline = StatisticalBaselineModel()
         self.ensemble = EnsembleModel()
         self.autoencoder = AutoencoderModel()
@@ -68,58 +78,255 @@ class DetectionOrchestrator:
         self.incident_manager = IncidentManager()
         self._last_run: Dict[str, float] = {}  # device_id → timestamp of last run
         self._trained = False
+        self._generation = None
 
         # Attempt to load persisted models
         self._load_models()
 
+    # ── persistence ───────────────────────────────────────────────────────
+
     def _load_models(self) -> None:
-        """Try to load persisted models from disk (cold start)."""
-        try:
-            ensemble_path = MODEL_DIR / "ensemble.joblib"
-            if ensemble_path.exists():
-                self.ensemble = EnsembleModel.load(ensemble_path)
-                self._trained = True
-                logger.info("Loaded persisted ensemble model.")
-        except Exception:
-            logger.info("No persisted ensemble found — will train from scratch.")
+        """Load persisted models from disk (cold start, after a swap or a rollback).
+
+        Every file is verified against the folder's authenticated manifest
+        before it is deserialized (G-17). Anything that does not verify is
+        skipped and the models retrain.
+        """
+        self._generation = lifecycle.generation()
+        store = lifecycle.current_store(self.model_dir)
 
         try:
-            if self.autoencoder.load():
-                logger.info("Loaded persisted autoencoder model.")
+            ensemble = store.load_joblib(lifecycle.ENSEMBLE_FILE)
+            if not isinstance(ensemble, EnsembleModel):
+                raise TypeError("ensemble file holds an unexpected type")
+            self.ensemble = ensemble
+            self._trained = True
+            logger.info("Loaded persisted ensemble model.")
+        except ModelIntegrityError as exc:
+            self.ensemble = EnsembleModel()
+            self._trained = False
+            if (self.model_dir / lifecycle.ENSEMBLE_FILE).exists():
+                logger.warning("Not loading the persisted ensemble: %s. Models will retrain.", exc)
+            else:
+                logger.info("No persisted ensemble found — will train from scratch.")
         except Exception:
-            logger.info("No persisted autoencoder found — will train from scratch.")
+            self.ensemble = EnsembleModel()
+            self._trained = False
+            logger.exception("Failed to load the persisted ensemble — will train from scratch.")
+
+        autoencoder = AutoencoderModel()
+        if autoencoder.load(self.model_dir / lifecycle.AUTOENCODER_FILE):
+            logger.info("Loaded persisted autoencoder model.")
+        self.autoencoder = autoencoder
+
+        try:
+            self.baseline = StatisticalBaselineModel.from_dict(
+                store.load_json(lifecycle.BASELINE_FILE)
+            )
+            logger.info("Loaded per-entity baselines (%d entities).", len(self.baseline._profiles))
+        except (ModelIntegrityError, ValueError, OSError) as exc:
+            self.baseline = StatisticalBaselineModel()
+            logger.info("No verified per-entity baselines: %s", exc)
+
+    def _reload_if_swapped(self) -> None:
+        """Pick up models another orchestrator in this process promoted or rolled back."""
+        if self._generation is not None and self._generation != lifecycle.generation():
+            logger.info("Model files changed in this process — reloading.")
+            self._load_models()
 
     # ── train (batch pre-load) ────────────────────────────────────────────
 
-    def train(self, df: pd.DataFrame) -> None:
+    def train(
+        self,
+        df: pd.DataFrame,
+        *,
+        trigger: str = "other",
+        requested_by: Optional[str] = None,
+        selection: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
         """
-        Train all model layers on historical baseline data.
+        Fit a candidate on *df*, gate it with the canary, and promote it if it passes.
+
+        The live models keep serving until promotion. A rejected candidate is
+        discarded and recorded. Returns a summary with ``status`` (``promoted``
+        or ``rejected``), the canary result and the training selection.
 
         Args:
             df: DataFrame with feature columns (output of ``build_features``).
         """
-        self.baseline.train(df)
-        self.ensemble.train(df)
-        self.autoencoder.train(df)
+        selection = selection or lifecycle.describe_frame(df)
+
+        cand_baseline = StatisticalBaselineModel()
+        cand_ensemble = EnsembleModel()
+        cand_autoencoder = AutoencoderModel()
+        cand_baseline.train(df)
+        cand_ensemble.train(df)
+        cand_autoencoder.train(df)
+
+        canary = lifecycle.run_canary(cand_ensemble, cand_autoencoder)
+        summary: Dict[str, Any] = {
+            "status": "promoted" if canary["passed"] else "rejected",
+            "events": int(len(df)),
+            "canary": canary,
+            "selection": selection,
+        }
+        if not canary["passed"]:
+            logger.warning(
+                "Candidate models rejected by the canary (%s); keeping the current models.",
+                json.dumps(canary.get("scenarios", {})),
+            )
+            self._record_run(trigger, requested_by, "rejected", selection, canary,
+                             "candidate no longer flags the canary attack scenarios")
+            return summary
+
+        self._promote(df, cand_baseline, cand_ensemble, cand_autoencoder,
+                      selection, canary, trigger)
+        self._record_run(trigger, requested_by, "promoted", selection, canary, "")
+        logger.info("DetectionOrchestrator: candidate promoted; all layers active.")
+        return summary
+
+    def _promote(
+        self,
+        df: pd.DataFrame,
+        baseline: StatisticalBaselineModel,
+        ensemble: EnsembleModel,
+        autoencoder: AutoencoderModel,
+        selection: Dict[str, Any],
+        canary: Dict[str, Any],
+        trigger: str,
+    ) -> None:
+        """Snapshot the current files to previous/, write the candidate, swap it in."""
+        store = lifecycle.current_store(self.model_dir)
+        previous = lifecycle.previous_store(self.model_dir)
+        if store.entries():
+            store.copy_verified_to(previous)
+
+        try:
+            ensemble.save(self.model_dir / lifecycle.ENSEMBLE_FILE)
+            if autoencoder.is_fitted:
+                autoencoder.save(self.model_dir / lifecycle.AUTOENCODER_FILE)
+            else:
+                store.remove(lifecycle.AUTOENCODER_FILE)
+            store.save_json(lifecycle.BASELINE_FILE, baseline.to_dict())
+            store.save_json(lifecycle.REFERENCE_FILE, lifecycle.reference_quantiles(df))
+            self._register_and_card(store, selection, canary, trigger)
+        except Exception:
+            logger.exception("Writing the promoted models failed — restoring the previous files.")
+            if previous.entries():
+                previous.copy_verified_to(store)
+            raise
+
+        self.baseline = baseline
+        self.ensemble = ensemble
+        self.autoencoder = autoencoder
         self._trained = True
-        logger.info("DetectionOrchestrator: all layers trained.")
+        self._generation = lifecycle.bump_generation()
 
-        # Persist models
-        self._save_models(event_count=len(df))
+    def _register_and_card(
+        self,
+        store: Any,
+        selection: Dict[str, Any],
+        canary: Dict[str, Any],
+        trigger: str,
+    ) -> None:
+        """Register each model version and write its model card (G-19)."""
+        files = {
+            "ensemble": lifecycle.ENSEMBLE_FILE,
+            "autoencoder": lifecycle.AUTOENCODER_FILE,
+            "baseline": lifecycle.BASELINE_FILE,
+        }
+        for name, fname in files.items():
+            sha = store.sha256(fname)
+            if sha is None:
+                continue
+            version = None
+            try:
+                register_model(
+                    name, name, str(self.model_dir / fname),
+                    int(selection.get("event_count", 0)),
+                    metrics={"sha256": sha, "canary_passed": bool(canary.get("passed"))},
+                )
+                latest = get_latest_model(name)
+                version = latest.get("version") if latest else None
+            except Exception:
+                logger.exception("Failed to register model %s.", name)
+            card = lifecycle.build_model_card(name, version, sha, selection, canary, trigger)
+            store.save_json(lifecycle.card_file(name), card)
 
-    def _save_models(self, event_count: int = 0) -> None:
-        """Save all trained models and register them in the DB."""
+    @staticmethod
+    def _record_run(
+        trigger: str,
+        requested_by: Optional[str],
+        status: str,
+        selection: Dict[str, Any],
+        canary: Optional[Dict[str, Any]],
+        detail: str,
+    ) -> None:
+        if trigger == "auto" and status == "skipped":
+            return  # waiting for enough data is not worth an audit row every 30 s
         try:
-            path = self.ensemble.save()
-            register_model("ensemble", "ensemble", str(path), event_count)
+            insert_training_run(
+                trigger, requested_by, status,
+                event_count=int(selection.get("event_count", 0) or 0),
+                device_count=int(selection.get("device_count", 0) or 0),
+                excluded_count=int(selection.get("excluded_count", 0) or 0),
+                canary=canary, detail=detail,
+            )
         except Exception:
-            logger.exception("Failed to save ensemble model.")
+            logger.exception("Failed to record the training run.")
 
+    def retrain(self, trigger: str = "api", requested_by: Optional[str] = None) -> Dict[str, Any]:
+        """Train from the database with every G-18 control applied.
+
+        One run at a time and a cooldown between runs (raises
+        ``TrainingRefused`` otherwise); events tied to anomalies or open
+        incidents are left out and no device supplies more than its share;
+        the candidate must pass the canary before it replaces the live models.
+        """
         try:
-            path = self.autoencoder.save()
-            register_model("autoencoder", "autoencoder", str(path), event_count)
-        except Exception:
-            logger.exception("Failed to save autoencoder model.")
+            with lifecycle.training_gate() as ticket:
+                events, selection = lifecycle.select_training_events()
+                if selection["event_count"] < config.MIN_TRAINING_EVENTS:
+                    ticket.cooldown = lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
+                    detail = (f"{selection['event_count']} usable events; "
+                              f"{config.MIN_TRAINING_EVENTS} needed")
+                    self._record_run(trigger, requested_by, "skipped", selection, None, detail)
+                    return {"status": "skipped", "detail": detail, "selection": selection}
+                df = build_features(events)
+                if df.empty:
+                    ticket.cooldown = lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
+                    self._record_run(trigger, requested_by, "skipped", selection, None,
+                                     "no features")
+                    return {"status": "skipped", "detail": "no features", "selection": selection}
+                selection["event_count"] = int(len(df))
+                return self.train(df, trigger=trigger, requested_by=requested_by,
+                                  selection=selection)
+        except lifecycle.TrainingRefused as exc:
+            self._record_run(trigger, requested_by, "refused", {}, None, exc.reason)
+            raise
+        except Exception as exc:
+            self._record_run(trigger, requested_by, "failed", {}, None, repr(exc))
+            raise
+
+    def rollback(self, requested_by: Optional[str] = None) -> Dict[str, Any]:
+        """Swap the live model files with the previous ones and reload them."""
+        with lifecycle.training_gate(enforce_cooldown=False):
+            store = lifecycle.current_store(self.model_dir)
+            previous = lifecycle.previous_store(self.model_dir)
+            if not previous.entries():
+                self._record_run("rollback", requested_by, "refused", {}, None,
+                                 "no previous model to roll back to")
+                raise lifecycle.TrainingRefused("There is no previous model to roll back to.", 404)
+            staging = lifecycle.ModelStore(self.model_dir / "rollback_staging")
+            store.copy_verified_to(staging)
+            previous.copy_verified_to(store)
+            staging.copy_verified_to(previous)
+            staging.clear()
+            lifecycle.bump_generation()
+            self._load_models()
+            self._record_run("rollback", requested_by, "rolled_back", {}, None,
+                             "restored the previous model files")
+            return {"status": "rolled_back", "trained": self._trained}
 
     # ── online mode ───────────────────────────────────────────────────────
 
@@ -131,6 +338,7 @@ class DetectionOrchestrator:
         Skips ML detection for devices still in BASELINING phase.
         Auto-trains models when a device crosses the baseline threshold.
         """
+        self._reload_if_swapped()
         now = time.time()
         last = self._last_run.get(device_id, 0.0)
         if now - last < DETECTION_THROTTLE_SECONDS:
@@ -222,20 +430,20 @@ class DetectionOrchestrator:
             return []
 
     def _auto_train(self, device_id: str) -> None:
-        """Auto-train models on all historical events for a device."""
+        """Train automatically once a device leaves baselining (all G-18 controls apply).
+
+        Trains on recent events from every device, not only *device_id*, so the
+        first device to finish baselining does not define "normal" for all.
+        """
+        if lifecycle.is_training() or lifecycle.cooldown_remaining() > 0:
+            return  # a run is in progress or happened recently; try again later
         try:
-            all_events = get_events_since(device_id, after_id=0)
-            if len(all_events) < MIN_BASELINE_EVENTS:
-                return
-            train_df = build_features(all_events)
-            if train_df.empty:
-                return
-            logger.info("Auto-training models on %d events from device %s", len(train_df), device_id)
-            self.train(train_df)
-            logger.info("Auto-training complete. Models are now active.")
+            result = self.retrain(trigger="auto")
+            logger.info("Auto-training after device %s: %s", device_id, result.get("status"))
+        except lifecycle.TrainingRefused as exc:
+            logger.debug("Auto-training not started: %s", exc.reason)
         except Exception:
             logger.exception("Auto-training failed for device %s", device_id)
-
 
     # ── batch mode ────────────────────────────────────────────────────────
 
