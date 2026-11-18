@@ -13,9 +13,9 @@ In scope: registration tokens, device API keys, their storage on the endpoint
 and in the core, their use on the ingestion endpoints, and removal of a device.
 
 Out of scope: analyst logins and JWTs (covered by the product threat model),
-transport configuration of the reverse proxy in front of the core, and the
-integrity of the agent binary itself (signed agent distribution is planned with
-release engineering, M5).
+and transport configuration of the reverse proxy in front of the core. Agent
+file integrity is covered here only as far as the install command's hash
+checks; signed agent packages are planned with release engineering (M5).
 
 ## Assets
 
@@ -84,6 +84,7 @@ Trust boundaries crossed:
 
 | Control | Where |
 |---|---|
+| Only admins and analysts can create registration tokens | `lsadra/ui/api_dashboard.py` |
 | Registration tokens are random (`secrets.token_urlsafe`), single use and expire after `REGISTRATION_TOKEN_LIFETIME_MINUTES` (15 min) | `lsadra/onboarding/token_manager.py`, `lsadra/config.py` |
 | Token consumption is serialized, so one token can never register two devices | `lsadra/onboarding/device_registration.py` |
 | Registration is rate limited per client IP, with a bounded tracker so spoofed sources cannot grow memory | `lsadra/onboarding/device_registration.py`, `lsadra/ratelimit.py` |
@@ -94,6 +95,8 @@ Trust boundaries crossed:
 | The cache is bounded in size and lifetime (`LSADRA_DEVICE_AUTH_CACHE_MAX_ENTRIES`, `LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS`, at most 1 h) | `lsadra/config.py` |
 | Keys are never logged; failed checks log the device id only | `lsadra/ingestion/api_ingestion.py` |
 | Every event must match event schema v1, so a valid key cannot push arbitrary structures into storage | `docs/contracts/event-schema.v1.json`, [ADR 0006](../architecture/adr/0006-event-schema-v1-freeze.md) |
+| The install command checks the installer's SHA-256 before it runs, and the installer refuses an agent file whose SHA-256 differs from the one the dashboard showed | `lsadra/onboarding/agent_files.py`, `lsadra/onboarding/installer_linux.sh` |
+| The installer refuses a plain-HTTP server unless `--allow-insecure-http` is passed for a local lab, so the key is not sent in clear by default | `lsadra/onboarding/installer_linux.sh` |
 | The Linux installer writes the key to `/etc/lsadra-agent/config.yml` with mode `600`, owned by the agent's service user | `lsadra/onboarding/installer_linux.sh` |
 | Outside development mode, TLS enforcement is on by default | `lsadra/config.py`, `lsadra/tls_middleware.py` |
 | Security fixes ship with a regression test | `tests/security/` |
@@ -107,7 +110,7 @@ Trust boundaries crossed:
 | **Repudiation** | A device denies having sent a batch | Every stored event carries the authenticated device id | Analyst actions on devices (token creation, removal) belong to the product threat model |
 | **Information disclosure** | Key read from the host, the wire or the database | File mode `600` on Linux; TLS by default outside dev mode; only bcrypt hashes in the database; keys never logged | Root or Administrator on the endpoint can read the key; that is accepted until OS-keychain storage lands |
 | **Denial of service** | Flooding registration or ingestion; forcing bcrypt on every request | Registration rate limit; bounded detection queue answering `503` + `Retry-After`; credential cache keeps bcrypt off the hot path | Large floods are expected to be absorbed by the reverse proxy or firewall in front of the core |
-| **Elevation of privilege** | A device key used to reach analyst or admin APIs | Device keys are accepted only by the ingestion endpoints; dashboard APIs require a JWT with a role | None known |
+| **Elevation of privilege** | A device key used to reach analyst or admin APIs | Device keys are accepted only by the device endpoints (ingestion, heartbeat, device config), and a heartbeat must name the device its key belongs to; dashboard APIs require a JWT with a role | None known |
 
 ## Planned controls
 

@@ -20,7 +20,7 @@ the code disagree, the code is right and this page is a bug.
 | Background jobs | `lsadra/jobs/scheduler.py` | APScheduler threads in the core process (see section 4) |
 | Database | `lsadra/storage/` | SQLite in WAL mode, schema applied by numbered SQL migrations |
 | Model files | `data/models/` | Trained detectors loaded by the orchestrator |
-| React dashboard | `frontend/` | React 19, Vite, TypeScript, Tailwind; the supported UI |
+| React dashboard | `frontend/` | React 19, Vite, TypeScript, Tailwind; the supported UI. Docker Compose serves the built app from an unprivileged nginx `web` container |
 | Endpoint agents | `lsadra/endpoint_agent/linux_agent.py`, `windows_live_agent.py` | Python agents that tail OS logs and send batches |
 | Streamlit dashboard | `lsadra/ui/dashboard.py` | Legacy V3 UI, kept for reference only |
 
@@ -33,8 +33,8 @@ contract, so the core does not change when they land
 
 | Package | Responsibility |
 |---|---|
-| `auth.py`, `config.py`, `tls_middleware.py`, `ratelimit.py` | JWT auth and roles, environment configuration and boot guards, TLS enforcement, rate limiting |
-| `onboarding/` | Registration tokens, device registration, Linux installer |
+| `auth.py`, `authz.py`, `admin_cli.py`, `config.py`, `tls_middleware.py`, `ratelimit.py` | JWT auth and roles, per-object access checks, the first-admin command line, environment configuration and boot guards, TLS enforcement, rate limiting |
+| `onboarding/` | Registration tokens, device registration, Linux installer, hash-pinned agent files for the install command |
 | `ingestion/` | `/api/events/batch` (schema v1), `/api/events/raw` with the multi-source `IngestionManager` and its parsers, device authentication and its verified-credential cache |
 | `features/` | Temporal and behavioral feature extraction |
 | `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble |
@@ -50,7 +50,8 @@ contract, so the core does not change when they land
 1. **Onboarding.** An analyst creates a single-use registration token in the
    dashboard. The agent or installer exchanges it at
    `POST /api/devices/register` for a device id and an API key. The core keeps
-   only a bcrypt hash of the key. See the
+   only a bcrypt hash of the key. The dashboard's install command checks the
+   SHA-256 of the installer and the agent before anything runs. See the
    [agent-key threat model](docs/threat-models/agent-keys.md).
 2. **Ingestion.** Agents send `POST /api/events/batch` with `X-Device-Id` and
    `X-API-Key`. Every event is validated against
@@ -114,7 +115,9 @@ contract, so the core does not change when they land
    ([threat models](docs/threat-models/README.md)).
 4. **Contracts at boundaries.** Agents and the core share a versioned schema,
    not code.
-5. **Fail closed.** Outside development mode the core refuses to start without
-   a stable JWT secret, and TLS enforcement is on by default.
+5. **Fail closed.** Outside development mode the core refuses to start
+   without a strong JWT secret, self-registration is off
+   (`LSADRA_ALLOW_SIGNUP`), the first admin is created from the command line,
+   and TLS enforcement is on by default.
 6. **Humans approve actions.** Playbooks guide the analyst. LSADRA does not run
    commands on monitored hosts.
