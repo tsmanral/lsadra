@@ -18,6 +18,8 @@ from typing import Any, Dict, List, Optional
 
 import pandas as pd
 
+from lsadra.features.timestamps import parse_event_timestamps
+
 from lsadra.features.temporal_features import extract_temporal_features
 from lsadra.features.behavioral_features import extract_behavioral_features
 
@@ -99,7 +101,7 @@ def build_features(raw_events: List[Dict[str, Any]]) -> pd.DataFrame:
 
     df = pd.DataFrame(raw_events)
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     df = extract_temporal_features(df)
     df = extract_behavioral_features(df)
@@ -143,7 +145,7 @@ def build_enhanced_feature_table(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     for extractor, name in [
         (_add_temporal_features,      "temporal"),

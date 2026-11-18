@@ -254,6 +254,25 @@ def _refresh_credential(device_id: str, api_key: str, stored_hash: str) -> None:
         device_credential_cache.finish_refresh(device_id, api_key, stored_hash, ok)
 
 
+def _matches_previous_key(device: Dict[str, Any], api_key: str) -> bool:
+    """True if *api_key* is the device's pre-rotation key and its overlap is still open."""
+    previous = device.get("previous_api_key_hash") or ""
+    until = device.get("previous_key_expires_at")
+    if not previous.startswith("$2") or not until:
+        return False
+    try:
+        if datetime.utcnow() >= datetime.fromisoformat(str(until)):
+            return False
+    except ValueError:
+        return False
+    if device_credential_cache.is_verified(device["id"], api_key, previous):
+        return True
+    if _checkpw(api_key, previous):
+        device_credential_cache.remember(device["id"], api_key, previous)
+        return True
+    return False
+
+
 def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header(...)) -> Dict[str, Any]:
     """
     Validate the device ID + API key sent in request headers.
@@ -269,6 +288,9 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
     device = get_device(x_device_id)
     if device is None:
         raise HTTPException(status_code=401, detail="Unknown device.")
+    if device.get("status") == "REVOKED":
+        # G-9: a revoked device is refused at authentication, whatever key it sends.
+        raise HTTPException(status_code=401, detail="Device has been revoked.")
 
     stored_hash = device.get("api_key_hash") or ""
     if not stored_hash:
@@ -286,6 +308,10 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
             device_credential_cache.remember(x_device_id, x_api_key, stored_hash)
     else:
         ok = hmac.compare_digest(stored_hash, x_api_key)
+    if not ok and _matches_previous_key(device, x_api_key):
+        # Pre-rotation key inside its overlap window (checked only after the
+        # current key fails, so steady traffic never pays a second bcrypt).
+        return device
     if not ok:
         logger.warning("API key mismatch for device %s — rejected", x_device_id)
         raise HTTPException(status_code=401, detail="Invalid API key.")
