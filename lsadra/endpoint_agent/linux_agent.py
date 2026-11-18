@@ -39,6 +39,8 @@ DEFAULT_CONFIG = {
     "batch_size": 50,
     "flush_interval_seconds": 3,
     "log_paths": ["/var/log/auth.log"],
+    # Read-only CIS IG1 posture checks (posture.py); 0 turns them off.
+    "posture_interval_hours": 24,
     # SHA-256 fingerprint of the server's TLS certificate, as the dashboard shows
     # it beside the registration token (G-8). When set, the agent talks only to
     # a server presenting exactly that certificate, self-signed or not.
@@ -75,7 +77,10 @@ _AUTH_RE = re.compile(
     r"(Failed|Accepted)\s+(password|publickey)\s+(?:for invalid user\s+)?"
     r"(?:for\s+)?(\S+)\s+from\s+(\S+)\s+port\s+(\d+)"
 )
-_SUDO_RE = re.compile(r"(\S+)\s*:\s*.*COMMAND=(.*)")
+# Anchored at the start of the message, and the user part cannot contain ':'
+# or whitespace, so matching is linear in the line length. (An unanchored
+# "(\S+)\s*:\s*.*COMMAND=" backtracks super-linearly on long lines.)
+_SUDO_RE = re.compile(r"\s*([^\s:]+)\s*:.*?COMMAND=(.*)")
 
 # Hybrid Syslog Regex (Supports BSD and ISO 8601 formats)
 _SYSLOG_RE = re.compile(
@@ -142,7 +147,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
         }
 
     # 2. Check for sudo commands
-    ms = _SUDO_RE.search(msg)
+    ms = _SUDO_RE.match(msg)
     if ms:
         user, cmd = ms.groups()
         return {
@@ -265,6 +270,57 @@ def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, de
             backoff = min(backoff * 2, MAX_BACKOFF)
 
 
+# ── Posture checks ────────────────────────────────────────────────────────
+
+def _load_posture_module():
+    """posture.py sits next to this file (installed agent) or in the package."""
+    try:
+        from lsadra.endpoint_agent import posture  # type: ignore
+        return posture
+    except ImportError:
+        pass
+    try:
+        import posture  # type: ignore
+        return posture
+    except ImportError:
+        return None
+
+
+def _posture_loop(cfg: Dict[str, Any], interval_s: float, posture) -> None:
+    """Run the read-only posture checks now and then every interval."""
+    while True:
+        try:
+            events = posture.to_events(posture.run_all())
+            failed = sum(e["attributes"]["status"] == "fail" for e in events)
+            logger.info("Posture checks: %d run, %d failed", len(events), failed)
+            _send_batch(events, cfg["server_url"], cfg["collector_endpoint"], cfg["device_id"], cfg["api_key"])
+        except Exception as exc:  # never let posture checks take the agent down
+            logger.warning("Posture checks failed: %s", exc)
+        time.sleep(interval_s)
+
+
+def start_posture_checks(cfg: Dict[str, Any]):
+    """Start the posture-check thread unless turned off. Returns the thread."""
+    import threading
+
+    try:
+        hours = float(cfg.get("posture_interval_hours", 24))
+    except (TypeError, ValueError):
+        hours = 24.0
+    if hours <= 0:
+        logger.info("Posture checks turned off (posture_interval_hours=0).")
+        return None
+    posture = _load_posture_module()
+    if posture is None:
+        logger.info("posture.py not found next to the agent; posture checks skipped.")
+        return None
+    thread = threading.Thread(
+        target=_posture_loop, args=(cfg, hours * 3600, posture), name="posture", daemon=True
+    )
+    thread.start()
+    return thread
+
+
 # ── File tailer ───────────────────────────────────────────────────────────
 
 def _tail(path: str, batch_size: int, flush_interval: float, cfg: Dict[str, Any]):
@@ -366,6 +422,8 @@ def main():
 
     batch_size = int(cfg.get("batch_size", 50))
     flush_interval = float(cfg.get("flush_interval_seconds", 2))
+
+    start_posture_checks(cfg)
 
     auth_log = "/var/log/auth.log"
     use_journal = False

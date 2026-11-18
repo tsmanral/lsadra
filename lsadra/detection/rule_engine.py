@@ -14,8 +14,8 @@ Levels follow Sigma. A ``medium`` or higher match raises an alert on its own; a
 layers flag the event.
 
 [V4 ENHANCEMENT — gap: multi-rule detection]
-[GLASSWING ALIGNMENT — lateral movement detection]
-[MYTHOS ALIGNMENT — cross-source behavioral sequences]
+[Capability: lateral movement detection]
+[Capability: cross-source behavioral sequences]
 """
 
 from __future__ import annotations
@@ -657,7 +657,7 @@ def detect_lateral_movement(
     would fall inside the window.
 
     [V4 ENHANCEMENT — gap: relationship modeling]
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
 
     Args:
         db_conn: Active SQLite3 connection.
