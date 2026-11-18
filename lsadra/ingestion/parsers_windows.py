@@ -95,11 +95,12 @@ class WindowsLogonParser:
         logon_type = _LOGON_TYPES.get(logon_type_code, logon_type_code)
 
         # Map event IDs to friendly event types
+        # Canonical event types (lsadra/detection/event_types.py)
         event_type_map = {
-            "4624": "windows_logon_success",
-            "4625": "windows_logon_failure",
-            "4672": "windows_special_logon",
-            "4648": "windows_explicit_credential",
+            "4624": "auth_success",
+            "4625": "auth_failure",
+            "4672": "privileged_logon",
+            "4648": "auth_success",
         }
 
         return {
@@ -109,7 +110,7 @@ class WindowsLogonParser:
             "user_id": user_id,
             "effective_username": username,
             "source_ip": source_ip if source_ip and source_ip != "-" else None,
-            "event_type": event_type_map.get(event_id, "windows_unknown"),
+            "event_type": event_type_map.get(event_id, "other"),
             "raw_message": event_xml[:4096],
             "attributes": {
                 "event_id": event_id,

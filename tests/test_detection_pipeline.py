@@ -98,6 +98,68 @@ class TestRuleEngine:
         })
         assert threat == "Anomalous Off-Hour Access"
 
+    def test_no_match_is_distinguishable_and_carries_no_technique(self):
+        """An ordinary row matches no rule; the old fallback returned T1190."""
+        from lsadra.detection.rule_engine import NO_RULE_MATCH, evaluate_rules
+
+        result = evaluate_rules({
+            "failures_15m": 0, "unique_users_15m": 1,
+            "successes_15m": 1, "is_off_hours": 0, "failure_ratio_15m": 0,
+            "event_type": "auth_success",
+        })
+        assert result == NO_RULE_MATCH
+        assert "T1190" not in result
+
+
+class TestVerdictMerge:
+    """How _run_layers merges rule matches with the layer 1-3 verdicts."""
+
+    @staticmethod
+    def _orchestrator(l1_flags):
+        from lsadra.detection.detection_orchestrator import DetectionOrchestrator
+
+        class _Layer:
+            def __init__(self, out):
+                self.out = out
+
+            def score(self, df):
+                return self.out(df)
+
+        orch = DetectionOrchestrator.__new__(DetectionOrchestrator)
+        orch._trained = False  # layer 2 abstains
+        orch.baseline = _Layer(lambda df: [
+            {"z_max": 9.0 if f else 0.0, "is_baseline_anomaly": f} for f in l1_flags])
+        orch.autoencoder = _Layer(lambda df: [
+            {"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df))
+        return orch
+
+    @staticmethod
+    def _rows(*rows):
+        base = {"id": 1, "device_id": "d", "user_id": "u", "source_ip": "192.0.2.1",
+                "timestamp": "2026-01-15T10:00:00", "event_type": "auth_success",
+                "failures_15m": 0, "unique_users_15m": 1, "successes_15m": 1,
+                "is_off_hours": 0, "failure_ratio_15m": 0.0}
+        return pd.DataFrame([{**base, "id": i + 1, **r} for i, r in enumerate(rows)])
+
+    def test_ordinary_event_is_not_an_alert(self):
+        """Regression: every scored event used to become an alert labelled T1190."""
+        res = self._orchestrator([False])._run_layers(self._rows({}))
+        assert res[0]["is_anomaly"] is False
+        assert res[0]["mitre_technique"] == "N/A"
+
+    def test_rule_match_alerts_with_its_technique(self):
+        res = self._orchestrator([False])._run_layers(
+            self._rows({"failures_15m": 25, "unique_users_15m": 2, "successes_15m": 0,
+                        "failure_ratio_15m": 1.0, "event_type": "auth_failure"}))
+        assert res[0]["is_anomaly"] is True
+        assert res[0]["mitre_technique"] == "T1110.001"
+
+    def test_ml_only_anomaly_has_no_guessed_technique(self):
+        res = self._orchestrator([True])._run_layers(self._rows({}))
+        assert res[0]["is_anomaly"] is True
+        assert res[0]["threat_type"] == "Unknown Anomalous Activity"
+        assert res[0]["mitre_technique"] == "N/A"
+
 
 class TestEnsembleVoting:
     """Tests for ensemble majority voting logic."""

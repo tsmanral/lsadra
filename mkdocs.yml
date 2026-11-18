@@ -17,5 +17,6 @@ nav:
       - "0006 · Event schema v1 freeze": architecture/adr/0006-event-schema-v1-freeze.md
   - Threat models: threat-models/README.md
   - Contracts: contracts/README.md
+  - Detection scorecard: detection/scorecard.md
   - Security: security/README.md
   - Contributing: contributing/README.md
