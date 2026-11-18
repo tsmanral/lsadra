@@ -87,7 +87,7 @@ const RemediationPlaybook = () => {
             <span className="w-2 h-2 rounded-full bg-[var(--color-safe)] shadow-[0_0_5px_var(--color-safe)] animate-pulse"></span>
           </div>
           <div className="p-4 font-mono text-xs text-gray-300 flex-1 overflow-y-auto bg-black">
-            <div className="text-[var(--color-muted)] mb-4">Glass Sentinel Automation Runtime v4.2.0</div>
+            <div className="text-[var(--color-muted)] mb-4">LSADRA Automation Runtime</div>
             <div className="mb-1 text-white">&gt; Executing step: Identify Source Endpoint</div>
             <div className="mb-1 text-[var(--color-primary)]">[INFO] Correlating events for INC-4092...</div>
             <div className="mb-1 text-[var(--color-primary)]">[INFO] Source IP identified: 192.168.1.105</div>
