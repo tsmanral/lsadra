@@ -158,10 +158,14 @@ def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
 
         conn.commit()
         return {"status": "ok", "message": f"Device {device_id} and all related telemetry deleted."}
-    except Exception as e:
+    except HTTPException:
         conn.rollback()
-        logger.error(f"Failed to delete device {device_id}: {str(e)}")
-        raise HTTPException(status_code=500, detail=f"Database error: {str(e)}")
+        raise
+    except Exception:
+        conn.rollback()
+        # G-11: log the cause; never echo exception text to the client.
+        logger.exception("Failed to delete device %s", device_id)
+        raise HTTPException(status_code=500, detail="Could not delete the device.")
     finally:
         conn.close()
 
@@ -189,7 +193,10 @@ def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict
             raise HTTPException(status_code=404, detail="Device not found or access denied.")
             
         status = "ONLINE" if active else "OFFLINE"
-        conn.execute("UPDATE devices SET status = ? WHERE id = ?", (status, device_id))
+        conn.execute(
+            "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
+            (status, device_id),
+        )
         conn.commit()
         return {"status": "ok", "device_id": device_id, "new_status": status}
     finally:
@@ -251,7 +258,15 @@ class RoleUpdate(BaseModel):
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
-    await run_in_threadpool(update_user_role, req.user_id, req.role)
+    def _do() -> None:
+        from lsadra.security import audit
+
+        update_user_role(req.user_id, req.role)  # also ends the user's sessions (G-9)
+        audit.record("user.role.change", actor=user, target=req.user_id, details={"role": req.role})
+        if req.role == "ADMIN":
+            audit.record("user.role.grant_admin", actor=user, target=req.user_id)  # self-alert (G-26)
+
+    await run_in_threadpool(_do)
     return {"status": "ok"}
 
 class UserCreate(BaseModel):
@@ -275,9 +290,23 @@ def _create_user_account(req: "UserCreate") -> Optional[Dict[str, str]]:
 async def api_create_user(req: UserCreate, user: dict = Depends(require_role("ADMIN"))):
     """Create an account. With sign-up off (the default outside dev mode) this,
     and ``python -m lsadra.admin_cli``, are how accounts are made."""
+    from lsadra.security import audit
+    from lsadra.security.passwords import PasswordPolicyError, check_password_policy
+
+    try:
+        check_password_policy(req.password, req.username)  # same policy as every other password (G-10)
+    except PasswordPolicyError as exc:
+        raise HTTPException(status_code=422, detail=str(exc))
     account = await run_in_threadpool(_create_user_account, req)
     if account is None:
         raise HTTPException(status_code=400, detail="Username already taken.")
+    await run_in_threadpool(
+        audit.record, "user.create", actor=user, target=account["user_id"],
+        details={"username": req.username, "role": req.role},
+    )
+    if req.role == "ADMIN":
+        await run_in_threadpool(audit.record, "user.role.grant_admin", actor=user,
+                                target=account["user_id"])
     return {"status": "ok", **account}
 
 
@@ -357,6 +386,9 @@ async def api_retrain(user: dict = Depends(require_role("ADMIN"))):
     Retraining reads every device's events and rewrites the shared models, so
     only an admin may trigger it (same rule as POST /admin/retrain).
     """
+    from lsadra.security import audit
+
+    await run_in_threadpool(audit.record, "model.retrain", actor=user)
     return await run_in_threadpool(_retrain, user["user_id"])
 
 from lsadra.onboarding.agent_files import install_hashes
