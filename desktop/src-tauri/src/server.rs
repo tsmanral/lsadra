@@ -31,6 +31,9 @@ pub const BUNDLED_SERVER: &str = "lsadra-server.exe";
 #[cfg(not(windows))]
 pub const BUNDLED_SERVER: &str = "lsadra-server";
 
+/// The only address the app ever asks the server to listen on.
+pub const LOOPBACK_HOST: &str = "127.0.0.1";
+
 const LOG_LIMIT_BYTES: u64 = 5 * 1024 * 1024;
 
 /// How the server will be started.
@@ -108,7 +111,7 @@ pub fn resolve_launch(settings: &Settings, exe_dir: Option<&Path>) -> Launch {
             "uvicorn",
             "server:app",
             "--host",
-            "127.0.0.1",
+            LOOPBACK_HOST,
             "--port",
             &port,
         ]
@@ -137,7 +140,7 @@ pub fn server_env(
         }
     }
     let mut env = vec![
-        ("LSADRA_API_HOST".to_string(), "127.0.0.1".to_string()),
+        ("LSADRA_API_HOST".to_string(), LOOPBACK_HOST.to_string()),
         ("LSADRA_API_PORT".to_string(), port.to_string()),
         // Loopback only, so the API's HTTPS requirement (meant for agents that
         // send keys across the network) is not needed: nothing leaves this
@@ -154,6 +157,49 @@ pub fn server_env(
         env.push(("LSADRA_JWT_SECRET".to_string(), secret.to_string()));
     }
     env
+}
+
+fn is_loopback(host: &str) -> bool {
+    let host = host.trim().trim_start_matches('[').trim_end_matches(']');
+    host.parse::<std::net::IpAddr>()
+        .map(|ip| ip.is_loopback())
+        .unwrap_or(false)
+}
+
+/// The HTTPS waiver (`LSADRA_REQUIRE_TLS=false`) is only acceptable for a
+/// server bound to loopback. Returns an error if the waiver is present and
+/// the environment or a `--host` argument would bind anything else.
+pub fn check_tls_waiver(env: &[(String, String)], launch: &Launch) -> Result<(), String> {
+    let get = |key: &str| {
+        env.iter()
+            .rev()
+            .find(|(k, _)| k == key)
+            .map(|(_, v)| v.as_str())
+    };
+    let waived = get("LSADRA_REQUIRE_TLS").is_some_and(|v| v.trim().eq_ignore_ascii_case("false"));
+    if !waived {
+        return Ok(());
+    }
+    let mut hosts = vec![get("LSADRA_API_HOST").unwrap_or("")];
+    if let Launch::Python { args, .. } = launch {
+        for pair in args.windows(2) {
+            if pair[0] == "--host" {
+                hosts.push(&pair[1]);
+            }
+        }
+        for arg in args {
+            if let Some(host) = arg.strip_prefix("--host=") {
+                hosts.push(host);
+            }
+        }
+    }
+    match hosts.iter().find(|h| !is_loopback(h)) {
+        None => Ok(()),
+        Some(host) => Err(format!(
+            "refusing to start: HTTPS is only switched off for a loopback server, \
+             but the server would listen on {host:?}"
+        )),
+    }
 }
 
 /// Parse `HTTP/1.x 200 OK` into 200.
@@ -254,6 +300,7 @@ impl Server {
                 return Ok(());
             }
         }
+        check_tls_waiver(&self.env, &self.launch)?;
         let mut cmd = match &self.launch {
             Launch::NotConfigured => {
                 return Err("no LSADRA server found; set server_dir in settings.json".into())
@@ -462,6 +509,76 @@ mod tests {
             !env.contains_key("LSADRA_JWT_SECRET"),
             "an operator-set secret is inherited, not replaced"
         );
+    }
+
+    #[test]
+    fn tls_waiver_only_with_loopback() {
+        let python = |args: &[&str]| Launch::Python {
+            program: "python3".into(),
+            dir: PathBuf::from("."),
+            args: args.iter().map(|a| a.to_string()).collect(),
+        };
+        let serve = python(&["-m", "lsadra.serve"]);
+        let uvicorn = |host: &str| python(&["-m", "uvicorn", "server:app", "--host", host]);
+        let with_host = |host: &str| {
+            let mut env = server_env(8000, "s", env_of(&[]));
+            env.retain(|(k, _)| k != "LSADRA_API_HOST");
+            env.push(("LSADRA_API_HOST".into(), host.into()));
+            env
+        };
+
+        // What the app builds is always accepted, for both launch styles.
+        let env = server_env(8000, "s", env_of(&[]));
+        assert!(check_tls_waiver(&env, &serve).is_ok());
+        assert!(check_tls_waiver(&env, &uvicorn(LOOPBACK_HOST)).is_ok());
+        assert!(check_tls_waiver(&with_host("::1"), &serve).is_ok());
+        assert!(check_tls_waiver(&with_host("[::1]"), &serve).is_ok());
+
+        // Waiver plus any non-loopback bind is refused.
+        for host in ["0.0.0.0", "::", "192.0.2.10", "localhost.example", ""] {
+            assert!(
+                check_tls_waiver(&with_host(host), &serve).is_err(),
+                "env host {host:?}"
+            );
+        }
+        assert!(check_tls_waiver(&env, &uvicorn("0.0.0.0")).is_err());
+        assert!(check_tls_waiver(
+            &env,
+            &python(&["-m", "uvicorn", "server:app", "--host=0.0.0.0"])
+        )
+        .is_err());
+
+        // Without the waiver the server's own TLS policy applies, so no check.
+        let mut tls_on = with_host("0.0.0.0");
+        tls_on.retain(|(k, _)| k != "LSADRA_REQUIRE_TLS");
+        assert!(check_tls_waiver(&tls_on, &serve).is_ok());
+    }
+
+    #[test]
+    fn start_refuses_tls_waiver_on_a_public_bind() {
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let dir = temp_dir("waiver");
+        let launch = Launch::Python {
+            program: "python3".into(),
+            dir: dir.clone(),
+            args: vec![
+                "-m".into(),
+                "uvicorn".into(),
+                "server:app".into(),
+                "--host".into(),
+                "0.0.0.0".into(),
+            ],
+        };
+        let env = server_env(closed, "s", env_of(&[]));
+        let server = Server::new(launch, closed, env, dir.join("server.log"));
+        let err = server.start().unwrap_err();
+        assert!(err.contains("loopback"), "{err}");
+        assert!(!dir.join("server.log").exists(), "nothing may be spawned");
+        let _ = fs::remove_dir_all(&dir);
     }
 
     #[test]
