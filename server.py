@@ -14,8 +14,8 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional
 
 from fastapi import BackgroundTasks, Depends, FastAPI, HTTPException
+from fastapi.responses import FileResponse
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 from starlette.concurrency import run_in_threadpool
 
@@ -27,16 +27,17 @@ from lsadra.auth import (
     verify_password,
 )
 from lsadra import config
+from lsadra.authz import owned_incident
 from lsadra.config import BENCH_SKIP_DETECTION, CORS_ALLOWED_ORIGINS, DEV_MODE, REQUIRE_TLS
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ingestion.api_ingestion import router as events_router
-from lsadra.ingestion.api_ingestion import run_online_detection
+from lsadra.ingestion.api_ingestion import _authenticate_device, run_online_detection
 from lsadra.jobs.scheduler import start_scheduler, stop_scheduler
+from lsadra.onboarding.agent_files import AGENT_FILE, INSTALLER_FILE, agent_extra_files
 from lsadra.onboarding.device_registration import router as devices_router
 from lsadra.storage.database import (
     create_user,
     get_all_incidents,
-    get_incident,
     get_user_by_username,
     init_db,
     record_heartbeat,
@@ -120,13 +121,28 @@ app.add_middleware(
 
 # ── Static Files ─────────────────────────────────────────────────────────
 
-STATIC_DIR = Path(__file__).parent / "lsadra" / "onboarding"
-if STATIC_DIR.exists():
-    app.mount("/static", StaticFiles(directory=str(STATIC_DIR)), name="static")
+# Only the two files the Linux install flow downloads are served, by exact
+# path. The source folders they live in are not exposed. The dashboard shows
+# each file's SHA-256 next to the install command, and the command and the
+# installer check those hashes before anything runs (lsadra/onboarding/agent_files.py).
 
-AGENT_DIR = Path(__file__).parent / "lsadra" / "endpoint_agent"
-if AGENT_DIR.exists():
-    app.mount("/agent", StaticFiles(directory=str(AGENT_DIR)), name="agent")
+
+@app.get("/static/installer_linux.sh", include_in_schema=False)
+async def installer_script():
+    return FileResponse(INSTALLER_FILE, media_type="text/x-shellscript")
+
+
+@app.get("/agent/linux_agent.py", include_in_schema=False)
+async def agent_script():
+    return FileResponse(AGENT_FILE, media_type="text/x-python")
+
+
+@app.get("/agent/{name}", include_in_schema=False)
+async def agent_extra_file(name: str):
+    path = agent_extra_files().get(name)  # allow-list lookup, never a path join
+    if path is None:
+        raise HTTPException(status_code=404, detail="Not found.")
+    return FileResponse(path, media_type="text/plain")
 
 
 # ── Routers ──────────────────────────────────────────────────────────────
@@ -223,7 +239,9 @@ def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
     """
     if get_user_by_username(username):
         return None
-    role = "ADMIN" if username.lower() == "admin" else "ANALYST"
+    # Self-registration never grants ADMIN, whatever the username. Admins are
+    # created by an operator with shell access: python -m lsadra.admin_cli.
+    role = "ANALYST"
     uid = str(uuid.uuid4())
     try:
         create_user(uid, username, hash_password(password), role)
@@ -234,6 +252,11 @@ def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
 
 @app.post("/api/auth/register", tags=["auth"])
 async def register(req: RegisterRequest):
+    if not config.ALLOW_SIGNUP:
+        raise HTTPException(
+            status_code=403,
+            detail="Sign-up is disabled on this server. Ask an admin to create your account.",
+        )
     account = await run_in_threadpool(_create_account, req.username, req.password)
     if account is None:
         raise HTTPException(status_code=400, detail="Username already taken.")
@@ -244,18 +267,25 @@ async def register(req: RegisterRequest):
 
 
 class HeartbeatRequest(BaseModel):
-    device_id: str
+    # The device is identified by its X-Device-Id / X-Api-Key headers, like
+    # ingestion. A device_id in the body is optional and must match them.
+    device_id: Optional[str] = None
     cpu_pct: Optional[float] = None
     mem_pct: Optional[float] = None
     agent_version: Optional[str] = None
 
 
 @app.post("/heartbeat", tags=["heartbeat"])
-async def heartbeat(req: HeartbeatRequest):
+async def heartbeat(
+    req: HeartbeatRequest,
+    device: Dict[str, Any] = Depends(_authenticate_device),
+):
+    if req.device_id is not None and req.device_id != device["id"]:
+        raise HTTPException(status_code=403, detail="device_id does not match the credentials.")
     # One connection, one write transaction (was four separate connect/commits).
     recorded = await run_in_threadpool(
         record_heartbeat,
-        device_id=req.device_id,
+        device_id=device["id"],
         cpu_pct=req.cpu_pct,
         mem_pct=req.mem_pct,
         agent_version=req.agent_version,
@@ -263,7 +293,7 @@ async def heartbeat(req: HeartbeatRequest):
     if not recorded:
         raise HTTPException(status_code=404, detail="Unknown device.")
 
-    return {"status": "ok", "device_id": req.device_id}
+    return {"status": "ok", "device_id": device["id"]}
 
 
 # ── Incident endpoints ──────────────────────────────────────────────────
@@ -278,17 +308,17 @@ class IncidentAssignRequest(BaseModel):
     user_id: str
 
 
-def _set_incident_status(incident_id: int, status: str, notes: str) -> bool:
-    """False if the incident does not exist (threadpool: DB read + write)."""
-    if not get_incident(incident_id):
+def _set_incident_status(user: Dict[str, Any], incident_id: int, status: str, notes: str) -> bool:
+    """False if the incident does not exist or is not the caller's (threadpool)."""
+    if owned_incident(user, incident_id) is None:
         return False
     update_incident_status(incident_id, status, notes)
     return True
 
 
-def _assign_incident(incident_id: int, user_id: str) -> bool:
-    """False if the incident does not exist (threadpool: DB read + write)."""
-    if not get_incident(incident_id):
+def _assign_incident(user: Dict[str, Any], incident_id: int, user_id: str) -> bool:
+    """False if the incident does not exist or is not the caller's (threadpool)."""
+    if owned_incident(user, incident_id) is None:
         return False
     db_assign_incident(incident_id, user_id)
     return True
@@ -300,7 +330,7 @@ async def update_incident(
     req: IncidentStatusRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    if not await run_in_threadpool(_set_incident_status, incident_id, req.status, req.notes):
+    if not await run_in_threadpool(_set_incident_status, user, incident_id, req.status, req.notes):
         raise HTTPException(status_code=404, detail="Incident not found.")
     return {"status": "ok", "incident_id": incident_id, "new_status": req.status}
 
@@ -311,7 +341,7 @@ async def assign_incident(
     req: IncidentAssignRequest,
     user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
-    if not await run_in_threadpool(_assign_incident, incident_id, req.user_id):
+    if not await run_in_threadpool(_assign_incident, user, incident_id, req.user_id):
         raise HTTPException(status_code=404, detail="Incident not found.")
     return {"status": "ok", "incident_id": incident_id, "assigned_to": req.user_id}
 
