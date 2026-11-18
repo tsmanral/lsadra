@@ -6,7 +6,7 @@ Maps ML-flagged anomalies to specific threat types via the rule engine.
 
 from typing import Any, Dict, Tuple
 
-from lsadra.detection.rule_engine import evaluate_rules
+from lsadra.detection.rule_engine import NO_RULE_MATCH, UNMAPPED_ANOMALY, evaluate_rules
 
 
 class AttackClassifier:
@@ -19,5 +19,6 @@ class AttackClassifier:
         if not an anomaly.
         """
         if not is_anomaly:
-            return "None", "N/A"
-        return evaluate_rules(feature_row)
+            return NO_RULE_MATCH
+        result = evaluate_rules(feature_row)
+        return UNMAPPED_ANOMALY if result == NO_RULE_MATCH else result

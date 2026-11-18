@@ -48,6 +48,7 @@ META_COLS: List[str] = [
     "source_ip",
     "event_type",
     "raw_message",
+    "attributes",
     "is_synthetic",
 ]
 

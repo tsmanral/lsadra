@@ -7,6 +7,13 @@
       "label": "bootstrap-2026-11",
       "added": "2026-11-18",
       "note": "Signed the first bundle only; its private half was discarded after signing. Later bundles are signed by the CI release key."
+    },
+    {
+      "key_id": "35aa201a514041d7",
+      "public_key": "STkxoA0PR56elJ9rUxPg7InzQdWzgugcovYOStpJKMQ=",
+      "label": "release-2026-11",
+      "added": "2026-11-18",
+      "note": "CI release key. Private half generated in memory on the maintainer's machine and stored only as the LSADRA_INTEL_SIGNING_KEY Actions secret."
     }
   ]
 }

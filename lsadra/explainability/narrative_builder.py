@@ -27,6 +27,8 @@ import logging
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Tuple
 
+from lsadra.detection.attack_map import is_valid as is_valid_technique
+from lsadra.detection.attack_map import technique_name
 from lsadra.explainability.sanitize import (
     MAX_IDENT,
     MAX_IP,
@@ -187,6 +189,22 @@ def generate_alert_narrative(
         return f"Narrative unavailable: {clean_field(rule_alert.get('reason', 'unknown reason'), MAX_TEXT)}"
 
 
+def _technique_sentence(rule_alert: Dict[str, Any], default_id: str) -> str:
+    """
+    "Consistent with MITRE <id> (<name>)." from the pinned ATT&CK map.
+
+    Uses the rule's own technique when it is a valid ID, else the narrative's
+    default; the name always comes from lsadra/detection/attack_map.py, so a
+    narrative cannot show a stale or attacker-supplied technique label.
+    """
+    tid = str(rule_alert.get("mitre_id") or "")
+    if not is_valid_technique(tid):
+        tid = default_id
+    label = clean_field(tid, MAX_LABEL)
+    name = clean_field(technique_name(tid), MAX_TEXT)
+    return f" Consistent with MITRE {label} ({name})."
+
+
 def _narrate_brute_force(
     features: Dict[str, Any],
     rule_alert: Dict[str, Any],
@@ -210,7 +228,7 @@ def _narrate_brute_force(
     if uniq_users > 1:
         sentence += f" Targeting {uniq_users} distinct accounts."
 
-    sentence += " Consistent with MITRE T1110.001 (Password Guessing)."
+    sentence += _technique_sentence(rule_alert, "T1110.001")
     return sentence
 
 
@@ -231,7 +249,7 @@ def _narrate_credential_stuffing(
     )
     if cross:
         sentence += " This IP is also observed in network flow data."
-    sentence += " Consistent with MITRE T1110.004 (Credential Stuffing)."
+    sentence += _technique_sentence(rule_alert, "T1110.004")
     return sentence
 
 
@@ -257,7 +275,7 @@ def _narrate_low_and_slow(
                 f" Activity spans from {clean_field(first_ts, MAX_TIMESTAMP)} "
                 f"to {clean_field(last_ts, MAX_TIMESTAMP)}."
             )
-    sentence += " Consistent with MITRE T1110.003 (Password Spraying)."
+    sentence += _technique_sentence(rule_alert, "T1110.001")
     return sentence
 
 
@@ -279,7 +297,7 @@ def _narrate_lateral_movement(
     if affected_users:
         users_list = clean_list(affected_users, max_items=5, max_len=MAX_IDENT)
         sentence += f" Affected accounts include: {users_list}."
-    sentence += " Consistent with MITRE T1021 (Remote Services)."
+    sentence += _technique_sentence(rule_alert, "T1021")
     return sentence
 
 
@@ -294,7 +312,7 @@ def _narrate_port_scan(
     window     = 10
 
     sentence = f"IP {ip} probed {uniq_ports} destination ports in {window} minutes."
-    sentence += " Consistent with MITRE T1046 (Network Service Discovery)."
+    sentence += _technique_sentence(rule_alert, "T1046")
     return sentence
 
 
@@ -313,7 +331,7 @@ def _narrate_large_data_transfer(
         f"Host {device} transferred {mb:.1f} MB outbound to {dest_ip} "
         f"over 30 minutes, exceeding the normal baseline threshold."
     )
-    sentence += " Consistent with MITRE T1048 (Exfiltration)."
+    sentence += _technique_sentence(rule_alert, "T1048")
     return sentence
 
 
@@ -330,7 +348,7 @@ def _narrate_suspicious_process(
     sentence = f"Device {device} executed {proc_count} suspicious processes."
     if lolbin_count > 0:
         sentence += f" LOLBin abuse detected ({lolbin_count} instance(s))."
-    sentence += " Consistent with MITRE T1059 (Command and Scripting)."
+    sentence += _technique_sentence(rule_alert, "T1059")
     return sentence
 
 
@@ -351,7 +369,7 @@ def _narrate_privilege_escalation(
         f"User {username} on {device} performed {count} privilege "
         f"escalation events in {window} minutes."
     )
-    sentence += " Consistent with MITRE T1548 (Abuse Elevation Control)."
+    sentence += _technique_sentence(rule_alert, "T1548")
     return sentence
 
 
@@ -369,7 +387,7 @@ def _narrate_persistence(
         f"A persistence mechanism ({event_type}) was detected on device {device} "
         f"via {src}."
     )
-    sentence += " Consistent with MITRE T1547 (Boot or Logon Autostart Execution)."
+    sentence += _technique_sentence(rule_alert, "T1543")
     return sentence
 
 
