@@ -99,6 +99,8 @@ Trust boundaries crossed:
 | The installer refuses a plain-HTTP server unless `--allow-insecure-http` is passed for a local lab, so the key is not sent in clear by default | `lsadra/onboarding/installer_linux.sh` |
 | The Linux installer writes the key to `/etc/lsadra-agent/config.yml` with mode `600`, owned by the agent's service user | `lsadra/onboarding/installer_linux.sh` |
 | Outside development mode, TLS enforcement is on by default | `lsadra/config.py`, `lsadra/tls_middleware.py` |
+| The server listens on loopback by default and refuses plain HTTP on any other address; it prints and serves its certificate's SHA-256 fingerprint | `lsadra/serve.py`, `lsadra/security/tls.py` |
+| Agents can pin that fingerprint (`server_cert_sha256` on Linux, `LSADRA_SERVER_CERT_SHA256` on Windows) and then send their key only to that certificate | `lsadra/endpoint_agent/linux_agent.py`, `windows_live_agent.py` |
 | Security fixes ship with a regression test | `tests/security/` |
 
 ## STRIDE
@@ -108,7 +110,7 @@ Trust boundaries crossed:
 | **Spoofing** | Someone sends events as a device they do not own | Per-device random key, bcrypt-verified; registration needs an owner-issued, single-use, short-lived token | Whoever holds a device's key can send as that device until it is removed |
 | **Tampering** | Forged events written into a device's history | Key check on every batch; schema v1 validation; storage writes only after both pass | Events from a compromised host are authentic from the core's point of view; detection has to judge them |
 | **Repudiation** | A device denies having sent a batch | Every stored event carries the authenticated device id | Analyst actions on devices (token creation, removal) belong to the product threat model |
-| **Information disclosure** | Key read from the host, the wire or the database | File mode `600` on Linux; TLS by default outside dev mode; only bcrypt hashes in the database; keys never logged | Root or Administrator on the endpoint can read the key; that is accepted until OS-keychain storage lands |
+| **Information disclosure** | Key read from the host, the wire or the database | File mode `600` on Linux; TLS by default outside dev mode, with optional certificate pinning in the agent; only bcrypt hashes in the database; keys never logged | Root or Administrator on the endpoint can read the key; that is accepted until OS-keychain storage lands |
 | **Denial of service** | Flooding registration or ingestion; forcing bcrypt on every request | Registration rate limit; bounded detection queue answering `503` + `Retry-After`; credential cache keeps bcrypt off the hot path | Large floods are expected to be absorbed by the reverse proxy or firewall in front of the core |
 | **Elevation of privilege** | A device key used to reach analyst or admin APIs | Device keys are accepted only by the device endpoints (ingestion, heartbeat, device config), and a heartbeat must name the device its key belongs to; dashboard APIs require a JWT with a role | None known |
 

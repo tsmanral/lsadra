@@ -45,5 +45,7 @@ nav:
       - Agent keys: threat-models/agent-keys.md
   - Contracts: contracts/README.md
   - Detection scorecard: detection/scorecard.md
-  - Security: security/README.md
+  - Security:
+      - Overview: security/README.md
+      - Data inventory: security/data-inventory.md
   - Contributing: contributing/README.md

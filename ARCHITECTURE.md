@@ -15,14 +15,14 @@ the code disagree, the code is right and this page is a bug.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Core API | `server.py`, `lsadra/` | FastAPI app: login, device onboarding, event ingestion, dashboard API, `/ws/alerts` live feed |
+| Core API | `server.py`, `lsadra/` | FastAPI app: login, device onboarding, event ingestion, dashboard API, `/ws/alerts` live feed. Started with `python -m lsadra.serve`, which applies the listener policy (loopback by default, TLS required on any other address) |
 | Detection worker | `lsadra/detection/detection_worker.py` | One thread in the core process that runs online detection, fed by a bounded queue |
 | Background jobs | `lsadra/jobs/scheduler.py` | APScheduler threads in the core process (see section 4) |
 | Database | `lsadra/storage/` | SQLite in WAL mode, schema applied by numbered SQL migrations |
-| Model files | `data/models/` | Trained detectors loaded by the orchestrator |
+| Model files | `data/models/` | Trained detectors, loaded only after their SHA-256 matches an HMAC-authenticated manifest |
 | React dashboard | `frontend/` | React 19, Vite, TypeScript, Tailwind; the supported UI. Docker Compose serves the built app from an unprivileged nginx `web` container |
 | Endpoint agents | `lsadra/endpoint_agent/linux_agent.py`, `windows_live_agent.py` | Python agents that tail OS logs and send batches |
-| Streamlit dashboard | `lsadra/ui/dashboard.py` | Legacy V3 UI, kept for reference only |
+| Streamlit dashboard | `lsadra/ui/dashboard.py` | Legacy V3 UI, kept for reference only; off by default (Compose `legacy` profile) |
 
 The core is one process. There is no external queue, broker or cron. The
 planned Rust collectors (M2) replace the Python agents behind the same event
@@ -33,12 +33,14 @@ contract, so the core does not change when they land
 
 | Package | Responsibility |
 |---|---|
-| `auth.py`, `authz.py`, `admin_cli.py`, `config.py`, `tls_middleware.py`, `ratelimit.py` | JWT auth and roles, per-object access checks, the first-admin command line, environment configuration and boot guards, TLS enforcement, rate limiting |
+| `auth.py`, `authz.py`, `admin_cli.py`, `config.py`, `serve.py`, `tls_middleware.py`, `ratelimit.py`, `backup.py` | JWT auth and roles (revocable sessions), per-object access checks, the first-admin command line, environment configuration and boot guards, the listener launcher, TLS enforcement, rate limiting, verified backups |
 | `onboarding/` | Registration tokens, device registration, Linux installer, hash-pinned agent files for the install command |
 | `ingestion/` | `/api/events/batch` (schema v1), `/api/events/raw` with the multi-source `IngestionManager` and its parsers, device authentication and its verified-credential cache |
 | `features/` | Temporal and behavioral feature extraction |
-| `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble |
-| `detection/` | Orchestrator, detection worker, rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
+| `security/` | Audit trail, password policy, login throttling, TOTP, TLS listener policy, security headers, file permissions |
+| `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble; model file integrity (`integrity.py`) |
+| `llm/` | Guardrails for the optional LLM tier (M4): endpoint and weight pinning, output validation, an action broker that can only propose. No model ships yet |
+| `detection/` | Orchestrator, detection worker, model lifecycle (training hygiene, canary gate, rollback), rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
 | `explainability/` | Narrative builder, log-value sanitizer, threat-intel lookup, SHAP helpers (not called by the live pipeline) |
 | `session/` | Session building and user-journey analysis |
 | `jobs/` | Scheduler and IP geolocation |
@@ -108,7 +110,10 @@ contract, so the core does not change when they land
   hands the GIL back to waiting requests sooner.
 - The ingest benchmark in [`benchmarks/`](benchmarks/README.md) measures
   sustained events/s, latency percentiles, event-loop lag and memory against a
-  committed baseline.
+  committed baseline. The detection bench in
+  [`benchmarks/detection/`](benchmarks/detection/README.md) scores detection
+  quality (true-positive rate per ATT&CK technique at a fixed false-positive
+  rate); ADR 0007 gates model changes on it.
 
 ## 6. Design principles
 
@@ -125,6 +130,8 @@ contract, so the core does not change when they land
 5. **Fail closed.** Outside development mode the core refuses to start
    without a strong JWT secret, self-registration is off
    (`LSADRA_ALLOW_SIGNUP`), the first admin is created from the command line,
-   and TLS enforcement is on by default.
+   the server listens on loopback unless told otherwise and will not serve
+   plain HTTP on any other address, and model files that fail their integrity
+   check are not loaded.
 6. **Humans approve actions.** Playbooks guide the analyst. LSADRA does not run
    commands on monitored hosts.
