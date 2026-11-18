@@ -196,7 +196,7 @@ git push --force-with-lease                     # then update the PR
 ## Pull Request Process
 
 1. Keep PRs focused — one logical change per PR
-2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`)
+2. Follow the existing commit style: `type(scope): description` (e.g. `feat(detection): add DNS tunneling rule`, `fix(api): scope export to requesting user`). CI checks every commit message with commitlint (`commitlint.config.js`)
 3. **Sign off every commit** (`git commit -s`) — see [Sign-off (DCO)](#sign-off-dco). This is a required check; an unsigned commit blocks the merge.
 4. Run the smoke test and any tests relevant to your change
 5. Update documentation if your change affects setup or architecture. Changes to user-facing behavior, environment variables, endpoints, or project structure must update `README.md` **in the same PR**
