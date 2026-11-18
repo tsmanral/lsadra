@@ -232,3 +232,33 @@ the rebased code.
 5. **Not measured here:** writer-lock contention. The harness's load does not
    trigger `database is locked`; concurrent-writer behaviour is covered by the
    storage contract suite, not this benchmark.
+
+## M1 close-out: D8 on Linux (2026-11-18)
+
+Run after the autoencoder moved from PyTorch to scikit-learn. On Linux, pip
+installs the CUDA PyTorch wheel, and importing it alone added about 900 MB of
+server RSS. The same 20-device, 1 000 ev/s step used 1 177–1 228 MB on `main`
+`1fcc38f` and uses 280 MB now. Code `37d11b7`, clean tree, detection on. The
+machine is a cloud VM with a 4-core Intel Xeon @ 2.1 GHz, 15.7 GB RAM, Linux
+6.18, and Python 3.13.
+
+- [`m1-d8-linux-gate.json`](m1-d8-linux-gate.json):
+  `--detection on --devices 20 --rates 1000 1500 --repeats 2`
+
+  | Run | Offered ev/s | Sustained | p50 / p95 / p99 ms | Loop lag p99 ms | RSS MB | Errors |
+  |---|---|---|---|---|---|---|
+  | 1 | 1 000 | 1 000 | 12.7 / 53.3 / 83.1 | 2.5 | 279.9 | 0 |
+  | 1 | 1 500 | 1 500 | 12.6 / 67.9 / 109.3 | 2.0 | 269.4 | 0 |
+  | 2 | 1 000 | 1 000 | 12.7 / 53.8 / 75.2 | 1.5 | 277.5 | 0 |
+  | 2 | 1 500 | 1 500 | 12.9 / 72.8 / 107.3 | 4.1 | 268.6 | 0 |
+
+- [`m1-d8-linux-sweep.json`](m1-d8-linux-sweep.json): the default ladder
+  (1, 10 and 20 devices, 25 ev/s up to each fleet's limiter ceiling),
+  detection on. Every step sustained its offered rate with 0 errors. The worst
+  request p99 was 189 ms (20 devices, 50 ev/s), the worst loop-lag p99 was
+  8 ms, and the highest RSS was 300 MB. At 20 devices: 1 000 ev/s p99 128 ms,
+  1 500 ev/s 112 ms, 1 900 ev/s 137 ms.
+
+Every D8 criterion holds on Linux: at least 1 000 ev/s across 20 devices with
+detection on, 0 errors, loop lag p99 under 50 ms, request p99 under 250 ms,
+RSS at or under 600 MB, and two reproducible runs committed.
