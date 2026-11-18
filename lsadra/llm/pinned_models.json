@@ -1,0 +1,4 @@
+{
+  "_comment": "SHA-256 pins for downloadable LLM / embedding weights (GGUF, ONNX). Filled in when M4 fixes the exact files; the release manifest signs this file. Entries: \"<file name>\": {\"sha256\": \"<64 hex>\", \"source\": \"<url>\", \"license\": \"<spdx>\"}.",
+  "models": {}
+}
