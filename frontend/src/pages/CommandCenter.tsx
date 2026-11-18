@@ -133,7 +133,7 @@ const CommandCenter = () => {
       {/* KPI Tiles */}
       <div className="grid grid-cols-5 gap-4 shrink-0">
         <KpiTile label="Total Events 24h" value={kpis?.total_events_24h??0} color="var(--color-primary)" pulse
-          sub={`${stats?.events_per_second?.toFixed(0)??0} evt/s · ${stats?.avg_latency_ms?.toFixed(1)??0}ms`}
+          sub={`${stats?.events_per_second?.toFixed(1)??0} evt/s${typeof stats?.avg_latency_ms==='number' ? ` · ${stats.avg_latency_ms.toFixed(1)}ms` : ''}`}
           onClick={()=>setDrawer({type:'events'})}/>
         <KpiTile label="Active Threats" value={kpis?.total_anomalies_24h??0} color="#FF4444"
           sub={`${incidents.filter(i=>i.severity_label==='CRITICAL').length} critical · ${kpis?.open_incidents??0} open`}
@@ -250,8 +250,8 @@ const CommandCenter = () => {
             <h3 className="font-display text-base text-[var(--color-primary)] mb-4 flex items-center gap-2"><Cpu size={18}/> Ingestion Health</h3>
             {[
               { label:'Events/sec',  val:stats?.events_per_second?.toFixed(1)??0,   pct:Math.min((stats?.events_per_second||0)/5000,1), color:'#05FFA1' },
-              { label:'Latency (ms)',val:stats?.avg_latency_ms?.toFixed(2)??0,      pct:Math.min((stats?.avg_latency_ms||0)/10,1),      color:'#00F0FF' },
-              { label:'Drop Rate %', val:`${stats?.drop_rate_pct?.toFixed(2)??0}%`, pct:stats?.drop_rate_pct||0,                        color:'#FF4444' },
+              { label:'Latency (ms)',val:stats?.avg_latency_ms?.toFixed(2)??'not measured',      pct:Math.min((stats?.avg_latency_ms||0)/10,1),      color:'#00F0FF' },
+              { label:'Drop Rate %', val:typeof stats?.drop_rate_pct==='number' ? `${stats.drop_rate_pct.toFixed(2)}%` : 'not measured', pct:stats?.drop_rate_pct||0,                        color:'#FF4444' },
             ].map(({label,val,pct,color})=>(
               <div key={label} className="mb-3">
                 <div className="flex justify-between text-xs font-mono text-[var(--color-muted)] mb-1"><span>{label}</span><span className="text-white">{val}</span></div>
