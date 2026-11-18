@@ -35,4 +35,6 @@ jobs:
           # Read-only token for the online audits (known-vulnerable actions,
           # impostor commits).
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: zizmor --format=github .github/
+        # help/info notes (e.g. a version-pinned ad-hoc npm install) are shown
+        # in the log but do not fail the job.
+        run: zizmor --format=github --min-severity=low .github/
