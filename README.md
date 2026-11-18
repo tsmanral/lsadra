@@ -57,7 +57,7 @@ npm run dev
 
 Without `LSADRA_DEV_MODE=true` the server refuses to start (it requires `LSADRA_JWT_SECRET` and TLS outside dev mode), and without `LSADRA_CORS_ORIGINS` the browser blocks the dashboard's API calls. Never use dev mode in production. To fill the dashboard with synthetic demo data, run `venv/Scripts/python scripts/seed_demo.py` in a third terminal.
 
-Open **http://localhost:5173**, register an account, and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
+Open **http://localhost:5173**, register an account (sign-up is on in dev mode; see [First admin account](#first-admin-account) for production), and connect your first device from the **Connect Device** page — it generates a one-line install command for any Linux host. The command downloads the installer to a file and checks its SHA-256 before running it with `sudo`, and the installer checks the agent's SHA-256 before installing it. Against a plain-HTTP server it needs `--allow-insecure-http`, which the page adds and warns about; use that only on a trusted local network. The Linux agent auto-detects whether the system uses `/var/log/auth.log` or `journalctl`. On Windows, `python windows_agent_simulator.py` spins up a local test agent.
 
 To validate the full pipeline (parsers, rules, severity, narratives, DB, scheduler):
 
@@ -65,9 +65,19 @@ To validate the full pipeline (parsers, rules, severity, narratives, DB, schedul
 venv/Scripts/python tests/test_v4_smoke.py    # expected: 27/27 passed
 ```
 
+### First admin account
+
+Self-service sign-up is **off by default** outside dev mode (`LSADRA_ALLOW_SIGNUP=false`), so nobody who merely reaches the port can create an account. When it is turned on, sign-ups are analysts. Create the first admin from a shell on the server; after that, admins add accounts with `POST /api/dashboard/users` (`{"username", "password", "role"}`, password 12+ characters, role `ADMIN`, `ANALYST` or `VIEWER`) and change roles from the **Admin** page. Run it with the server's environment (`LSADRA_JWT_SECRET` set, or `LSADRA_DEV_MODE=true` for local dev), otherwise it stops with a message naming those settings:
+
+```bash
+venv/Scripts/python -m lsadra.admin_cli create-admin --username alice   # prompts for a password (12+ characters)
+venv/Scripts/python -m lsadra.admin_cli promote --username bob          # make an existing account an admin
+# Docker: docker compose exec api python -m lsadra.admin_cli create-admin --username alice
+```
+
 ### Desktop app (preview)
 
-`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. For now it runs the server from a source checkout set up as in step 1 above; a self-contained server bundle comes later.
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first as above (`LSADRA_DEV_MODE=true` is fine for that one command, since it only writes to the database). For now it runs the server from a source checkout set up as in step 1 above; a self-contained server bundle comes later.
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
@@ -83,7 +93,9 @@ cp .env.example .env    # set JWT secrets, TLS flags, optional AbuseIPDB key
 docker compose up -d
 ```
 
-This starts the API (`:8000`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
+`LSADRA_JWT_SECRET` must be your own random value of at least 32 bytes: outside dev mode the server refuses to start with a shorter one or a documented placeholder. Generate one with `python -c "import secrets; print(secrets.token_urlsafe(48))"`.
+
+This starts the API (`:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`), the legacy Streamlit dashboard (`:8501`), and an idle agent simulator. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match. A versioned Docker image is also published to [GHCR](https://github.com/tsmanral/lsadra/pkgs/container/lsadra) on every release.
 
 ## Ingesting Logs
 
@@ -113,6 +125,8 @@ curl -X POST http://localhost:8000/api/events/raw \
 `source_hint` is optional and must be one of `ssh`, `syslog`, `windows`, `network`, `endpoint`; omit it to auto-detect. Lines no parser recognizes are counted in `parse_errors` rather than rejected.
 
 Per-source ingestion health is available at `GET /api/events/stats`.
+
+Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
 
 ## Live Alerts
 
@@ -163,8 +177,8 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project Structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI
-frontend/           React (Vite + TypeScript) SOC dashboard
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite — one file per remediated finding
@@ -178,7 +192,8 @@ docs/               Documentation tree
   contracts/        event-schema.v1.json — the versioned collector ↔ core event contract
   threat-models/    Threat models (product, agent-key custody, prompt injection)
 datasets/           Synthetic SSH log generator for local experimentation
-.github/workflows/  CI matrix, desktop app build, DCO, release, security scanning, label sync, Discord notifications
+.devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
+.github/workflows/  CI matrix, desktop app build, DCO, commitlint, release, security scanning, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Runtime dependencies (requirements-dev.txt adds contributor tooling: ruff, pre-commit)
@@ -234,7 +249,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 **Where the project is now**
 
 - **Security remediation complete.** Every finding from two rounds of automated security review is fixed, and each one is pinned by a regression test — 44 tests in [`tests/security/`](tests/security/). One item remains deferred by design: signed agent distribution (lands with release engineering). The `/ws/alerts` live feed authenticates at the handshake (see [Live Alerts](#live-alerts)).
-- **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, and a DCO check. A weekly job re-scans full history for secrets.
+- **CI on every PR:** the smoke, security-regression, and full backend pytest suites across Ubuntu, Windows, and macOS; a frontend job that type-checks and builds the React dashboard and holds ESLint errors at or below the recorded baseline; plus lint, secret scanning, a DCO check, and a commitlint check of every commit message. A weekly job re-scans full history for secrets.
 - **PR-only workflow.** `main` is protected; all work — maintainer included — lands through reviewed pull requests.
 - **Distribution:** GitHub Releases and a container image at `ghcr.io/tsmanral/lsadra`.
 - **Demo mode:** a labeled synthetic corpus in [`demo/`](demo/) plus [`scripts/seed_demo.py`](scripts/seed_demo.py), which replays it through the real ingestion API so a fresh install has something to look at. All demo data is obviously synthetic by construction (`demo-host-NN` hostnames, `.demo` users, RFC 5737/3849 documentation IP ranges). `--rate/--duration/--devices` turn the same script into a fixed-rate load driver.

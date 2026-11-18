@@ -41,6 +41,18 @@ Linux needs the webview and tray libraries:
 `sudo apt install libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev`.
 Windows and macOS need nothing extra beyond Rust and Node.
 
+## First account
+
+Self sign-up is off outside dev mode, so create the first admin from a shell in
+the checkout before logging in (dev mode is fine for this one command; it only
+writes the account to the database the app's server uses):
+
+```bash
+LSADRA_DEV_MODE=true python -m lsadra.admin_cli create-admin --username you
+```
+
+A first-run setup screen inside the app is planned with the packaged server.
+
 ## How it finds the server
 
 In order:
