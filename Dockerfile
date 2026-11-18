@@ -51,9 +51,14 @@ USER 10001:10001
 # API + legacy Streamlit dashboard
 EXPOSE 8000 8501
 
-# Python, not curl: the slim runtime ships no curl.
+# Python, not curl: the slim runtime ships no curl. Probes plain HTTP, then the
+# launcher's TLS listener (self-signed by default, so not verified on loopback).
 HEALTHCHECK --interval=30s --timeout=5s --start-period=30s --retries=3 \
-  CMD ["python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
+  CMD ["python", "scripts/container_healthcheck.py"]
 
-# Default: run the API server
-CMD ["uvicorn", "server:app", "--host", "0.0.0.0", "--port", "8000"]
+# Default: run the API server through the launcher, which applies the listener
+# policy (G-8): plain HTTP beyond loopback only with TLS configured, a trusted
+# proxy, or LSADRA_ALLOW_PLAINTEXT_LISTENER (docker-compose.yml sets it and
+# publishes the port on the host's loopback only).
+ENV LSADRA_API_HOST=0.0.0.0
+CMD ["python", "-m", "lsadra.serve"]
