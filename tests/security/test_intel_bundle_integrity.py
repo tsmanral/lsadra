@@ -136,3 +136,11 @@ def test_simulated_intel_scores_are_gone():
         assert "BUILTIN_INTEL" not in src
         assert "185.15.202.13" not in src
     assert "Math.random" not in tsx
+
+
+def test_signed_files_are_exempt_from_line_ending_conversion():
+    # core.autocrlf on Windows turned manifest.json into CRLF and broke the
+    # signature; .gitattributes must keep these bytes exactly as signed.
+    attrs = (REPO / ".gitattributes").read_text(encoding="utf-8")
+    assert "lsadra/intel/data/** -text" in attrs
+    assert b"\r\n" not in (bundle.PACKAGED_DIR / "manifest.json").read_bytes()
