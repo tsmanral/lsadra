@@ -116,6 +116,10 @@ Scoping matches the REST API: an ADMIN receives every alert, other roles only th
 
 The dashboard signs in only through `POST /api/auth/login`. There is no offline login: if the backend is unreachable, sign-in fails.
 
+### Demo data in the dashboard
+
+The dashboard only ever shows data from the API. For a populated demo, replay the synthetic corpus with `scripts/seed_demo.py`. Front-end developers who need canned data without a backend can run `VITE_DEMO_MOCKS=true npm run dev` and log in as `testuser`; that switch only exists in the dev server and is compiled out of production builds.
+
 ## Architecture
 
 ```mermaid
