@@ -39,6 +39,8 @@ class TestHealthEndpoints:
         response = client.get("/api/health")
         assert response.status_code == 200
         assert response.json()["service"] == "lsadra-api"
+        from lsadra import __version__
+        assert response.json()["version"] == __version__
 
 
 class TestAuthEndpoints:
