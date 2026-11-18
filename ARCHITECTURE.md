@@ -39,7 +39,7 @@ contract, so the core does not change when they land
 | `features/` | Temporal and behavioral feature extraction |
 | `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble |
 | `detection/` | Orchestrator, detection worker, rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
-| `explainability/` | Narrative builder, log-value sanitizer, threat-intel lookup, SHAP helpers |
+| `explainability/` | Narrative builder, log-value sanitizer, threat-intel lookup, SHAP helpers (not called by the live pipeline) |
 | `session/` | Session building and user-journey analysis |
 | `jobs/` | Scheduler and IP geolocation |
 | `storage/` | Database access, migrations, metrics aggregation |
