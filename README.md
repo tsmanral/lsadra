@@ -195,7 +195,7 @@ Every enrolled device grouped by platform, with its status. Select devices and *
 
 <img src="docs/screenshots/model-analytics.png" alt="Model Analytics" width="720"/>
 
-The model registry: which detection models are trained, on how many events, and when. A trained model replaces the live one only if it passes the canary check in [Model integrity and training](#model-integrity-and-training). On the demo data alone the first candidate fails that check, so the registry stays empty, as shown here; detection still runs, and its rules raise the alerts shown on the other pages. Further down are feature drift (PSI), which the scheduler computes daily and you can trigger by hand, and a summary of the detection pipeline.
+The model registry: which detection models are trained, on how many events, and when. A trained model replaces the live one only if it passes the canary check in [Model integrity and training](#model-integrity-and-training). With the demo data loaded, the first automatic training run promotes a baseline and an ensemble model, as shown here (the labelled attack events are left out of training). Further down are feature drift (PSI), which the scheduler computes daily and you can trigger by hand, and a summary of the detection pipeline.
 
 ### Connect Device
 
