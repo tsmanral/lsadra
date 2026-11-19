@@ -4,7 +4,7 @@ Background scheduler activation (M1, after Sprint 2).
 Pins: the app lifespan starts and stops the scheduler (behind
 LSADRA_SCHEDULER_ENABLED); every job runs one instance at a time with missed
 runs coalesced; retention runs on an interval with an early first run; IP
-geolocation (third-party egress) only runs when opted in; the time-window jobs
+geolocation only runs when opted in; the time-window jobs
 compare against the format timestamps are stored in. SYNTHETIC data only.
 """
 
@@ -101,7 +101,7 @@ def test_lifespan_starts_and_stops_the_scheduler_behind_the_flag(enabled, monkey
 def test_data_cleanup_job_runs_bounded_retention(seeded, sql, monkeypatch):  # noqa: F811
     monkeypatch.setattr(seeded, "RETENTION_DAYS", 30)
     monkeypatch.setattr(seeded, "RETENTION_BATCH_SIZE", 2)
-    monkeypatch.setattr(seeded.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(seeded, "_retention_pause", lambda _s: None)
     seeded.insert_events_batch([make_event(timestamp="2000-01-01T00:00:00") for _ in range(5)])
 
     scheduler._run_data_cleanup()

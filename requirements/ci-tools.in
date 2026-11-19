@@ -1,0 +1,5 @@
+# Tools CI runs (lint, audit, workflow scan). Separate from dev.in so the lint
+# job installs a few small wheels, not the whole stack.
+ruff
+pip-audit
+zizmor

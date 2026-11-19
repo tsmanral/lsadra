@@ -25,13 +25,15 @@ services:
       - LSADRA_ABUSEIPDB_API_KEY=${LSADRA_ABUSEIPDB_API_KEY:-}
       - LSADRA_MIN_BASELINE_EVENTS=${LSADRA_MIN_BASELINE_EVENTS:-200}
       - LSADRA_RETENTION_DAYS=${LSADRA_RETENTION_DAYS:-30}
+      - LSADRA_ALERT_RETENTION_DAYS=${LSADRA_ALERT_RETENTION_DAYS:-365}
       # The React dashboard (web service) calls the API from the browser.
       - LSADRA_CORS_ORIGINS=${LSADRA_CORS_ORIGINS:-http://localhost:8080}
     volumes:
       - sentinel-data:/app/data
       - sentinel-logs:/app/logs
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/health"]
+      # The image has no curl; probe with Python.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8000/api/health', timeout=4)"]
       interval: 30s
       timeout: 10s
       retries: 3
@@ -70,6 +72,12 @@ services:
       --browser.gatherUsageStats=false
     ports:
       - "127.0.0.1:${DASH_PORT:-8501}:8501"
+    healthcheck:
+      # Replaces the image's API health check, which does not apply here.
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
     environment:
       - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
       - LSADRA_ALLOW_SIGNUP=${LSADRA_ALLOW_SIGNUP:-false}
@@ -93,6 +101,8 @@ services:
       "
     environment:
       - SERVER_URL=http://api:8000
+    healthcheck:
+      disable: true  # idle helper; the image's API health check does not apply
     depends_on:
       api:
         condition: service_healthy
