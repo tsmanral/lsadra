@@ -201,6 +201,16 @@ if not 0 < THREAD_SWITCH_INTERVAL_MS <= 100:
     raise RuntimeError("LSADRA_THREAD_SWITCH_INTERVAL_MS must be > 0 and <= 100.")
 
 # ---------------------------------------------------------------------------
+# Sigma rule layer (lsadra/detection/sigma_engine.py). "shadow" (default) runs
+# the rules and records matches without raising alerts; "alert" lets medium+
+# matches raise alerts; "off" skips the layer. SIGMA_SUPPRESSIONS is an optional
+# path to an operator-reviewed Sigma filter file, loaded with the bundled one.
+SIGMA_MODE: str = os.getenv("LSADRA_SIGMA_MODE", "shadow").strip().lower()
+if SIGMA_MODE not in ("off", "shadow", "alert"):
+    raise RuntimeError("LSADRA_SIGMA_MODE must be off, shadow or alert.")
+SIGMA_SUPPRESSIONS: str = os.getenv("LSADRA_SIGMA_SUPPRESSIONS", "").strip()
+
+# ---------------------------------------------------------------------------
 # Input Validation Caps
 # These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
 # the source of truth; tests/test_contracts.py fails if the two drift.
@@ -297,6 +307,9 @@ RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECON
 # A candidate model is promoted only if its ML layers still flag at least this
 # share of the attack events in each canary scenario of the demo corpus.
 CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+# Phase 1 shadow scorer (ADR 0007): share of training events the ECOD shadow
+# verdict may flag. Shadow verdicts are logged and returned, never alerted on.
+SHADOW_ECOD_TARGET_FPR: float = float(os.getenv("LSADRA_SHADOW_ECOD_TARGET_FPR", "0.001"))
 CANARY_SCENARIOS: List[str] = [
     s.strip()
     for s in os.getenv("LSADRA_CANARY_SCENARIOS", "ssh_bruteforce,injection_attempts").split(",")

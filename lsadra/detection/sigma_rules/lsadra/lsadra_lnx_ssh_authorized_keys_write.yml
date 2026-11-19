@@ -1,0 +1,25 @@
+title: SSH Authorized Keys File Written
+name: lsadra_lnx_ssh_authorized_keys_write
+id: 6ac7efa2-199e-5351-ae13-0e08a38fca3b
+status: test
+description: Detects a write to an SSH authorized_keys file, which grants key-based login to whoever holds the matching private key.
+references:
+    - https://attack.mitre.org/techniques/T1098/004/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.t1098.004
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        TargetFilename|endswith:
+            - '/.ssh/authorized_keys'
+            - '/.ssh/authorized_keys2'
+    condition: selection
+falsepositives:
+    - Users adding their own keys
+    - Configuration management (Ansible, cloud-init)
+level: medium

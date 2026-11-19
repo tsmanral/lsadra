@@ -55,11 +55,11 @@
 
 Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are also heavy, expensive and opaque. Lightweight consumer tools watch the network but have no real detection intelligence. **LSADRA fills the gap**: a self-hostable SOC platform for individuals and small teams that explains *why* every alert fired.
 
-- 🧠 **Multi-layer ML detection.** Statistical baselining (Z-score), an ensemble (Isolation Forest, LOF, One-Class SVM), and a PyTorch autoencoder, with drift tracking via Population Stability Index.
+- 🧠 **Multi-layer ML detection.** Statistical baselining (Z-score), an ensemble (Isolation Forest, LOF, One-Class SVM), and a small autoencoder (a scikit-learn MLP, no PyTorch), with drift tracking via Population Stability Index.
 - 🔍 **Explainable by design.** Every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline yet; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
+- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) runs alongside them in shadow mode.
 - 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
 
 ## Quick start (local, about 10 minutes)
@@ -83,11 +83,9 @@ git clone https://github.com/tsmanral/lsadra.git
 cd lsadra
 python3.12 -m venv venv                        # Windows: py -3.12 -m venv venv
 venv/bin/pip install -r requirements.txt      # Windows: venv\Scripts\pip install -r requirements.txt
-# Optional: CPU PyTorch for the autoencoder layer (the server runs without it)
-venv/bin/pip install --no-deps -r requirements/torch.txt
 ```
 
-Every dependency is pinned and hash-checked ([`requirements/README.md`](requirements/README.md)); `requirements.txt` installs everything except PyTorch, and `requirements/base.txt` alone is enough for the API server. PyTorch (CPU build, a few hundred MB from the PyTorch index) is optional: without it the server still starts and the autoencoder layer becomes a no-op, while the statistical and ensemble layers keep working.
+Every dependency is pinned and hash-checked ([`requirements/README.md`](requirements/README.md)); `requirements.txt` installs everything, and `requirements/base.txt` alone is enough for the API server. PyTorch is not needed: the autoencoder layer is a small scikit-learn network, which keeps the server around 300 MB of memory with detection running (see [`benchmarks/README.md`](benchmarks/README.md)).
 
 ### 2. Start the API in dev mode
 
@@ -401,6 +399,15 @@ Rules live in one registry, [`lsadra/detection/rule_engine.py`](lsadra/detection
 
 To add a rule, register it with the `@rule(...)` decorator, add positive and negative cases to `tests/test_rules.py`, and regenerate the scorecard.
 
+### Sigma rules (shadow mode)
+
+A second rule layer runs standard [Sigma](https://sigmahq.io/) 2.0 rules in-process with [pySigma](https://github.com/SigmaHQ/pySigma): 56 rules from the SigmaHQ repository (Linux and Windows process, file, registry and Windows log rules, used unchanged under the Detection Rule License 1.1) and 11 LSADRA rules, including a correlation rule for password spraying (one address failing against 5 or more accounts in 10 minutes). The rules and their attribution are in [`lsadra/detection/sigma_rules/`](lsadra/detection/sigma_rules/README.md).
+
+- **Shadow by default.** `LSADRA_SIGMA_MODE=shadow` runs the rules on every scored event and stores each match in the `sigma_matches` table and in the result's `sigma_matches` list, but never raises or relabels an alert. `alert` lets a `medium` or higher match raise an alert, with the Sigma rule's technique, when no built-in rule matched. `off` skips the layer. New detection layers start in shadow mode until the detection bench shows they help (ADR 0007).
+- **Suppressions.** Reviewed exceptions are Sigma filters: bundled ones in `sigma_rules/filters/suppressions.yml`, site-specific ones in the file named by `LSADRA_SIGMA_SUPPRESSIONS`.
+- **Scorecard.** The [scorecard](docs/detection/scorecard.md) has a Sigma section: today the layer matches all 3 attack scenarios and 0 of 99 benign events.
+- Rules are code to pySigma (it compiles them to Python), so the layer loads only the bundled folder and the operator's suppression file.
+
 ## Live alert stream (WebSocket)
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -443,15 +450,17 @@ Playbooks are guidance: LSADRA does not run their commands. Commands use placeho
 
 ## Model integrity and training
 
-Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
+Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; the autoencoder is plain JSON (weights, normalisation, threshold), so loading it never unpickles anything, and its shapes are checked before use. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
 
 Training is gated:
 
-- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies and events inside an open or investigating incident. With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
+- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies, events inside an open or investigating incident, and events whose `attributes.ground_truth.label` marks them as an attack (the labelled demo corpus carries this; real agents never send it). With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
 - **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
 - **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
 - **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
 - **Audit trail and model cards.** Every attempt (promoted, rejected, skipped, refused, rolled back) is a row in `model_training_runs`. Each promoted model gets a JSON model card: type, file hash, features, training window and event counts, exclusions, canary result and library versions.
+
+**Shadow scorer (ADR 0007, Phase 1).** Each promotion also trains an ECOD scorer (empirical-CDF tails, no parameters, stored as plain signed JSON in `ecod.json`) over a wider input than the live layers: the nine V3 features, the numeric rule features and the event type, 56 columns in all. It runs in shadow mode: every detection result carries `shadow_ecod_score` and `shadow_ecod_anomaly`, and a log line reports where its verdict and the live one differ, but it never raises or suppresses an alert. Its threshold flags `LSADRA_SHADOW_ECOD_TARGET_FPR` of the training events (default 0.001). On the [detection bench](benchmarks/detection/README.md) it is the strongest single scorer; it takes over from the current layers only once it beats them there.
 
 Per-entity baselines are saved as plain JSON and survive restarts. Drift is measured daily (and on `POST /api/dashboard/run-drift`): the last `LSADRA_DRIFT_WINDOW_HOURS` of events (default 24) are compared by PSI against quantiles stored at training time; a drifted feature marks the models stale and logs a warning that the cause may be poisoned training data. `GET /api/models/status` (ADMIN, ANALYST) reports model cards, baseline coverage, the latest drift per feature and recent training runs.
 
@@ -499,6 +508,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
   intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
+  detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
@@ -513,7 +523,7 @@ scripts/            Operator tooling (seed_demo.py replays the demo corpus throu
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus; release_notes.py checks the version and writes release notes;
                     check_tier_boundary.py is the Lite/Team import check, ADR 0008)
-requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
@@ -521,7 +531,7 @@ docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json, the versioned collector ↔ core event contract
   architecture/c4.md C4 diagrams (context, containers, core components, target state)
-  detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
+  detection/        Rules scorecard on the demo corpus, built-in and Sigma rules (scorecard.md / .json, generated)
   screenshots/      Dashboard screenshots used in this README
   threat-models/    Threat models (product, agent-key custody, prompt injection)
   releases/         Hand-written notes for each release (vX.Y.Z.md), used as the GitHub release body
@@ -532,7 +542,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release-please (release PR) + release (signed + attested) + release dry run, secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff (not torch); requirements/docs.txt is the docs-site toolchain
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff; requirements/docs.txt is the docs-site toolchain
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent

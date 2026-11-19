@@ -61,13 +61,15 @@ neither a hit nor a false positive.
 
 | Config | Features | Training |
 |---|---|---|
-| `production` | Online: what `run_for_new_events` sees. Agents flush every 3 s or 50 events, a device runs at most once per `DETECTION_THROTTLE_SECONDS` (5 s), and each run takes up to 500 new events, so the 15-minute rolling features only see that run's chunk. | As shipped: the first device past `MIN_BASELINE_EVENTS` trains every layer once, on its first ≤ 500 events. |
+| `production` | Online: what `run_for_new_events` sees. Agents flush every 3 s or 50 events, a device runs at most once per `DETECTION_THROTTLE_SECONDS` (5 s), and each run takes up to 500 new events, so the 15-minute rolling features only see that run's chunk. | As shipped (`_auto_train` → `retrain`): once a device passes `MIN_BASELINE_EVENTS`, a candidate trains on the most recent `TRAINING_MAX_EVENTS` stored events of every device, minus events already scored as anomalies, with no device above `TRAINING_MAX_DEVICE_SHARE`. Fewer than `MIN_TRAINING_EVENTS` usable events skips the run (30 s retry). The candidate is promoted only if it passes the canary; otherwise the next try waits `RETRAIN_COOLDOWN_SECONDS`. Each attempt is listed under `training` in the results. |
 | `retrained-online` | Online, as above. | Every layer trained on all hosts' training days. |
 | `retrained-full` | Each device's whole stream at once, so rolling windows see everything. | Every layer trained on the training days. A ceiling for today's algorithms and features. |
 
 The harness calls the real `build_features` and the real
 `DetectionOrchestrator._run_layers`; only persistence is bypassed (no model files,
-no database), and model training follows `DetectionOrchestrator.train`.
+no database), and model training follows `DetectionOrchestrator.train` (the `retrained-*` configs
+fit the layers directly and skip the canary, since they measure the algorithms
+on clean data).
 
 **Metrics.** For every score (`severity_score`, and each layer's own score), the
 threshold for a target FPR is the value that flags at most that share of benign
@@ -79,6 +81,25 @@ bench reports how many sit on the threshold, and a tie never counts as a hit.
 The pipeline's own verdict (`is_anomaly`) is reported as deployed: FPR, TPR,
 false alerts per host per day, and which ATT&CK label the rule engine attached.
 
+## Challenger models (Phase 1)
+
+`--challengers` also scores the candidate replacements from
+[ADR 0007](../../docs/architecture/adr/0007-detection-stack.md) on the
+`retrained-*` configs, next to today's layers and on the same training frame
+([`challengers.py`](challengers.py); extras in
+[`requirements.txt`](requirements.txt), not product dependencies):
+
+| Key | Model |
+|---|---|
+| `ch_iforest` | Isolation Forest, exported to ONNX and scored with ONNX Runtime (the run records the largest difference from sklearn's scores) |
+| `ch_ecod` | ECOD: per-feature empirical tail probabilities, no parameters, stored as quantile tables |
+| `ch_unsup` | Mean of the two, rank-normalised against training scores |
+| `ch_lgbm` | LightGBM, leave-one-attack-instance-out: an attack instance is scored by a model trained on every *other* instance plus training-period benign events |
+
+All four see a wider input than today's models: the nine V3 features, the
+numeric rule features (auth bursts, network fan-out, endpoint signals,
+cross-source) and a one-hot of the canonical event type, 56 columns in all.
+
 ## Limits
 
 - The background is synthetic. Real fleets are noisier, so real false-positive
@@ -87,6 +108,12 @@ false alerts per host per day, and which ATT&CK label the rule engine attached.
   read it together with event-level TPR and the chance column.
 - Public captures come from lab domains with their own clocks; they are moved
   onto bench hosts, which changes host names and dates but nothing else.
+- The production canary (`LSADRA_CANARY_SCENARIOS`) scores candidates on the
+  demo corpus's `ssh_bruteforce` and `injection_attempts`. `ssh_bruteforce` is
+  also one of the bench's injected test scenarios, so the production config's
+  training has seen a pass/fail signal on part of its test data. The canary
+  only accepts or rejects a candidate, it never trains on those events, but read
+  the demo-corpus T1110 numbers with that in mind.
 - Today's models only see the nine V3 features (time of day, failures and
   successes per source address). Techniques with no authentication signal are
   expected to score at chance; the bench makes that visible rather than hiding it.
@@ -96,3 +123,6 @@ false alerts per host per day, and which ATT&CK label the rule engine attached.
 | File | What |
 |---|---|
 | [`results/baseline-2026-11-18.json`](results/baseline-2026-11-18.json) / [`.md`](results/baseline-2026-11-18.md) | Phase 0 baseline of the pipeline as merged at the time |
+| [`results/after-131-2026-11-18.json`](results/after-131-2026-11-18.json) / [`.md`](results/after-131-2026-11-18.md) | `main` after #120, #133 and #131: production training through the canary-gated `retrain` path |
+| [`results/phase1-challengers-2026-11-18.json`](results/phase1-challengers-2026-11-18.json) / [`.md`](results/phase1-challengers-2026-11-18.md) | Phase 1 challengers next to today's layers (`retrained-*` configs) |
+| [`results/phase1b-ecod-shadow-2026-11-18.json`](results/phase1b-ecod-shadow-2026-11-18.json) / [`.md`](results/phase1b-ecod-shadow-2026-11-18.md) | The product's ECOD shadow scorer (`shadow_ecod`) in all three configs; live verdicts unchanged |

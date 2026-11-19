@@ -55,7 +55,7 @@ def render():
                 # Analyst-friendly model descriptions
                 model_descriptions = {
                     "ensemble": "Isolation Forest + LOF + One-Class SVM majority-vote ensemble for multi-perspective anomaly detection.",
-                    "autoencoder": "PyTorch neural network autoencoder that detects anomalies via reconstruction error patterns.",
+                    "autoencoder": "Small neural-network autoencoder (scikit-learn MLP) that detects anomalies via reconstruction error patterns.",
                 }
                 desc = model_descriptions.get(name, "Machine learning model for anomaly detection.")
                 st.info(f"**Algorithm:** {desc}")
