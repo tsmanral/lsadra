@@ -9,4 +9,4 @@ without a file here gets the changelog release-please wrote instead.
 Conventional Commit subjects. These files are the readable version: what
 changed for someone running LSADRA, what breaks, and what to do about it.
 
-See [Releasing](../../CONTRIBUTING.md#releasing) for the whole process.
+See [Releasing](https://github.com/tsmanral/lsadra/blob/main/CONTRIBUTING.md#releasing) for the whole process.

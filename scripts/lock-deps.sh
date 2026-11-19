@@ -26,6 +26,7 @@ compile ci-tools.in "${extra[@]}"
 compile ml.in "${extra[@]}"
 compile ui.in "${extra[@]}"
 compile dev.in "${extra[@]}"
+compile docs.in "${extra[@]}"
 # torch comes from the CPU wheel index only. --emit-index-url writes that
 # index into torch.txt so pip never looks at PyPI for it. --no-deps: its
 # dependencies are locked in ml.in from PyPI; install torch.txt with
