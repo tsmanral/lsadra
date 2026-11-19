@@ -1,0 +1,19 @@
+{
+  "_comment": "Ed25519 public keys trusted to sign the bundled intel manifest (ADR 0004). key_id = first 16 hex chars of SHA-256 of the raw public key. Private keys are never committed.",
+  "keys": [
+    {
+      "key_id": "58d096b4ebab3c8b",
+      "public_key": "odZkEuuJl3u2B2qoDJLaf6EBTrkTLG/fgWbq8pVdJpU=",
+      "label": "bootstrap-2026-11",
+      "added": "2026-11-18",
+      "note": "Signed the first bundle only; its private half was discarded after signing. Later bundles are signed by the CI release key."
+    },
+    {
+      "key_id": "35aa201a514041d7",
+      "public_key": "STkxoA0PR56elJ9rUxPg7InzQdWzgugcovYOStpJKMQ=",
+      "label": "release-2026-11",
+      "added": "2026-11-18",
+      "note": "CI release key. Private half generated in memory on the maintainer's machine and stored only as the LSADRA_INTEL_SIGNING_KEY Actions secret."
+    }
+  ]
+}

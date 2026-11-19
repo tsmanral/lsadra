@@ -417,6 +417,7 @@ class RequestRecord:
     status: int  # HTTP status; 0 = transport error / client timeout
     events_sent: int
     events_accepted: int
+    request_id: str = ""  # x-bench-request-id sent with it, when the caller asked for one
 
 
 @dataclass
@@ -444,8 +445,13 @@ async def drive_rate(
     request_timeout: float = 120.0,
     max_in_flight: int = 256,
     drain_timeout: float = 120.0,
+    request_id_prefix: Optional[str] = None,
 ) -> RateResult:
-    """Offer *rate* events/s for *duration* s, round-robin across *creds*."""
+    """Offer *rate* events/s for *duration* s, round-robin across *creds*.
+
+    With *request_id_prefix*, batch *k* also carries an ``x-bench-request-id``
+    header ``<prefix>-<k>`` (ignored by the server; the benchmark's tracer reads it).
+    """
     import httpx  # in requirements.txt; imported lazily so one-shot mode never needs it
 
     interval = batch_size / rate
@@ -465,14 +471,17 @@ async def drive_rate(
     ) as client:
         started = time.perf_counter()
 
-        async def send(device_index: int, batch: List[Dict[str, Any]]) -> None:
+        async def send(device_index: int, batch: List[Dict[str, Any]], request_id: str) -> None:
             device_id, api_key = creds[device_index]
+            headers = {"x-device-id": device_id, "x-api-key": api_key}
+            if request_id:
+                headers["x-bench-request-id"] = request_id
             t_send = time.perf_counter()
             try:
                 resp = await client.post(
                     "/api/events/batch",
                     json={"events": batch},
-                    headers={"x-device-id": device_id, "x-api-key": api_key},
+                    headers=headers,
                 )
                 status = resp.status_code
                 accepted = int(resp.json().get("events_accepted", 0)) if status == 200 else 0
@@ -485,6 +494,7 @@ async def drive_rate(
                     status=status,
                     events_sent=len(batch),
                     events_accepted=accepted,
+                    request_id=request_id,
                 )
             )
 
@@ -499,7 +509,10 @@ async def drive_rate(
             if len(in_flight) >= max_in_flight:
                 result.skipped_backpressure += 1
                 continue
-            task = asyncio.create_task(send(k % len(creds), cycler.next_batch(batch_size)))
+            request_id = f"{request_id_prefix}-{k}" if request_id_prefix else ""
+            task = asyncio.create_task(
+                send(k % len(creds), cycler.next_batch(batch_size), request_id)
+            )
             in_flight.add(task)
             task.add_done_callback(in_flight.discard)
 

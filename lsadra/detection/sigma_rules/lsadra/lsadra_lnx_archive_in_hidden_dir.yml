@@ -1,0 +1,30 @@
+title: Archive Written To A Hidden Directory
+name: lsadra_lnx_archive_in_hidden_dir
+id: c53c7a09-5f88-5783-b09e-7391040245cf
+status: test
+description: Detects an archive file written under a hidden directory in a world-writable location, a common way to stage data before moving it off the host.
+references:
+    - https://attack.mitre.org/techniques/T1074/001/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.collection
+    - attack.t1074.001
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_dir:
+        TargetFilename|re: '^/(tmp|var/tmp|dev/shm)/\.[^/]+/'
+    selection_ext:
+        TargetFilename|endswith:
+            - '.tar'
+            - '.tar.gz'
+            - '.tgz'
+            - '.zip'
+            - '.7z'
+            - '.rar'
+    condition: all of selection_*
+falsepositives:
+    - Backup tools that stage in a hidden temp folder
+level: medium
