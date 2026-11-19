@@ -45,3 +45,27 @@ An event *alerts* when its best rule match is `medium` or higher; `low` matches 
 | `lsadra-persist-local-account-created` v1 | medium | stable | T1136.001 | Persistence | 0 | 0 | 0 | no corpus scenario yet; unit tests only |
 | `lsadra-impair-event-log-cleared` v1 | high | stable | T1685.005 | Defense Impairment | 0 | 0 | 0 | no corpus scenario yet; unit tests only |
 | `lsadra-lateral-remote-services` v2 | high | stable | T1021 | Lateral Movement | 0 | 0 | 0 | run by the scheduler; unit tests only |
+
+## Sigma layer (shadow mode)
+
+67 Sigma rules (56 from SigmaHQ) and 1 suppression filter(s). The layer runs in shadow mode by default (`LSADRA_SIGMA_MODE`), so these matches are recorded but raise no alerts. A match counts here when its level is `medium` or higher.
+
+- Scenarios matched: 3 of 3
+- Benign events matched (would-be false positives): 0 of 99
+
+| Scenario | Attack events matched | Benign events matched |
+|---|---:|---:|
+| `benign_background` | 0 of 0 | 0 of 64 |
+| `data_movement_offhours` | 3 of 25 | 0 of 16 |
+| `injection_attempts` (R8 fixture) | 0 of 29 | 0 of 0 |
+| `persistence_new_service` | 2 of 20 | 0 of 15 |
+| `ssh_bruteforce` | 36 of 44 | 0 of 4 |
+
+| Sigma rule | Source | Level | ATT&CK | Attack events | Benign events | Scenarios |
+|---|---|---|---|---:|---:|---|
+| Archive Written To A Hidden Directory | lsadra | medium | T1074.001 | 3 | 0 | `data_movement_offhours` |
+| Password Spraying From One Source | lsadra | high | T1110.003 | 36 | 0 | `ssh_bruteforce` |
+| Service ImagePath Set To A Temp Folder | lsadra | high | T1543.003 | 1 | 0 | `persistence_new_service` |
+| Service Installed From A Temp Folder | lsadra | high | T1543.003 | 1 | 0 | `persistence_new_service` |
+
+Sigma rules not listed did not match any corpus event; `tests/test_sigma_engine.py` covers them with curated events.

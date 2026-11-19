@@ -200,6 +200,16 @@ if not 0 < THREAD_SWITCH_INTERVAL_MS <= 100:
     raise RuntimeError("LSADRA_THREAD_SWITCH_INTERVAL_MS must be > 0 and <= 100.")
 
 # ---------------------------------------------------------------------------
+# Sigma rule layer (lsadra/detection/sigma_engine.py). "shadow" (default) runs
+# the rules and records matches without raising alerts; "alert" lets medium+
+# matches raise alerts; "off" skips the layer. SIGMA_SUPPRESSIONS is an optional
+# path to an operator-reviewed Sigma filter file, loaded with the bundled one.
+SIGMA_MODE: str = os.getenv("LSADRA_SIGMA_MODE", "shadow").strip().lower()
+if SIGMA_MODE not in ("off", "shadow", "alert"):
+    raise RuntimeError("LSADRA_SIGMA_MODE must be off, shadow or alert.")
+SIGMA_SUPPRESSIONS: str = os.getenv("LSADRA_SIGMA_SUPPRESSIONS", "").strip()
+
+# ---------------------------------------------------------------------------
 # Input Validation Caps
 # These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
 # the source of truth; tests/test_contracts.py fails if the two drift.

@@ -57,6 +57,11 @@ def test_cleanup_old_data_deletes_old_rows_across_tables_and_returns_event_count
     sql("UPDATE feature_drift SET measured_at=?", (OLD_SQL,))
     seeded.insert_drift_record("m", "f", 0.2, False)
 
+    hit = {"rule_id": "r", "title": "t", "level": "high", "source": "lsadra"}
+    seeded.insert_sigma_matches([{"event_id": 1, "device_id": DEVICE_ID, "sigma_matches": [hit]}])
+    sql("UPDATE sigma_matches SET created_at=?", (OLD,))
+    seeded.insert_sigma_matches([{"event_id": 2, "device_id": DEVICE_ID, "sigma_matches": [hit]}])
+
     deleted = seeded.cleanup_old_data()
     assert isinstance(deleted, int)
     assert deleted == 2  # only the normalized_events count is reported
@@ -66,6 +71,7 @@ def test_cleanup_old_data_deletes_old_rows_across_tables_and_returns_event_count
         "device_heartbeats",
         "metrics_5min",
         "feature_drift",
+        "sigma_matches",
     ):
         assert _count(sql, table) == 1, table
 

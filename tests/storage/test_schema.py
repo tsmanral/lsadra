@@ -26,6 +26,7 @@ EXPECTED_TABLES = {
     "alerts_feedback",
     "ingestion_stats",
     "audit_events",  # migration 008 (G-26)
+    "sigma_matches",
 }
 
 
