@@ -49,9 +49,10 @@ from contextlib import suppress
 from typing import Any, Dict, List, Optional, Set, Tuple
 
 from fastapi import APIRouter, HTTPException, WebSocket
+from starlette.concurrency import run_in_threadpool
 
 from lsadra import config
-from lsadra.auth import decode_token
+from lsadra.auth import decode_token, session_user
 
 logger = logging.getLogger(__name__)
 
@@ -192,10 +193,10 @@ def authenticate_handshake(token: Optional[str]) -> Optional[Dict[str, Any]]:
         payload = decode_token(token)
     except HTTPException:
         return None
-    role = payload.get("role", "VIEWER")
-    if role not in STREAM_ROLES:
+    user = session_user(payload)  # revoked / disabled / stale role -> None (G-9)
+    if user is None or user["role"] not in STREAM_ROLES:
         return None
-    return {"user_id": payload["sub"], "role": role, "exp": float(payload["exp"])}
+    return {"user_id": user["user_id"], "role": user["role"], "exp": float(payload["exp"])}
 
 
 async def _reject(websocket: WebSocket, reason: str) -> None:
@@ -216,7 +217,7 @@ async def ws_alerts(websocket: WebSocket) -> None:
     if token is None:
         await _reject(websocket, "Missing authentication credentials.")
         return
-    user = authenticate_handshake(token)
+    user = await run_in_threadpool(authenticate_handshake, token)  # DB read off the loop
     if user is None:
         await _reject(websocket, "Invalid or expired token.")
         return

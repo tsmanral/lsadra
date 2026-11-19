@@ -27,6 +27,7 @@ CORE_JOBS = {
     "cross_source_correlation",
     "lateral_movement_scan",
     "ingestion_health_check",
+    "audit_chain_check",
 }
 
 
@@ -175,6 +176,7 @@ def test_lateral_movement_scan_only_considers_ips_inside_its_window(seeded, monk
         "_run_cross_source_correlation",
         "_run_lateral_movement_scan",
         "_run_ingestion_health_check",
+        "_run_audit_chain_check",
     ],
 )
 def test_each_core_job_runs_cleanly_against_a_real_database(job, seeded, caplog):  # noqa: F811

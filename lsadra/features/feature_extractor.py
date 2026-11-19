@@ -5,8 +5,8 @@ Extends the V3 feature pipeline with temporal, relationship, network-flow,
 and endpoint-specific features computed via pandas rolling windows and groupby.
 
 [V4 ENHANCEMENT — gap: temporal + relationship features]
-[GLASSWING ALIGNMENT — multi-source unified schema]
-[MYTHOS ALIGNMENT — cross-source behavioral sequences]
+[Capability: multi-source unified schema]
+[Capability: cross-source behavioral sequences]
 
 All existing V3 features and the build_features() function are preserved.
 """
@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 from typing import Any, Dict, List, Optional
 
 import pandas as pd
+
+from lsadra.features.timestamps import parse_event_timestamps
 
 from lsadra.features.temporal_features import extract_temporal_features
 from lsadra.features.behavioral_features import extract_behavioral_features
@@ -99,7 +101,7 @@ def build_features(raw_events: List[Dict[str, Any]]) -> pd.DataFrame:
 
     df = pd.DataFrame(raw_events)
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     df = extract_temporal_features(df)
     df = extract_behavioral_features(df)
@@ -143,7 +145,7 @@ def build_enhanced_feature_table(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     if "timestamp" in df.columns:
-        df["timestamp"] = pd.to_datetime(df["timestamp"], errors="coerce")
+        df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     for extractor, name in [
         (_add_temporal_features,      "temporal"),
@@ -235,7 +237,7 @@ def _add_relationship_features(df: pd.DataFrame) -> pd.DataFrame:
     Add cross-entity relationship features per source_ip and username.
 
     [V4 ENHANCEMENT — gap: relationship modeling]
-    [MYTHOS ALIGNMENT — cross-source behavioral sequences]
+    [Capability: cross-source behavioral sequences]
     """
     # Unique usernames per IP
     uniq_users = (
@@ -393,7 +395,7 @@ def build_entity_timeline(
     Supports cross-source timelines (same IP across SSH, network, endpoint).
 
     [V4 ENHANCEMENT — gap: temporal intelligence]
-    [MYTHOS ALIGNMENT — cross-source behavioral sequences]
+    [Capability: cross-source behavioral sequences]
 
     Args:
         db_conn:        Active SQLite3 connection.

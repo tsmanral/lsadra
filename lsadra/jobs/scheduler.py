@@ -13,8 +13,8 @@ V3 jobs (preserved):
     after start; bounded batches, see storage.database.cleanup_old_data)
 
 V4 jobs (new — added after V3 jobs):
-  - Cross-source correlation check (every 5 min)    [GLASSWING ALIGNMENT]
-  - Lateral movement scan (every 10 min)            [GLASSWING ALIGNMENT]
+  - Cross-source correlation check (every 5 min)    [Capability: cross-source correlation]
+  - Lateral movement scan (every 10 min)            [Capability: lateral movement detection]
   - Ingestion health check (every 15 min)           [V4 ENHANCEMENT]
 
 Started and stopped by server.py's lifespan (LSADRA_SCHEDULER_ENABLED). Every
@@ -24,6 +24,7 @@ still going is coalesced into a single catch-up run.
 
 import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -115,7 +116,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 7: Cross-source correlation check (every 5 min) ──────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: cross-source correlation]
     _scheduler.add_job(
         _run_cross_source_correlation,
@@ -126,7 +127,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 8: Lateral movement scan (every 10 min) ──────────────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: relationship modeling]
     _scheduler.add_job(
         _run_lateral_movement_scan,
@@ -144,6 +145,18 @@ def start_scheduler() -> None:
         id="ingestion_health_check",
         name="V4 Ingestion Health Check",
         replace_existing=True,
+    )
+
+    # ── Audit chain check (every 6 h) ────────────────────────────────────
+    # G-26: a broken hash chain means someone edited the audit log; it is
+    # raised as a CRITICAL LSADRA alert (once per break).
+    _scheduler.add_job(
+        _run_audit_chain_check,
+        IntervalTrigger(hours=6),
+        id="audit_chain_check",
+        name="Audit trail hash-chain check",
+        replace_existing=True,
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
     )
 
     _scheduler.start()
@@ -265,12 +278,34 @@ def _run_data_cleanup() -> None:
         logger.exception("Data cleanup job failed.")
 
 
+_audit_break_reported: Optional[int] = None
+
+
+def _run_audit_chain_check() -> None:
+    """Verify the audit trail's hash chain; alert once per newly found break."""
+    global _audit_break_reported
+    try:
+        from lsadra.security import audit
+
+        intact, first_bad, checked = audit.verify_chain()
+        if intact:
+            _audit_break_reported = None
+            logger.info("Audit chain intact (%d rows).", checked)
+            return
+        logger.error("Audit chain broken at row %s (%d rows checked).", first_bad, checked)
+        if first_bad != _audit_break_reported:
+            _audit_break_reported = first_bad
+            audit.raise_self_alert("audit.chain.broken", target=f"audit_events row {first_bad}")
+    except Exception:
+        logger.exception("Audit chain check failed.")
+
+
 # ============================================================================
 # V4 job implementations
 # ============================================================================
 
 # [V4 ENHANCEMENT — gap: cross-source correlation]
-# [GLASSWING ALIGNMENT — lateral movement detection]
+# [Capability: lateral movement detection]
 
 def _run_cross_source_correlation() -> None:
     """
@@ -278,7 +313,7 @@ def _run_cross_source_correlation() -> None:
 
     If found, log the correlation and update incident severity.
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: cross-source correlation]
     """
     try:
@@ -323,7 +358,7 @@ def _run_lateral_movement_scan() -> None:
 
     Stores any new lateral movement alerts to the database.
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: relationship modeling]
     """
     try:

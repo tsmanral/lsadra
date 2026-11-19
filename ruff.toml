@@ -12,3 +12,9 @@ extend-exclude = ["docs/figures", "docs/figures2"]
 [lint]
 # Correctness rules only (syntax errors, undefined names, bad f-strings, etc.).
 select = ["E9", "F63", "F7", "F82", "F821"]
+
+[lint.per-file-ignores]
+# Security (S) rules are not in `select` yet: CI runs them as a ratchet
+# (scripts/ruff_security_ratchet.py). Asserts are how pytest tests work.
+"tests/**" = ["S101"]
+"benchmarks/**" = ["S101"]

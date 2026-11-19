@@ -10,7 +10,7 @@ import os
 import secrets
 import warnings
 from pathlib import Path
-from typing import Optional
+from typing import List, Optional
 
 logger = logging.getLogger(__name__)
 
@@ -58,7 +58,10 @@ if BENCH_SKIP_DETECTION and not DEV_MODE:
 # ---------------------------------------------------------------------------
 # Networking
 # ---------------------------------------------------------------------------
-API_HOST: str = os.getenv("LSADRA_API_HOST", "0.0.0.0")
+# Loopback by default (G-8). Listening on another interface is an explicit
+# opt-in, and the launcher (lsadra/serve.py) then refuses to serve plain HTTP
+# unless TLS is configured, generated, or terminated by a trusted proxy.
+API_HOST: str = os.getenv("LSADRA_API_HOST", "127.0.0.1")
 API_PORT: int = int(os.getenv("LSADRA_API_PORT", "8000"))
 DASHBOARD_PORT: int = int(os.getenv("LSADRA_DASH_PORT", "8501"))
 
@@ -156,7 +159,9 @@ TOKEN_ALGORITHM: str = "HS256"
 ALLOW_SIGNUP: bool = os.getenv(
     "LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false"
 ).lower() == "true"
-JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "480"))
+# 60-minute sessions (G-9). Logout, a role or password change, or disabling the
+# account also ends every earlier session at once (users.token_version).
+JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "60"))
 REGISTRATION_TOKEN_LIFETIME_MINUTES: int = 15  # single-use, short-lived
 
 # ---------------------------------------------------------------------------
@@ -281,6 +286,36 @@ AUTOENCODER_EPOCHS: int = 50
 AUTOENCODER_LR: float = 1e-3
 
 # ---------------------------------------------------------------------------
+# Model integrity and training controls (G-17, G-18)
+# ---------------------------------------------------------------------------
+# Every model file is listed in a manifest whose HMAC is keyed by a secret
+# that lives outside the models folder, and is verified before it is
+# deserialized. Defaults to a key derived from LSADRA_JWT_SECRET, so rotating
+# that secret makes the current models unverifiable and they are retrained.
+MODEL_SIGNING_KEY: str = os.getenv("LSADRA_MODEL_SIGNING_KEY", "")
+
+# Training needs this many usable events across all devices (after events
+# tied to anomalies or open incidents are dropped).
+MIN_TRAINING_EVENTS: int = int(os.getenv("LSADRA_MIN_TRAINING_EVENTS", "50"))
+# Most recent events considered for one training run.
+TRAINING_MAX_EVENTS: int = int(os.getenv("LSADRA_TRAINING_MAX_EVENTS", "10000"))
+# With more than one device, no device may supply more than this share of the
+# training set, so one noisy or compromised host cannot define "normal".
+TRAINING_MAX_DEVICE_SHARE: float = float(os.getenv("LSADRA_TRAINING_MAX_DEVICE_SHARE", "0.5"))
+# Minimum gap between two training runs (manual or automatic).
+RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECONDS", "600"))
+# A candidate model is promoted only if its ML layers still flag at least this
+# share of the attack events in each canary scenario of the demo corpus.
+CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+CANARY_SCENARIOS: List[str] = [
+    s.strip()
+    for s in os.getenv("LSADRA_CANARY_SCENARIOS", "ssh_bruteforce,injection_attempts").split(",")
+    if s.strip()
+]
+# Drift is measured over this many hours of recent events.
+DRIFT_WINDOW_HOURS: int = int(os.getenv("LSADRA_DRIFT_WINDOW_HOURS", "24"))
+
+# ---------------------------------------------------------------------------
 # Feature Drift Detection
 # ---------------------------------------------------------------------------
 PSI_DRIFT_THRESHOLD: float = float(os.getenv("LSADRA_PSI_DRIFT_THRESHOLD", "0.2"))
@@ -302,8 +337,16 @@ METRICS_AGGREGATION_INTERVAL_MINUTES: int = int(
 # ---------------------------------------------------------------------------
 # Data Retention
 # ---------------------------------------------------------------------------
+# Tiered retention (gap G-35). Raw telemetry (normalized events, heartbeats)
+# is the bulk of the database and the most personal, so it goes first. Alerts
+# (anomalies) and the rollups built from them (5-minute metrics, drift records)
+# are small and are what an investigation of a slow, months-old intrusion needs,
+# so they stay a year. The alert tier never expires sooner than the raw tier.
 RETENTION_DAYS: int = int(os.getenv("LSADRA_RETENTION_DAYS", "30"))
 DATA_RETENTION_DAYS: int = RETENTION_DAYS  # alias
+ALERT_RETENTION_DAYS: int = max(
+    int(os.getenv("LSADRA_ALERT_RETENTION_DAYS", "365")), RETENTION_DAYS
+)
 # Bounded cleanup: each DELETE transaction removes at most this many rows, then
 # commits and pauses so ingest writers waiting on the lock get it between
 # batches instead of waiting out one long transaction. 1,000 rows held the lock
@@ -363,3 +406,66 @@ LARGE_TRANSFER_BYTES: int = int(os.getenv("LSADRA_V4_LARGE_TRANSFER_BYTES", "100
 
 # Analyst feedback: maximum FP patterns to load for threshold tuning
 MAX_FP_PATTERNS_FOR_TUNING: int = int(os.getenv("LSADRA_V4_MAX_FP_PATTERNS", "100"))
+
+
+# ---------------------------------------------------------------------------
+# Identity hardening (G-9, G-10, G-33)
+# ---------------------------------------------------------------------------
+# Password policy: minimum length plus a bundled offline list of common
+# passwords (lsadra/security/common_passwords.txt). bcrypt reads 72 bytes at
+# most, so longer passwords are refused rather than silently truncated.
+MIN_PASSWORD_LENGTH: int = max(8, int(os.getenv("LSADRA_MIN_PASSWORD_LENGTH", "12")))
+
+# Login throttling, checked before bcrypt runs. Failures are counted per
+# username and per client IP over a sliding window; at the limit, the login
+# route answers 429 with Retry-After until the oldest failure ages out.
+LOGIN_FAILURE_WINDOW_SECONDS: int = int(os.getenv("LSADRA_LOGIN_FAILURE_WINDOW_SECONDS", "900"))
+LOGIN_MAX_FAILURES_PER_USER: int = int(os.getenv("LSADRA_LOGIN_MAX_FAILURES_PER_USER", "5"))
+LOGIN_MAX_FAILURES_PER_IP: int = int(os.getenv("LSADRA_LOGIN_MAX_FAILURES_PER_IP", "20"))
+
+# TOTP second factor. "optional" (default): any account may enrol, and an
+# enrolled account always needs a code. "required": ADMIN accounts cannot log
+# in until they enrol (python -m lsadra.security.totp_cli enroll <user>).
+ADMIN_TOTP: str = os.getenv("LSADRA_ADMIN_TOTP", "optional").strip().lower()
+if ADMIN_TOTP not in ("optional", "required"):
+    raise RuntimeError("LSADRA_ADMIN_TOTP must be 'optional' or 'required'.")
+
+# Device key rotation: how long the previous key keeps working after a rotation,
+# so an agent can pick up its new key without dropping events.
+DEVICE_KEY_ROTATION_OVERLAP_MINUTES: int = int(
+    os.getenv("LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES", "10")
+)
+
+# ---------------------------------------------------------------------------
+# Listener and TLS (G-8)
+# ---------------------------------------------------------------------------
+# Where a generated self-signed certificate is kept (first boot on a
+# non-loopback address without LSADRA_TLS_CERT / LSADRA_TLS_KEY).
+TLS_DIR: Path = DATA_DIR / "tls"
+# Escape hatch for a container whose port is published on loopback only, or a
+# lab network: serve plain HTTP on a non-loopback address. Logged loudly.
+ALLOW_PLAINTEXT_LISTENER: bool = (
+    os.getenv("LSADRA_ALLOW_PLAINTEXT_LISTENER", "false").lower() == "true"
+)
+
+# ---------------------------------------------------------------------------
+# API surface and browser hardening (G-11)
+# ---------------------------------------------------------------------------
+# OpenAPI docs (/docs, /redoc, /openapi.json) are served in dev mode only.
+EXPOSE_API_DOCS: bool = (
+    os.getenv("LSADRA_EXPOSE_API_DOCS", "true" if DEV_MODE else "false").lower() == "true"
+)
+# Strict-Transport-Security max-age, sent only on HTTPS responses.
+HSTS_MAX_AGE_SECONDS: int = int(os.getenv("LSADRA_HSTS_MAX_AGE_SECONDS", "31536000"))
+
+# ---------------------------------------------------------------------------
+# Audit trail and data at rest (G-26, G-27)
+# ---------------------------------------------------------------------------
+# audit_events rows are kept at least 365 days; the table's own trigger refuses
+# an earlier delete, so a lower value is raised to 365.
+AUDIT_RETENTION_DAYS: int = max(365, int(os.getenv("LSADRA_AUDIT_RETENTION_DAYS", "365")))
+# Restrict the data directory to the server's own account at start-up
+# (0700 directories, 0600 files; POSIX only).
+RESTRICT_DATA_PERMISSIONS: bool = (
+    os.getenv("LSADRA_RESTRICT_DATA_PERMISSIONS", "true").lower() == "true"
+)

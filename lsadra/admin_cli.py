@@ -50,6 +50,12 @@ def create_admin(username: str, password: str) -> str:
         raise ValueError("username must not be empty")
     if len(password) < MIN_PASSWORD_LENGTH:
         raise ValueError(f"password must be at least {MIN_PASSWORD_LENGTH} characters")
+    from lsadra.security.passwords import PasswordPolicyError, check_password_policy
+
+    try:
+        check_password_policy(password, username)  # same policy as the API (G-10)
+    except PasswordPolicyError as exc:
+        raise ValueError(str(exc)) from None
     init_db()
     if get_user_by_username(username):
         raise ValueError(f"user '{username}' already exists; use `promote` instead")

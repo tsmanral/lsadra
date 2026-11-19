@@ -20,6 +20,7 @@ def _fixed_retention(monkeypatch):
     # database.py binds RETENTION_DAYS at import; pin it so an env override
     # (LSADRA_RETENTION_DAYS) cannot change what these tests mean.
     monkeypatch.setattr(database, "RETENTION_DAYS", 30)
+    monkeypatch.setattr(database, "ALERT_RETENTION_DAYS", 365)
 
 
 def _count(sql, table):
@@ -250,3 +251,67 @@ def test_cleanup_old_data_rejects_a_non_positive_batch_size(db, monkeypatch):
     monkeypatch.setattr(database, "RETENTION_BATCH_SIZE", 0)
     with pytest.raises(ValueError):
         db.cleanup_old_data()
+
+
+# ── Tiered retention (G-35): raw telemetry 30 days, alerts and rollups 365 ──
+
+
+def _days_ago(days):
+    return (datetime.utcnow() - timedelta(days=days)).isoformat()
+
+
+def _days_ago_sql(days):
+    return (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def test_tiered_retention_keeps_alerts_and_rollups_past_the_raw_window(seeded, sql):
+    # 100 days old: past the raw tier (30), inside the alert tier (365).
+    seeded.insert_event(make_event(timestamp=_days_ago(100)))  # unreferenced -> deleted
+    aid = seeded.insert_anomaly({"device_id": DEVICE_ID, "is_anomaly": True})
+    sql("UPDATE anomalies SET created_at=? WHERE id=?", (_days_ago_sql(100), aid))
+    seeded.insert_heartbeat(DEVICE_ID)
+    sql("UPDATE device_heartbeats SET timestamp=?", (_days_ago_sql(100),))
+    seeded.upsert_metrics_5min(DEVICE_ID, _days_ago(100), 1, 0, 0.0, 0.0, 0, 0)
+    seeded.insert_drift_record("m", "f", 0.1, False)
+    sql("UPDATE feature_drift SET measured_at=?", (_days_ago_sql(100),))
+
+    assert seeded.cleanup_old_data() == 1
+
+    assert _count(sql, "normalized_events") == 0
+    assert _count(sql, "device_heartbeats") == 0
+    assert _count(sql, "anomalies") == 1
+    assert _count(sql, "metrics_5min") == 1
+    assert _count(sql, "feature_drift") == 1
+
+
+def test_tiered_retention_removes_alerts_and_rollups_past_the_alert_window(seeded, sql):
+    aid = seeded.insert_anomaly({"device_id": DEVICE_ID, "is_anomaly": True})
+    sql("UPDATE anomalies SET created_at=? WHERE id=?", (_days_ago_sql(400), aid))
+    seeded.upsert_metrics_5min(DEVICE_ID, _days_ago(400), 1, 0, 0.0, 0.0, 0, 0)
+    seeded.insert_drift_record("m", "f", 0.1, False)
+    sql("UPDATE feature_drift SET measured_at=?", (_days_ago_sql(400),))
+
+    seeded.cleanup_old_data()
+
+    for table in ("anomalies", "metrics_5min", "feature_drift"):
+        assert _count(sql, table) == 0, table
+
+
+def test_tiered_retention_keeps_the_evidence_event_behind_a_retained_alert(seeded, sql):
+    # The event that raised an alert is the alert's evidence: it stays as long as
+    # the alert does, even though raw events of that age are otherwise gone.
+    event_id = seeded.insert_event(make_event(timestamp=_days_ago(100)))
+    aid = seeded.insert_anomaly({"event_id": event_id, "device_id": DEVICE_ID, "is_anomaly": True})
+    sql("UPDATE anomalies SET created_at=? WHERE id=?", (_days_ago_sql(100), aid))
+
+    assert seeded.cleanup_old_data() == 0
+    assert [r["id"] for r in sql("SELECT id FROM normalized_events")] == [event_id]
+
+
+def test_alert_tier_never_expires_before_the_raw_tier(monkeypatch):
+    monkeypatch.setattr(database, "RETENTION_DAYS", 90)
+    monkeypatch.setattr(database, "ALERT_RETENTION_DAYS", 7)
+    now = datetime(2026, 6, 1)
+    cutoffs = database._retention_cutoffs(now)
+    assert cutoffs["alert"] == cutoffs["raw"] == (now - timedelta(days=90)).isoformat()
+

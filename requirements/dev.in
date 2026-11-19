@@ -1,0 +1,14 @@
+# Tests and benchmark harness. Installed on top of base.txt.
+-c base.txt
+# Same ruff as CI (ci-tools.txt).
+-c ci-tools.txt
+pytest>=9.1.1
+# Property-based parser fuzzing (tests/fuzz/)
+hypothesis>=6.100.0
+# Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
+jsonschema>=4.26.0
+# Ingest benchmark harness (benchmarks/): server RSS + CPU sampling
+psutil>=7.0.0
+# Contributor tooling (requirements-dev.txt points here)
+ruff
+pre-commit>=4.0.0

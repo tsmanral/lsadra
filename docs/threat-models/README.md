@@ -1,10 +1,9 @@
 # Threat models
 
-Placeholders for the M0/M1 threat-modeling work — populated with STRIDE-style
-models and Mermaid data-flow diagrams.
+STRIDE-style models with Mermaid data-flow diagrams.
 
-- **Product threat model** — trust boundaries across collectors, the ingestion
-  API, the detection core, storage, and the UI.
+- **[Product threat model](product-stride.md)** — trust boundaries across
+  collectors, the ingestion API, the detection core, storage, and the UI.
 - **Agent-key custody** — how endpoint agents obtain, store, and rotate
   credentials (OS-keychain storage on the agent side lands with the Rust agents
   at M2).
@@ -26,8 +25,23 @@ models and Mermaid data-flow diagrams.
     a value that bypasses the sanitizer.
   - **Known limits:** cross-script confusables (e.g. Cyrillic `а`) are not
     folded; bare `www.` text may still be auto-linked by GFM renderers.
-  - **M4 (planned):** data-envelope prompt templates, JSON-schema-validated LLM
-    output, zero tool access, and index-time sanitization for the RAG store.
+  - **LLM guardrails (in place before M4, G-30):** `lsadra/llm/guardrails.py`
+    builds prompts with log data only inside a block fenced by a random
+    per-request delimiter (spotlighting) and validates every response against
+    a fixed JSON schema: no extra keys, cited event ids must resolve, action
+    targets must come from the evidence, no URLs / markup / tool calls.
+    Recommendations only become `PROPOSED` actions for a human
+    (`lsadra/llm/action_broker.py`, no execute path). Endpoints are loopback
+    unless the operator opts in; downloaded weights must match a pinned
+    SHA-256. The synthetic red-team corpus in `demo/llm_redteam/` runs offline
+    in CI (`tests/security/test_g30_llm_guardrails.py`) and live against a local
+    model with `scripts/llm_redteam.py --endpoint`.
+  - **M4 (planned):** the model itself, and index-time sanitization for the
+    RAG store.
+- **Model integrity and poisoning (G-17 to G-19):** model files load only after
+  matching an HMAC-authenticated manifest; training excludes anomaly and
+  open-incident events, caps each device's share, and a candidate must still
+  flag the demo attack scenarios (canary) before it replaces the live models.
 
 > Threat models describe defenses and trust boundaries only. Specific unfixed
 > vulnerabilities are tracked privately, never in committed docs.
