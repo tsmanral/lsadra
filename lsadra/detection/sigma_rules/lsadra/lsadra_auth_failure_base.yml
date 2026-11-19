@@ -1,0 +1,16 @@
+title: Authentication Failure
+id: 0b6aaade-1d58-53b5-8492-76ca235b6c54
+name: lsadra_auth_failure
+status: test
+description: Every failed logon. Informational base rule for the password-spraying correlation; it raises nothing on its own.
+author: LSADRA contributors
+date: 2026-11-18
+logsource:
+    category: authentication
+detection:
+    selection:
+        Outcome: failure
+    condition: selection
+falsepositives:
+    - Everyone mistypes a password
+level: informational

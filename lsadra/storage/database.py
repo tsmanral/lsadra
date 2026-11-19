@@ -508,6 +508,66 @@ def get_events_before(
         return [dict(r) for r in rows]
 
 
+
+def insert_sigma_matches(results: List[Dict[str, Any]]) -> int:
+    """
+    Store the ``sigma_matches`` of detection results (one row per rule match).
+
+    Returns the number of rows written.
+    """
+    rows = []
+    now = datetime.utcnow().isoformat()  # same clock and format as retention
+    for res in results:
+        for hit in res.get("sigma_matches") or []:
+            rows.append((
+                int(res.get("event_id") or 0),
+                str(res.get("device_id") or ""),
+                str(hit.get("rule_id") or ""),
+                str(hit.get("title") or ""),
+                str(hit.get("level") or ""),
+                json.dumps(list(hit.get("techniques") or [])),
+                json.dumps(list(hit.get("tactics") or [])),
+                str(hit.get("source") or ""),
+                1 if hit.get("correlation") else 0,
+                str(res.get("sigma_mode") or "shadow"),
+                str(res.get("created_at") or ""),
+                now,
+            ))
+    if not rows:
+        return 0
+    with _connection() as conn:
+        conn.executemany(
+            """INSERT INTO sigma_matches
+               (event_id, device_id, rule_id, title, level, techniques, tactics,
+                source, correlation, mode, event_time, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.commit()
+    return len(rows)
+
+
+def get_sigma_matches(
+    device_id: Optional[str] = None, limit: int = 500
+) -> List[Dict[str, Any]]:
+    """Most recent Sigma matches, newest first, optionally for one device."""
+    query = "SELECT * FROM sigma_matches"
+    params: List[Any] = []
+    if device_id:
+        query += " WHERE device_id = ?"
+        params.append(device_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(int(limit))
+    with _connection() as conn:
+        out = []
+        for r in conn.execute(query, params).fetchall():
+            row = dict(r)
+            row["techniques"] = json.loads(row.get("techniques") or "[]")
+            row["tactics"] = json.loads(row.get("tactics") or "[]")
+            row["correlation"] = bool(row.get("correlation"))
+            out.append(row)
+        return out
+
 def get_events_for_user(
     user_id: str, synthetic: bool = False, limit: int = 5000
 ) -> List[Dict[str, Any]]:
@@ -1142,6 +1202,7 @@ def get_drift_records(model_name: str, limit: int = 50) -> List[Dict[str, Any]]:
 # events) after ALERT_RETENTION_DAYS (default 365).
 _RETENTION_STEPS = (
     ("anomalies", "created_at", "alert", ""),
+    ("sigma_matches", "created_at", "alert", ""),
     (
         "normalized_events",
         "timestamp",

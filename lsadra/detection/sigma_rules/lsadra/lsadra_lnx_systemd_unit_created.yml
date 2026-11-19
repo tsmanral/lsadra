@@ -1,0 +1,31 @@
+title: Systemd Unit File Written
+name: lsadra_lnx_systemd_unit_created
+id: a9a86515-a05c-5a78-bee3-a982129b5b66
+status: test
+description: Detects a new or changed systemd service or timer unit in a system unit directory, a common Linux persistence method.
+references:
+    - https://attack.mitre.org/techniques/T1543/002/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.002
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection_dir:
+        TargetFilename|startswith:
+            - '/etc/systemd/system/'
+            - '/usr/lib/systemd/system/'
+            - '/lib/systemd/system/'
+            - '/run/systemd/system/'
+    selection_ext:
+        TargetFilename|endswith:
+            - '.service'
+            - '.timer'
+    condition: all of selection_*
+falsepositives:
+    - Package installs and updates
+level: medium

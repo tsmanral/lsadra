@@ -86,6 +86,67 @@ def score_scenario(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return sorted(out, key=lambda r: r["id"])
 
 
+def score_sigma(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
+    """
+    The Sigma layer on the same corpus (audit G-28). It runs in shadow mode in
+    production, so these numbers are what it *would* add if switched to alert.
+    """
+    from lsadra.detection.sigma_engine import SigmaEngine
+
+    engine = SigmaEngine()
+    scenarios: Dict[str, Any] = {}
+    fired: Dict[str, Dict[str, Any]] = {}
+    for path in sorted(corpus_dir.glob("*.jsonl")):
+        events = _load(path)
+        by_device: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for ev in events:
+            by_device[ev["device_id"]].append(ev)
+        attack = benign = attack_hit = benign_hit = 0
+        for device_events in by_device.values():
+            df = build_features(device_events)
+            if df.empty:
+                continue
+            rows = build_rule_features(df).to_dict(orient="records")
+            truth = {ev["id"]: ev.get("attributes", {}).get("ground_truth", {})
+                     for ev in device_events}
+            for row, hits in zip(rows, engine.evaluate_frame(rows)):
+                label = truth.get(int(row["id"]), {}).get("label", "benign")
+                alerting = [h for h in hits if h.raises_alert]
+                is_attack = label in ATTACK_LABELS
+                attack += is_attack
+                benign += not is_attack
+                attack_hit += bool(alerting) and is_attack
+                benign_hit += bool(alerting) and not is_attack
+                for h in hits:
+                    entry = fired.setdefault(h.rule_id, {
+                        "title": h.title, "level": h.level, "source": h.source,
+                        "techniques": list(h.technique_ids), "attack_events": 0,
+                        "benign_events": 0, "scenarios": set()})
+                    entry["attack_events" if is_attack else "benign_events"] += 1
+                    entry["scenarios"].add(path.stem)
+        scenarios[path.stem] = {
+            "attack_events": attack, "attack_events_matched": attack_hit,
+            "benign_events": benign, "benign_events_matched": benign_hit,
+            "detection_scenario": path.stem not in NON_DETECTION_SCENARIOS,
+        }
+    for entry in fired.values():
+        entry["scenarios"] = sorted(entry["scenarios"])
+    det = [v for v in scenarios.values() if v["detection_scenario"]]
+    return {
+        "rules_loaded": len(engine.rules) + len(engine.correlations),
+        "sigmahq_rules": sum(1 for v in engine._source.values() if v == "sigmahq"),
+        "filters": len(engine.filters),
+        "summary": {
+            "scenarios_detected": sum(1 for v in det if v["attack_events_matched"]),
+            "scenarios_with_attacks": sum(1 for v in det if v["attack_events"]),
+            "benign_events_matched": sum(v["benign_events_matched"] for v in det),
+            "benign_events": sum(v["benign_events"] for v in det),
+        },
+        "scenarios": scenarios,
+        "rules_fired": dict(sorted(fired.items(), key=lambda kv: kv[1]["title"])),
+    }
+
+
 def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
     """Score every corpus file and every rule. Pure function of corpus + rules."""
     scenarios: Dict[str, Any] = {}
@@ -154,6 +215,7 @@ def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
         },
         "scenarios": scenarios,
         "rules": rules_out,
+        "sigma": score_sigma(corpus_dir),
     }
 
 
@@ -215,6 +277,45 @@ def render_markdown(card: Dict[str, Any]) -> str:
             f"{r['alerts_on_attack_events']} | {r['alerts_on_benign_events']} | "
             f"{r['label_only_matches']} | {coverage} |"
         )
+    sg = card.get("sigma")
+    if sg:
+        ss = sg["summary"]
+        lines += [
+            "",
+            "## Sigma layer (shadow mode)",
+            "",
+            f"{sg['rules_loaded']} Sigma rules ({sg['sigmahq_rules']} from SigmaHQ) and "
+            f"{sg['filters']} suppression filter(s). The layer runs in shadow mode by default "
+            "(`LSADRA_SIGMA_MODE`), so these matches are recorded but raise no alerts. A match "
+            "counts here when its level is `medium` or higher.",
+            "",
+            f"- Scenarios matched: {ss['scenarios_detected']} of {ss['scenarios_with_attacks']}",
+            f"- Benign events matched (would-be false positives): "
+            f"{ss['benign_events_matched']} of {ss['benign_events']}",
+            "",
+            "| Scenario | Attack events matched | Benign events matched |",
+            "|---|---:|---:|",
+        ]
+        for name, sc in sg["scenarios"].items():
+            note = "" if sc["detection_scenario"] else " (R8 fixture)"
+            lines.append(
+                f"| `{name}`{note} | {sc['attack_events_matched']} of {sc['attack_events']} | "
+                f"{sc['benign_events_matched']} of {sc['benign_events']} |"
+            )
+        lines += [
+            "",
+            "| Sigma rule | Source | Level | ATT&CK | Attack events | Benign events | Scenarios |",
+            "|---|---|---|---|---:|---:|---|",
+        ]
+        for r in sg["rules_fired"].values():
+            lines.append(
+                f"| {r['title']} | {r['source']} | {r['level']} | {', '.join(r['techniques'])} | "
+                f"{r['attack_events']} | {r['benign_events']} | "
+                f"{', '.join(f'`{x}`' for x in r['scenarios'])} |"
+            )
+        lines.append("")
+        lines.append("Sigma rules not listed did not match any corpus event; "
+                     "`tests/test_sigma_engine.py` covers them with curated events.")
     return "\n".join(lines) + "\n"
 
 

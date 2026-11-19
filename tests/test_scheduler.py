@@ -4,7 +4,7 @@ Background scheduler activation (M1, after Sprint 2).
 Pins: the app lifespan starts and stops the scheduler (behind
 LSADRA_SCHEDULER_ENABLED); every job runs one instance at a time with missed
 runs coalesced; retention runs on an interval with an early first run; IP
-geolocation (third-party egress) only runs when opted in; the time-window jobs
+geolocation only runs when opted in; the time-window jobs
 compare against the format timestamps are stored in. SYNTHETIC data only.
 """
 
