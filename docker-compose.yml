@@ -55,39 +55,6 @@ services:
         condition: service_healthy
     restart: unless-stopped
 
-  # ── Legacy Streamlit Dashboard (opt-in) ─────────────────────────────────
-  # G-7: off by default. It has its own login code, so it is a second login
-  # surface; the React dashboard replaces it and it is removed at M3. To run it:
-  #   docker compose --profile legacy up
-  # It is published on the host's loopback only.
-  dashboard:
-    build: .
-    container_name: lsadra-dashboard
-    profiles: ["legacy"]
-    command: >
-      streamlit run lsadra/ui/dashboard.py
-      --server.port=8501
-      --server.address=0.0.0.0
-      --server.headless=true
-      --browser.gatherUsageStats=false
-    ports:
-      - "127.0.0.1:${DASH_PORT:-8501}:8501"
-    healthcheck:
-      # Replaces the image's API health check, which does not apply here.
-      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8501/_stcore/health', timeout=4)"]
-      interval: 30s
-      timeout: 10s
-      retries: 3
-    environment:
-      - LSADRA_JWT_SECRET=${LSADRA_JWT_SECRET:?LSADRA_JWT_SECRET must be set — see .env.example}
-      - LSADRA_ALLOW_SIGNUP=${LSADRA_ALLOW_SIGNUP:-false}
-    volumes:
-      - sentinel-data:/app/data
-    depends_on:
-      api:
-        condition: service_healthy
-    restart: unless-stopped
-
   # ── Agent Simulator ────────────────────────────────────────────────────
   agent-sim:
     build: .

@@ -8,7 +8,7 @@ logger = logging.getLogger(__name__)
 
 from lsadra.auth import hash_password, require_role
 from lsadra.authz import owns_device, visible_device_ids
-from lsadra.ui.data_layer import (
+from lsadra.api.data_layer import (
     get_dashboard_kpis,
     get_dashboard_recent_anomalies,
     get_dashboard_metrics,
@@ -18,7 +18,7 @@ from lsadra.ui.data_layer import (
     get_events_for_user,
     get_ingestion_rate,
 )
-from lsadra.ui.utils.report_generator import generate_report
+from lsadra.api.report_generator import generate_report
 
 router = APIRouter(tags=["dashboard"])
 
@@ -347,7 +347,7 @@ def _model_registry() -> List[Dict[str, Any]]:
 async def api_models(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     return await run_in_threadpool(_model_registry)
 
-from lsadra.ui.data_layer import get_dashboard_drift
+from lsadra.api.data_layer import get_dashboard_drift
 
 
 def _drift_records() -> Dict[str, List[Dict]]:

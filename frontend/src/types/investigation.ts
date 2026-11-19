@@ -1,4 +1,4 @@
-// Shapes returned by lsadra/ui/api_investigation.py.
+// Shapes returned by lsadra/api/investigation.py.
 
 export interface Incident {
   id: number;

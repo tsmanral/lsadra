@@ -52,13 +52,13 @@ class TestExportIdorScoping:
         report generator patched. Returns (response, kpis_mock, incidents_mock,
         anomalies_mock) so callers can inspect how each was invoked.
         """
-        with patch("lsadra.ui.api_dashboard.get_dashboard_kpis",
+        with patch("lsadra.api.dashboard.get_dashboard_kpis",
                    return_value={}) as kpis_mock, \
-             patch("lsadra.ui.api_dashboard.get_dashboard_open_incidents",
+             patch("lsadra.api.dashboard.get_dashboard_open_incidents",
                    return_value=[]) as incidents_mock, \
-             patch("lsadra.ui.api_dashboard.get_dashboard_recent_anomalies",
+             patch("lsadra.api.dashboard.get_dashboard_recent_anomalies",
                    return_value=[]) as anomalies_mock, \
-             patch("lsadra.ui.api_dashboard.generate_report",
+             patch("lsadra.api.dashboard.generate_report",
                    return_value=b"%PDF-1.4 test") as report_mock:
             response = client.get(
                 "/api/dashboard/export",

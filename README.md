@@ -60,7 +60,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are a
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
 - 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) runs alongside them in shadow mode.
-- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
+- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles.
 
 ## Quick start (local, about 10 minutes)
 
@@ -253,7 +253,7 @@ See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_
 
 ## Run with Docker
 
-The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard is off by default; `docker compose -f docker-compose.yml --profile legacy up -d` starts it on `127.0.0.1:8501`.
+The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard has been removed; the React dashboard is the only UI.
 
 ```bash
 cp .env.example .env
@@ -507,7 +507,8 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, admin CLI (admin_cli.py)
+  api/              REST and WebSocket API the dashboard and desktop app use (routers, data layer, PDF report)
   intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
   detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
@@ -524,7 +525,7 @@ scripts/            Operator tooling (seed_demo.py replays the demo corpus throu
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus;
                     check_tier_boundary.py is the Lite/Team import check, ADR 0008)
-requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, dev, ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
@@ -542,7 +543,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff; requirements/docs.txt is the docs-site toolchain
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff; requirements/docs.txt is the docs-site toolchain
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent

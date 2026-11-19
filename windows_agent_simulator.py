@@ -143,7 +143,7 @@ print("👉 INSTRUCTIONS:")
 print("👉 Open 'dummy_auth.log' in Notepad.")
 print("👉 Paste new SSH log lines into the file and save to trigger anomalies!")
 print("👉 Heartbeats are being sent every 30 seconds.")
-print(f"👉 Dashboard: streamlit run lsadra/ui/dashboard.py")
+print("👉 Dashboard: cd frontend && npm run dev  (or the desktop app in desktop/)")
 print(f"👉 API docs:  {SERVER_URL}/docs")
 print("=" * 70)
 

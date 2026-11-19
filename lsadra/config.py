@@ -63,7 +63,6 @@ if BENCH_SKIP_DETECTION and not DEV_MODE:
 # unless TLS is configured, generated, or terminated by a trusted proxy.
 API_HOST: str = os.getenv("LSADRA_API_HOST", "127.0.0.1")
 API_PORT: int = int(os.getenv("LSADRA_API_PORT", "8000"))
-DASHBOARD_PORT: int = int(os.getenv("LSADRA_DASH_PORT", "8501"))
 
 # CORS: explicit browser-origin allowlist for the SPA (comma-separated).
 # Empty (default) = no cross-origin access. Agents authenticate with header
@@ -248,7 +247,7 @@ DETECTION_QUEUE_RETRY_AFTER_SECONDS: int = 5
 
 # /ws/alerts: alerts buffered per connected client before the server gives up
 # on a client that is not reading. It is closed with 1013 and should reconnect
-# and backfill from GET /api/dashboard/anomalies (lsadra/ui/alert_stream.py).
+# and backfill from GET /api/dashboard/anomalies (lsadra/api/alert_stream.py).
 WS_ALERT_QUEUE_SIZE: int = int(os.getenv("LSADRA_WS_ALERT_QUEUE_SIZE", "256"))
 if WS_ALERT_QUEUE_SIZE < 1:
     raise RuntimeError("LSADRA_WS_ALERT_QUEUE_SIZE must be >= 1.")

@@ -87,7 +87,7 @@ Trust boundaries crossed:
 
 | Control | Where |
 |---|---|
-| Only admins and analysts can create registration tokens | `lsadra/ui/api_dashboard.py` |
+| Only admins and analysts can create registration tokens | `lsadra/api/dashboard.py` |
 | Registration tokens are random (`secrets.token_urlsafe`), single use and expire after `REGISTRATION_TOKEN_LIFETIME_MINUTES` (15 min) | `lsadra/onboarding/token_manager.py`, `lsadra/config.py` |
 | Token consumption is serialized, so one token can never register two devices | `lsadra/onboarding/device_registration.py` |
 | Registration is rate limited per client IP, with a bounded tracker so spoofed sources cannot grow memory | `lsadra/onboarding/device_registration.py`, `lsadra/ratelimit.py` |
@@ -107,9 +107,9 @@ Trust boundaries crossed:
 | The Rust collector refuses a config file that contains a key; the key lives in Credential Manager (Windows) or the Keychain (macOS) | `collectors/core/src/keystore.rs`, `collectors/core/src/config.rs` |
 | On Linux the Rust collector keeps the key in a mode `600` file in its state directory and refuses to read it if group or others can, or if another user owns it | `collectors/core/src/keystore.rs` |
 | The Rust collector sends plain HTTP only to loopback unless explicitly allowed, and can trust a private CA for a self-hosted core | `collectors/core/src/config.rs`, `collectors/core/src/ship.rs` |
-| An admin, or the analyst who owns a device, can revoke it: its key (and any rotation-overlap key) stops working at once and its event history is kept | `lsadra/ui/api_identity.py`, `lsadra/storage/database.py` |
-| Rotating a device key issues a new key shown once; the old one keeps working only for `LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES` (default 10) | `lsadra/ui/api_identity.py`, `lsadra/config.py` |
-| Revocation and rotation drop the device's cached credential and are written to the hash-chained audit trail | `lsadra/ui/api_identity.py`, `lsadra/security/` |
+| An admin, or the analyst who owns a device, can revoke it: its key (and any rotation-overlap key) stops working at once and its event history is kept | `lsadra/api/identity.py`, `lsadra/storage/database.py` |
+| Rotating a device key issues a new key shown once; the old one keeps working only for `LSADRA_DEVICE_KEY_ROTATION_OVERLAP_MINUTES` (default 10) | `lsadra/api/identity.py`, `lsadra/config.py` |
+| Revocation and rotation drop the device's cached credential and are written to the hash-chained audit trail | `lsadra/api/identity.py`, `lsadra/security/` |
 | Security fixes ship with a regression test | `tests/security/` |
 
 ## STRIDE
