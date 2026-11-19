@@ -47,7 +47,7 @@ import warnings
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional, Sequence, Tuple
 
 HERE = Path(__file__).resolve().parent
 REPO_ROOT = HERE.parents[1]
@@ -61,6 +61,7 @@ os.environ.setdefault("LSADRA_SCHEDULER_ENABLED", "false")
 import bench_events  # noqa: E402
 import fetch_datasets  # noqa: E402
 import bench_metrics as metrics  # noqa: E402
+from challengers import CHALLENGER_KEYS  # noqa: E402
 
 logger = logging.getLogger("detection_bench")
 
@@ -358,10 +359,15 @@ def online_features(rows: List[Dict[str, Any]], workers: int):
 
 def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed: int,
                online: Optional[Tuple[List[Any], List[Any]]] = None,
-               training_log: Optional[List[Dict[str, Any]]] = None) -> Dict[int, Dict[str, Any]]:
+               training_log: Optional[List[Dict[str, Any]]] = None,
+               challenger_labels: Optional[Dict[int, Dict[str, Any]]] = None,
+               challenger_info: Optional[Dict[str, Any]] = None) -> Dict[int, Dict[str, Any]]:
     """Score every test-period row under *config*; returns results by event id.
 
     For ``production``, each training attempt is appended to *training_log*.
+    With *challenger_labels* (``retrained-*`` configs only), the challenger
+    models in ``challengers.py`` are trained on the same training frame and
+    their scores are added to each result under ``ch_*`` keys.
     """
     import pandas as pd
 
@@ -375,6 +381,18 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
         for res in orch._run_layers(df.reset_index(drop=True)):
             results[res["event_id"]] = res
 
+    def add_challengers(train_df, test_df) -> None:
+        if challenger_labels is None or test_df.empty:
+            return
+        import challengers
+
+        out = challengers.score_challengers(train_df, test_df, challenger_labels, seed)
+        for eid, extra in out["scores"].items():
+            if eid in results:
+                results[eid].update(extra)
+        if challenger_info is not None:
+            challenger_info.update(out["info"])
+
     if config == "retrained-full":
         by_dev: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         for r in rows:
@@ -384,6 +402,7 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
         if not _train(orch, feats[~is_test].reset_index(drop=True)):
             raise RuntimeError("retrained-full: training failed")
         score(feats[is_test])
+        add_challengers(feats[~is_test], feats[is_test])
         return results
 
     assert online is not None
@@ -417,12 +436,16 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
     if trainer is not None and training_log is not None:
         training_log.extend(trainer.attempts)
     if deferred:
-        score(pd.concat(deferred, ignore_index=True))
+        test_df = pd.concat(deferred, ignore_index=True)
+        score(test_df)
+        if config == "retrained-online":
+            add_challengers(train, test_df)
     return results
 
 
 def to_records(stream: List[bench_events.BenchEvent], rows: List[Dict[str, Any]],
-               results: Dict[int, Dict[str, Any]], test_start: float) -> List[Dict[str, Any]]:
+               results: Dict[int, Dict[str, Any]], test_start: float,
+               challenger_keys: Sequence[str] = ()) -> List[Dict[str, Any]]:
     recs = []
     for ev, row in zip(stream, rows):
         if row["_ts"] < test_start:
@@ -438,6 +461,7 @@ def to_records(stream: List[bench_events.BenchEvent], rows: List[Dict[str, Any]]
             "layer1_z": float(res["layer1_score"]) if scored else metrics.NEG_INF,
             "layer2_ensemble": float(res["layer2_score"]) if scored else metrics.NEG_INF,
             "layer3_autoencoder": float(res["layer3_score"]) if scored else metrics.NEG_INF,
+            **{k: float(res[k]) if scored and k in res else metrics.NEG_INF for k in challenger_keys},
             "is_anomaly": bool(res["is_anomaly"]) if scored else False,
             "mitre_technique": res["mitre_technique"] if scored else None,
         })
@@ -501,12 +525,12 @@ def render_markdown(report: Dict[str, Any]) -> str:
         lines += [
             "Event-level TPR per technique: the deployed verdict, then each score at 1 % / 0.1 % FPR.",
             "",
-            "| Technique | Events | Verdict | " + " | ".join(f"`{k}`" for k in SCORE_KEYS) + " |",
-            "|---|---|---|" + "---|" * len(SCORE_KEYS),
+            "| Technique | Events | Verdict | " + " | ".join(f"`{k}`" for k in res["scores"]) + " |",
+            "|---|---|---|" + "---|" * len(res["scores"]),
         ]
         for tech, row in dv["techniques"].items():
             cells = []
-            for key in SCORE_KEYS:
+            for key in res["scores"]:
                 a = res["scores"][key]["0.01"]["techniques"].get(tech, {})
                 b = res["scores"][key]["0.001"]["techniques"].get(tech, {})
                 cells.append(f"{a.get('event_tpr')} / {b.get('event_tpr')}")
@@ -539,6 +563,9 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--workers", type=int, default=os.cpu_count() or 1,
                     help="processes for per-run feature extraction")
     ap.add_argument("--label", default="baseline")
+    ap.add_argument("--challengers", action="store_true",
+                    help="also score the Phase 1 challenger models (retrained-* configs; needs "
+                         "onnxruntime, skl2onnx and lightgbm)")
     ap.add_argument("--output", type=Path, required=True, help="JSON path; a .md summary is written next to it")
     ap.add_argument("--render-only", action="store_true",
                     help="rewrite the .md summary from an existing --output JSON without running")
@@ -567,12 +594,19 @@ def main(argv: Optional[List[str]] = None) -> int:
         online = online_features(rows, args.workers)
         timings["online_features"] = round(time.perf_counter() - t0, 1)
         logger.info("online replay: %d detection runs, features in %.1fs", len(online[0]), timings["online_features"])
+    labels = {r["id"]: {"role": ev.role, "instance": ev.instance} for ev, r in zip(stream, rows)}
     for cfg in args.configs:
         t0 = time.perf_counter()
         training_log: List[Dict[str, Any]] = []
-        scored = run_config(cfg, rows, test_start, args.seed, online, training_log)
-        recs = to_records(stream, rows, scored, test_start)
-        results[cfg] = metrics.summarize(recs, SCORE_KEYS, FPRS, host_days)
+        use_ch = args.challengers and cfg != "production"
+        ch_info: Dict[str, Any] = {}
+        scored = run_config(cfg, rows, test_start, args.seed, online, training_log,
+                            labels if use_ch else None, ch_info)
+        keys = SCORE_KEYS + (CHALLENGER_KEYS if use_ch else [])
+        recs = to_records(stream, rows, scored, test_start, CHALLENGER_KEYS if use_ch else ())
+        results[cfg] = metrics.summarize(recs, keys, FPRS, host_days)
+        if use_ch:
+            results[cfg]["challengers"] = ch_info
         if cfg == "production":
             results[cfg]["training"] = {
                 "skipped_too_few_events": sum(1 for a in training_log if a["status"] == "skipped"),

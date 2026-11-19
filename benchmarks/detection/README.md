@@ -81,6 +81,25 @@ bench reports how many sit on the threshold, and a tie never counts as a hit.
 The pipeline's own verdict (`is_anomaly`) is reported as deployed: FPR, TPR,
 false alerts per host per day, and which ATT&CK label the rule engine attached.
 
+## Challenger models (Phase 1)
+
+`--challengers` also scores the candidate replacements from
+[ADR 0007](../../docs/architecture/adr/0007-detection-stack.md) on the
+`retrained-*` configs, next to today's layers and on the same training frame
+([`challengers.py`](challengers.py); extras in
+[`requirements.txt`](requirements.txt), not product dependencies):
+
+| Key | Model |
+|---|---|
+| `ch_iforest` | Isolation Forest, exported to ONNX and scored with ONNX Runtime (the run records the largest difference from sklearn's scores) |
+| `ch_ecod` | ECOD: per-feature empirical tail probabilities, no parameters, stored as quantile tables |
+| `ch_unsup` | Mean of the two, rank-normalised against training scores |
+| `ch_lgbm` | LightGBM, leave-one-attack-instance-out: an attack instance is scored by a model trained on every *other* instance plus training-period benign events |
+
+All four see a wider input than today's models: the nine V3 features, the
+numeric rule features (auth bursts, network fan-out, endpoint signals,
+cross-source) and a one-hot of the canonical event type, 56 columns in all.
+
 ## Limits
 
 - The background is synthetic. Real fleets are noisier, so real false-positive
@@ -105,3 +124,4 @@ false alerts per host per day, and which ATT&CK label the rule engine attached.
 |---|---|
 | [`results/baseline-2026-11-18.json`](results/baseline-2026-11-18.json) / [`.md`](results/baseline-2026-11-18.md) | Phase 0 baseline of the pipeline as merged at the time |
 | [`results/after-131-2026-11-18.json`](results/after-131-2026-11-18.json) / [`.md`](results/after-131-2026-11-18.md) | `main` after #120, #133 and #131: production training through the canary-gated `retrain` path |
+| [`results/phase1-challengers-2026-11-18.json`](results/phase1-challengers-2026-11-18.json) / [`.md`](results/phase1-challengers-2026-11-18.md) | Phase 1 challengers next to today's layers (`retrained-*` configs) |
