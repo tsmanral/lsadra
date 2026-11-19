@@ -481,7 +481,8 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
   llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
 scripts/            Operator tooling (seed_demo.py replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
-                    llm_redteam.py runs the LLM injection corpus)
+                    llm_redteam.py runs the LLM injection corpus;
+                    check_tier_boundary.py is the Lite/Team import check, ADR 0008)
 requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
@@ -506,6 +507,15 @@ windows_live_agent.py       Live Windows event agent
 server.py           FastAPI entry point
 CLAUDE.md           Rules for AI coding agents working in this repo
 ```
+
+## Editions
+
+LSADRA comes in two editions, and the line between them is recorded in [ADR 0008](docs/architecture/adr/0008-lite-team-line.md).
+
+- **Lite** is this repository: free, AGPL-3.0, and complete on its own. It watches several devices for one owner, with one local admin created from the command line, the existing `ADMIN` / `ANALYST` / `VIEWER` roles, correlation across your own devices, and keyless bundled threat intel. Nothing Lite ships will ever move to the paid edition.
+- **Team** is a separate, private, paid edition for startups and managed service providers. It adds multi-tenant fleets, SSO, cross-tenant correlation, approval workflows and OCSF export. It talks to a Lite core only through the event schema and the HTTP API, and is written fresh rather than copied from contributed code.
+
+Lite never depends on Team code: [`scripts/check_tier_boundary.py`](scripts/check_tier_boundary.py) runs in CI and fails any change that imports from the reserved `lsadra_team` / `lsadra.team` / `@lsadra/team` namespaces.
 
 ## Contributing
 
