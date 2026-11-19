@@ -1,0 +1,22 @@
+title: Local User Account Created
+name: lsadra_win_local_account_created
+id: 0e2860b1-af42-5250-9b8e-6e214ce8a18a
+status: test
+description: Detects creation of a local user account (Windows Security event 4720).
+references:
+    - https://learn.microsoft.com/en-us/windows/security/threat-protection/auditing/event-4720
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.t1136.001
+logsource:
+    product: windows
+    service: security
+detection:
+    selection:
+        EventID: 4720
+    condition: selection
+falsepositives:
+    - Planned onboarding
+level: medium

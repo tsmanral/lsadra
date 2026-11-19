@@ -1,0 +1,30 @@
+title: Cron File Written
+name: lsadra_lnx_cron_file_write
+id: 41598dca-02fd-5c55-bcd9-bc94298f6e08
+status: test
+description: Detects a write to a system or user crontab file.
+references:
+    - https://attack.mitre.org/techniques/T1053/003/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.execution
+    - attack.t1053.003
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        - TargetFilename|startswith:
+              - '/etc/cron.d/'
+              - '/etc/cron.hourly/'
+              - '/etc/cron.daily/'
+              - '/etc/cron.weekly/'
+              - '/etc/cron.monthly/'
+              - '/var/spool/cron/'
+        - TargetFilename: '/etc/crontab'
+    condition: selection
+falsepositives:
+    - Package installs; administrators editing cron
+level: medium

@@ -34,6 +34,7 @@
 - [Quick start (local, about 10 minutes)](#quick-start-local-about-10-minutes)
 - [Dashboard tour](#dashboard-tour)
 - [Connect a real device](#connect-a-real-device)
+- [Desktop app (preview)](#desktop-app-preview)
 - [Run with Docker](#run-with-docker)
 - [Configuration](#configuration)
 - [Testing](#testing)
@@ -58,7 +59,7 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are a
 - 🔍 **Explainable by design.** Every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline yet; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique.
+- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) runs alongside them in shadow mode.
 - 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
 
 ## Quick start (local, about 10 minutes)
@@ -239,6 +240,17 @@ The command saves the installer to a file and checks its SHA-256 before running 
 
 **Anything else.** Send events straight to the [ingestion API](#ingesting-logs).
 
+## Desktop app (preview)
+
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first as in step 5 above (`LSADRA_DEV_MODE=true` is fine for that one command, since it only writes to the database). For now it runs the server from a source checkout set up as in step 1 of the quick start; a self-contained server bundle comes later.
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+cd desktop && npm ci && npm run dev      # or: npm run build  (installers in src-tauri/target/release/bundle)
+```
+
+See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
+
 ## Run with Docker
 
 The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard is off by default; `docker compose -f docker-compose.yml --profile legacy up -d` starts it on `127.0.0.1:8501`.
@@ -387,6 +399,15 @@ Rules live in one registry, [`lsadra/detection/rule_engine.py`](lsadra/detection
 
 To add a rule, register it with the `@rule(...)` decorator, add positive and negative cases to `tests/test_rules.py`, and regenerate the scorecard.
 
+### Sigma rules (shadow mode)
+
+A second rule layer runs standard [Sigma](https://sigmahq.io/) 2.0 rules in-process with [pySigma](https://github.com/SigmaHQ/pySigma): 56 rules from the SigmaHQ repository (Linux and Windows process, file, registry and Windows log rules, used unchanged under the Detection Rule License 1.1) and 11 LSADRA rules, including a correlation rule for password spraying (one address failing against 5 or more accounts in 10 minutes). The rules and their attribution are in [`lsadra/detection/sigma_rules/`](lsadra/detection/sigma_rules/README.md).
+
+- **Shadow by default.** `LSADRA_SIGMA_MODE=shadow` runs the rules on every scored event and stores each match in the `sigma_matches` table and in the result's `sigma_matches` list, but never raises or relabels an alert. `alert` lets a `medium` or higher match raise an alert, with the Sigma rule's technique, when no built-in rule matched. `off` skips the layer. New detection layers start in shadow mode until the detection bench shows they help (ADR 0007).
+- **Suppressions.** Reviewed exceptions are Sigma filters: bundled ones in `sigma_rules/filters/suppressions.yml`, site-specific ones in the file named by `LSADRA_SIGMA_SUPPRESSIONS`.
+- **Scorecard.** The [scorecard](docs/detection/scorecard.md) has a Sigma section: today the layer matches all 3 attack scenarios and 0 of 99 benign events.
+- Rules are code to pySigma (it compiles them to Python), so the layer loads only the bundled folder and the operator's suppression file.
+
 ## Live alert stream (WebSocket)
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -485,8 +506,10 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
   intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
+  detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
+desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
@@ -506,14 +529,14 @@ docs/               Documentation tree
   architecture/adr/ Architecture Decision Records
   contracts/        event-schema.v1.json, the versioned collector ↔ core event contract
   architecture/c4.md C4 diagrams (context, containers, core components, target state)
-  detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
+  detection/        Rules scorecard on the demo corpus, built-in and Sigma rules (scorecard.md / .json, generated)
   screenshots/      Dashboard screenshots used in this README
   threat-models/    Threat models (product, agent-key custody, prompt injection)
   security/         Data inventory, incident runbook, SSDF and CRA position, release security review
 fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix (Python and Rust collectors), DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
+.github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff; requirements/docs.txt is the docs-site toolchain

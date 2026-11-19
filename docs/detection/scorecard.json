@@ -438,5 +438,107 @@
       "label_only_matches": 0,
       "fired_in": []
     }
+  },
+  "sigma": {
+    "rules_loaded": 67,
+    "sigmahq_rules": 56,
+    "filters": 1,
+    "summary": {
+      "scenarios_detected": 3,
+      "scenarios_with_attacks": 3,
+      "benign_events_matched": 0,
+      "benign_events": 99
+    },
+    "scenarios": {
+      "benign_background": {
+        "attack_events": 0,
+        "attack_events_matched": 0,
+        "benign_events": 64,
+        "benign_events_matched": 0,
+        "detection_scenario": true
+      },
+      "data_movement_offhours": {
+        "attack_events": 25,
+        "attack_events_matched": 3,
+        "benign_events": 16,
+        "benign_events_matched": 0,
+        "detection_scenario": true
+      },
+      "injection_attempts": {
+        "attack_events": 29,
+        "attack_events_matched": 0,
+        "benign_events": 0,
+        "benign_events_matched": 0,
+        "detection_scenario": false
+      },
+      "persistence_new_service": {
+        "attack_events": 20,
+        "attack_events_matched": 2,
+        "benign_events": 15,
+        "benign_events_matched": 0,
+        "detection_scenario": true
+      },
+      "ssh_bruteforce": {
+        "attack_events": 44,
+        "attack_events_matched": 36,
+        "benign_events": 4,
+        "benign_events_matched": 0,
+        "detection_scenario": true
+      }
+    },
+    "rules_fired": {
+      "c53c7a09-5f88-5783-b09e-7391040245cf": {
+        "title": "Archive Written To A Hidden Directory",
+        "level": "medium",
+        "source": "lsadra",
+        "techniques": [
+          "T1074.001"
+        ],
+        "attack_events": 3,
+        "benign_events": 0,
+        "scenarios": [
+          "data_movement_offhours"
+        ]
+      },
+      "c8bc823b-04aa-5dde-8524-8d2454c12d9d": {
+        "title": "Password Spraying From One Source",
+        "level": "high",
+        "source": "lsadra",
+        "techniques": [
+          "T1110.003"
+        ],
+        "attack_events": 36,
+        "benign_events": 0,
+        "scenarios": [
+          "ssh_bruteforce"
+        ]
+      },
+      "b71e5883-9a96-52b1-80cd-763ec7c51c18": {
+        "title": "Service ImagePath Set To A Temp Folder",
+        "level": "high",
+        "source": "lsadra",
+        "techniques": [
+          "T1543.003"
+        ],
+        "attack_events": 1,
+        "benign_events": 0,
+        "scenarios": [
+          "persistence_new_service"
+        ]
+      },
+      "aa25966d-d86f-54da-a78c-76a881a93009": {
+        "title": "Service Installed From A Temp Folder",
+        "level": "high",
+        "source": "lsadra",
+        "techniques": [
+          "T1543.003"
+        ],
+        "attack_events": 1,
+        "benign_events": 0,
+        "scenarios": [
+          "persistence_new_service"
+        ]
+      }
+    }
   }
 }
