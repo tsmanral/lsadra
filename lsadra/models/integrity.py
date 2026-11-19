@@ -1,8 +1,8 @@
 """
 Model file integrity (G-17).
 
-Every file the detection stack persists (pickled scikit-learn ensembles, torch
-weights, JSON baselines, model cards) goes through a :class:`ModelStore`. The
+Every file the detection stack persists (pickled scikit-learn ensembles, JSON
+autoencoder weights, JSON baselines, model cards) goes through a :class:`ModelStore`. The
 store keeps a ``manifest.json`` in the same folder listing each file's SHA-256
 and size, and authenticates the manifest with an HMAC keyed by a secret that
 does not live in the models folder (``LSADRA_MODEL_SIGNING_KEY``, or a key
@@ -14,9 +14,6 @@ get deserialized, so the file cannot change between the check and the load.
 Anything else (no manifest, a manifest with a bad HMAC, a file the manifest
 does not list, a hash or size mismatch) raises :class:`ModelIntegrityError`,
 and callers fall back to training fresh models instead of loading.
-
-Torch weights are additionally loaded with ``weights_only=True``, so even a
-verified file can only contain tensors and plain values.
 
 Downloaded third-party weights (ONNX, GGUF) are checked with
 :func:`verify_pinned_file` against a SHA-256 pinned in code or in a signed
@@ -241,20 +238,6 @@ class ModelStore:
         import joblib
 
         return joblib.load(io.BytesIO(self.read_verified(name)))
-
-    def save_torch(self, name: str, state: Dict[str, Any]) -> str:
-        import torch
-
-        buf = io.BytesIO()
-        torch.save(state, buf)
-        return self.write_bytes(name, buf.getvalue())
-
-    def load_torch(self, name: str) -> Dict[str, Any]:
-        import torch
-
-        return torch.load(
-            io.BytesIO(self.read_verified(name)), map_location="cpu", weights_only=True
-        )
 
     def save_json(self, name: str, obj: Any) -> str:
         return self.write_bytes(name, json.dumps(obj, indent=2, sort_keys=True).encode("utf-8"))

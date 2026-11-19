@@ -123,6 +123,11 @@ class DetectionOrchestrator:
         autoencoder = AutoencoderModel()
         if autoencoder.load(self.model_dir / lifecycle.AUTOENCODER_FILE):
             logger.info("Loaded persisted autoencoder model.")
+        elif self._trained:
+            # e.g. an install upgraded from the PyTorch autoencoder.pt format:
+            # retrain once rather than run without the autoencoder layer.
+            logger.warning("Ensemble loaded but no usable autoencoder — models will retrain.")
+            self._trained = False
         self.autoencoder = autoencoder
 
         try:
