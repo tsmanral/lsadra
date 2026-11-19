@@ -39,6 +39,7 @@ nav:
       - "0005 · Apple testing strategy": architecture/adr/0005-apple-testing-strategy.md
       - "0006 · Event schema v1 freeze": architecture/adr/0006-event-schema-v1-freeze.md
       - "0007 · Detection stack": architecture/adr/0007-detection-stack.md
+      - "0008 · Lite and Team line": architecture/adr/0008-lite-team-line.md
       - "V3 to V4 evolution (historical)": V3_VS_V4_EVOLUTION.md
   - Threat models:
       - Overview: threat-models/README.md

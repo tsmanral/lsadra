@@ -17,6 +17,7 @@ See [adr/](adr/README.md). Start with:
 - [0004 — Threat-intel two-tier architecture & licensing](adr/0004-intel-two-tier-licensing.md)
 - [0006 — Event schema v1 freeze and boundary enforcement](adr/0006-event-schema-v1-freeze.md)
 - [0007 — Detection stack: rules, entity baselines, small ONNX models](adr/0007-detection-stack.md)
+- [0008 — Lite and Team line](adr/0008-lite-team-line.md)
 
 ## Diagrams
 
