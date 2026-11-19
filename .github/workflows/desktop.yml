@@ -1,0 +1,82 @@
+name: Desktop app
+
+# Builds and tests the Tauri tray app in desktop/ on all three desktop OSes.
+# Not a required check: it runs only when the app or the dashboard changes.
+on:
+  pull_request:
+    paths:
+      - "desktop/**"
+      - "frontend/**"
+      - ".github/workflows/desktop.yml"
+  push:
+    branches: [main]
+    paths:
+      - "desktop/**"
+      - "frontend/**"
+      - ".github/workflows/desktop.yml"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: desktop-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest, macos-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 24
+      - name: Linux webview and tray libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libwebkit2gtk-4.1-dev libayatana-appindicator3-dev librsvg2-dev
+      - name: Rust toolchain (preinstalled rustup, no third-party action)
+        shell: bash
+        run: |
+          rustup toolchain install stable --profile minimal --component rustfmt,clippy
+          rustup default stable
+      - name: Build the dashboard the app ships
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+      - name: Format
+        working-directory: desktop/src-tauri
+        run: cargo fmt --check
+      - name: Clippy
+        working-directory: desktop/src-tauri
+        run: cargo clippy --locked --all-targets -- -D warnings
+      - name: Tests
+        working-directory: desktop/src-tauri
+        run: cargo test --locked
+      - name: Installers (unsigned)
+        if: github.event_name != 'pull_request'
+        working-directory: desktop
+        run: |
+          npm ci
+          npx tauri build
+      - name: Upload installers
+        if: github.event_name != 'pull_request'
+        uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
+        with:
+          name: lsadra-desktop-${{ runner.os }}
+          path: |
+            desktop/src-tauri/target/release/bundle/**/*.deb
+            desktop/src-tauri/target/release/bundle/**/*.AppImage
+            desktop/src-tauri/target/release/bundle/**/*.msi
+            desktop/src-tauri/target/release/bundle/**/*-setup.exe
+            desktop/src-tauri/target/release/bundle/**/*.dmg
+          if-no-files-found: warn
+          retention-days: 14

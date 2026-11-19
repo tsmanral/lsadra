@@ -6,17 +6,17 @@ full case files for incidents, explore entity timelines, and assess
 cross-source activity — all powered by pure template logic from
 narrative_builder.py. No LLM required.
 
-[MYTHOS ALIGNMENT — structured investigation interface]
-[GLASSWING ALIGNMENT — analyst case file generation]
+[Capability: structured investigation interface]
+[Capability: analyst case file generation]
 """
 
 import streamlit as st
 import pandas as pd
 
+from lsadra import intel
 from lsadra.storage.database import (
     get_connection,
     get_all_incidents,
-    get_threat_intel,
 )
 from lsadra.features.feature_extractor import build_entity_timeline
 from lsadra.explainability.narrative_builder import (
@@ -101,7 +101,7 @@ def _render_case_file():
                 conn, ip, id_type="ip", window_minutes=60
             )
             similar = _get_similar_incidents(ip, incident["id"])
-            ti = get_threat_intel(ip) if ip else None
+            ti = intel.legacy_view(intel.lookup_ip(ip)) if ip else None
 
             report = generate_investigative_summary(
                 ip=ip,

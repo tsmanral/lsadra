@@ -3,7 +3,8 @@
 Covers: insert_anomaly, get_anomalies_for_user, get_anomalies_for_device,
 get_anomalies_for_incident, get_recent_anomalies, update_anomaly_incident,
 create_incident, get_incident, get_open_incident, update_incident_last_seen,
-update_incident_status, assign_incident, get_open_incidents, get_all_incidents.
+update_incident_status, assign_incident, get_open_incidents, get_all_incidents,
+insert_sigma_matches, get_sigma_matches.
 """
 
 import json
@@ -112,6 +113,28 @@ def test_insert_anomaly_stores_rule_attribution(seeded):
     [a] = seeded.get_anomalies_for_device(DEVICE_ID)
     assert a["rule_id"] == "lsadra-auth-brute-force" and a["rule_version"] == 2
     assert json.loads(a["mitre_tactics"]) == ["Credential Access"]
+
+
+def test_sigma_matches_round_trip(seeded):
+    hit = {"rule_id": "lsadra-cron", "title": "Cron File Written", "level": "medium",
+           "techniques": ["T1053.003"], "tactics": ["Execution", "Persistence"],
+           "source": "lsadra", "correlation": False}
+    spray = dict(hit, rule_id="lsadra-spray", level="high", correlation=True)
+    results = [
+        {"event_id": 7, "device_id": DEVICE_ID, "sigma_mode": "shadow",
+         "created_at": "2026-01-15T02:00:00+00:00", "sigma_matches": [hit, spray]},
+        {"event_id": 8, "device_id": "other-device", "sigma_matches": [hit]},
+        {"event_id": 9, "device_id": DEVICE_ID, "sigma_matches": []},
+    ]
+    assert seeded.insert_sigma_matches(results) == 3
+    assert seeded.insert_sigma_matches([{"sigma_matches": []}]) == 0
+    got = seeded.get_sigma_matches(DEVICE_ID)
+    assert [g["rule_id"] for g in got] == ["lsadra-spray", "lsadra-cron"]
+    assert got[0]["correlation"] is True and got[1]["correlation"] is False
+    assert got[1]["techniques"] == ["T1053.003"] and got[1]["tactics"] == ["Execution", "Persistence"]
+    assert got[1]["mode"] == "shadow" and got[1]["event_time"] == "2026-01-15T02:00:00+00:00"
+    assert len(seeded.get_sigma_matches()) == 3
+    assert len(seeded.get_sigma_matches(limit=1)) == 1
 
 
 def test_insert_anomaly_empty_dict_stores_defaults(db, sql):

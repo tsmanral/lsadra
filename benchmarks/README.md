@@ -6,6 +6,7 @@ async work is measured against.
 
 - [`run_ingest_bench.py`](run_ingest_bench.py) — the harness.
 - [`_bench_server.py`](_bench_server.py) — starts the unmodified `server:app` on a throwaway data directory.
+- [`_bench_trace.py`](_bench_trace.py) — opt-in per-request tracing for `--trace` runs.
 - [`baseline-2026-09-30.json`](baseline-2026-09-30.json) — the committed baseline (detection on and off, 1/10/20 devices, two runs each).
 - [`baseline-2026-09-30-detection-ceiling.json`](baseline-2026-09-30-detection-ceiling.json) — supplementary: detection-on throughput ceiling (10/20 devices, two runs).
 - Load generator: `scripts/seed_demo.py --rate/--duration/--devices` (rate mode), which the harness imports.
@@ -14,12 +15,20 @@ async work is measured against.
 
 ```bash
 pip install -r requirements.txt
-python benchmarks/run_ingest_bench.py                       # full baseline, ~25 min
+python benchmarks/run_ingest_bench.py                       # full baseline, ~35 min
 python benchmarks/run_ingest_bench.py --detection on --devices 10 20 \
     --stop-on throughput                                    # detection-on ceiling, ~20 min
 python benchmarks/run_ingest_bench.py --detection off --devices 1 --rates 50 \
     --duration 5 --min-requests 1 --repeats 1 --output /tmp/check.json   # 30 s sanity check
 ```
+
+`--trace` adds a `trace` block to every step: for each request, the server's
+own time split into device lookup, inline bcrypt and storage, plus garbage
+collection and detection running at the same time and the part spent outside
+the server; the five slowest requests and a count of what each slow (≥ 150 ms)
+request mostly waited on. It wraps the core from outside
+([`_bench_trace.py`](_bench_trace.py)) and is off by default, so committed
+runs measure the untraced server.
 
 Run on an otherwise idle machine. The harness never touches `data/`: each run
 gets a fresh temp directory with its own database and model store.
@@ -72,8 +81,14 @@ part of any step.
 | `server_cpu_cores_avg` | server CPU seconds ÷ wall seconds |
 
 Before each step the harness waits until the server is idle (CPU < 25 % of a
-core and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does not
-leak into the next.
+core, no detection queued or running per the dev-mode `detection_pending`
+telemetry, and no loop-lag sample ≥ 50 ms for 2 s), so one step's backlog does
+not leak into the next. Without the detection check, a gap between two long
+detection runs could pass for idle; the settle after the auth re-warm then
+waited out the rest of the backlog while the re-warmed cache entries expired,
+and every device paid bcrypt at the start of the step (the PC trace on
+4324c5a). If that settle still takes longer than 10 s, the harness re-warms
+again, up to 3 rounds (`auth_rewarm_rounds`).
 After that settle, and before measuring, every device in the step makes one
 authenticated `GET /api/events/stats` (`auth_rewarm_s` in the JSON). Settling
 can take longer than the device-auth cache TTL (60 s), which would otherwise
@@ -86,6 +101,24 @@ so the harness settles once more after the re-warm (`settle_before_s` is the
 sum of both waits). Before refresh-ahead, every device re-ran bcrypt inline
 once per TTL wherever its entry happened to expire, which put a 200–300 ms
 tail into most steps (the PC results on 28c13d8).
+
+Refresh-ahead only renews an entry that is hit past half its TTL. In a step
+where each device sends less often than that (the 25 ev/s step at 10 and 20
+devices, where a device sends every 40 or 80 s, and 50 ev/s at 20 devices), a
+re-warm read can land on an entry younger than half its TTL, queue nothing,
+and leave it to expire before that device's next batch, which then pays
+bcrypt inline. Which devices did depended only on where the previous step left
+each entry's age, so the first 25 ev/s step after a device count change
+sometimes showed one ~250 ms request (the PC results on ec1d66e). For those
+steps the harness now waits half the TTL plus 1 s after settling and before
+re-warming (`auth_fresh_wait_s`), so every re-warm read either queues a
+background re-verify or verifies inline, and the step starts with every entry
+freshly verified. It reads the TTL from `LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS`
+like the server does. This keeps such steps measuring ingestion rather than
+cache phase. It does not change what a sparse agent sees: one that sends less
+often than once per TTL still pays bcrypt on every batch, and one whose gap
+between batches exceeds half the TTL can occasionally pay it once. Agents that
+flush every few seconds never do.
 
 **Stopping rule.** A step is *degraded* if sustained < 90 % of offered, p99 >
 1 000 ms, loop-lag p99 > 500 ms, or any request was rate-limited, failed,
@@ -199,3 +232,66 @@ the rebased code.
 5. **Not measured here:** writer-lock contention. The harness's load does not
    trigger `database is locked`; concurrent-writer behaviour is covered by the
    storage contract suite, not this benchmark.
+
+## M1 close-out: D8 on Linux (2026-11-18)
+
+Run after the autoencoder moved from PyTorch to scikit-learn. On Linux, pip
+installs the CUDA PyTorch wheel, and importing it alone added about 900 MB of
+server RSS. The same 20-device, 1 000 ev/s step used 1 177–1 228 MB on `main`
+`1fcc38f` and uses 280 MB now. Code `37d11b7`, clean tree, detection on. The
+machine is a cloud VM with a 4-core Intel Xeon @ 2.1 GHz, 15.7 GB RAM, Linux
+6.18, and Python 3.13.
+
+- [`m1-d8-linux-gate.json`](m1-d8-linux-gate.json):
+  `--detection on --devices 20 --rates 1000 1500 --repeats 2`
+
+  | Run | Offered ev/s | Sustained | p50 / p95 / p99 ms | Loop lag p99 ms | RSS MB | Errors |
+  |---|---|---|---|---|---|---|
+  | 1 | 1 000 | 1 000 | 12.7 / 53.3 / 83.1 | 2.5 | 279.9 | 0 |
+  | 1 | 1 500 | 1 500 | 12.6 / 67.9 / 109.3 | 2.0 | 269.4 | 0 |
+  | 2 | 1 000 | 1 000 | 12.7 / 53.8 / 75.2 | 1.5 | 277.5 | 0 |
+  | 2 | 1 500 | 1 500 | 12.9 / 72.8 / 107.3 | 4.1 | 268.6 | 0 |
+
+- [`m1-d8-linux-sweep.json`](m1-d8-linux-sweep.json): the default ladder
+  (1, 10 and 20 devices, 25 ev/s up to each fleet's limiter ceiling),
+  detection on. Every step sustained its offered rate with 0 errors. The worst
+  request p99 was 189 ms (20 devices, 50 ev/s), the worst loop-lag p99 was
+  8 ms, and the highest RSS was 300 MB. At 20 devices: 1 000 ev/s p99 128 ms,
+  1 500 ev/s 112 ms, 1 900 ev/s 137 ms.
+
+Every D8 criterion holds on Linux: at least 1 000 ev/s across 20 devices with
+detection on, 0 errors, loop lag p99 under 50 ms, request p99 under 250 ms,
+RSS at or under 600 MB, and two reproducible runs committed.
+
+## M1 close-out: D8 on Windows (2026-11-18)
+
+This ran on the same laptop as the 2026-09-30 baseline (Core Ultra 9 185H,
+31.4 GB, Windows 11, Python 3.14.3). Code `42d23b3`, clean tree, detection on.
+PyTorch was not installed: `requirements.txt` no longer lists it. Sleep was
+blocked and the PC was idle (under 10 % CPU) before each run.
+
+- [`m1-d8-windows-gate.json`](m1-d8-windows-gate.json):
+  `--detection on --devices 20 --rates 1000 1500 --repeats 2`
+
+  | Run | Offered ev/s | Sustained | p50 / p95 / p99 ms | Loop lag p99 ms | RSS MB | Errors |
+  |---|---|---|---|---|---|---|
+  | 1 | 1 000 | 1 000 | 34.5 / 72.2 / 110.6 | 13.6 | 256.2 | 0 |
+  | 1 | 1 500 | 1 500 | 34.4 / 59.6 / 69.9 | 15.2 | 263.3 | 0 |
+  | 2 | 1 000 | 1 000 | 33.6 / 57.2 / 70.5 | 14.1 | 256.2 | 0 |
+  | 2 | 1 500 | 1 500 | 36.7 / 74.9 / 171.5 | 15.3 | 262.2 | 0 |
+
+- Full default sweep (not committed; the JSON stays on the lab PC): every step
+  sustained its offered rate with 0 errors. Loop-lag p99 stayed between 11 and
+  18 ms and RSS between 256 and 273 MB. Every step's request p99 was under
+  100 ms except two. At 10 devices and 100 ev/s it was 89.6 ms. At 20 devices
+  and 1 000 ev/s it was **250.8 ms**, just over the 250 ms line, while the gate
+  run's two 1 000 ev/s steps on the same build measured 110.6 and 70.5 ms. Treat
+  that single step as noise to re-check, not a pass.
+
+On Windows `server_cpu_cores_avg` reads 0.0 for every step. Server CPU sampling
+does not work on that platform yet, so ignore that column there. The gate JSON
+was recorded before the log markers were updated for the model-lifecycle
+training messages, so its `Auto-training models` / `all layers trained` counts
+are stale names that read 0. Training does run: with the current markers a
+Linux run logs one `Auto-training after` and one `candidate promoted` per
+server.
