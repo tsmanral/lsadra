@@ -17,8 +17,10 @@ requests>=2.31.0
 loguru>=0.7.3
 pyyaml>=6.0
 apscheduler>=3.10.0
-geopy>=2.5.0
-# Self-signed TLS certificate on first boot for non-loopback listeners (G-8)
+# Local .mmdb IP geolocation (ADR 0004); no IP leaves the host
+maxminddb>=2.6.0
+# Self-signed TLS certificate on first boot for non-loopback listeners (G-8),
+# and Ed25519 signatures on the bundled intel tier (ADR 0004)
 cryptography>=44.0.0
 # PDF security reports (/api/dashboard/report)
 fpdf2>=2.9.0
