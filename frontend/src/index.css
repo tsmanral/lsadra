@@ -10,7 +10,8 @@
   --color-surface-container: #1a202a;
   --color-surface-high: #242a35;
   --color-text: #E0F4FF;
-  --color-muted: #5C7C99;
+  /* 6.8:1 on panels (WCAG AA needs 4.5:1); the old #5C7C99 was 3.9:1. */
+  --color-muted: #8BA6C1;
   --color-critical: #FF2A6D;
   --color-warning: #FFD600;
   --color-safe: #05FFA1;
@@ -103,6 +104,22 @@ select option {
   color: #fff !important;
 }
 
-input::placeholder {
-  color: rgba(255, 255, 255, 0.3);
+input::placeholder,
+textarea::placeholder {
+  color: rgba(255, 255, 255, 0.55);
+}
+
+/* WCAG 2.4.7: every keyboard-focusable control shows where focus is. */
+:focus-visible {
+  outline: 2px solid var(--color-primary);
+  outline-offset: 2px;
+}
+
+/* WCAG 2.3.3: honour the OS "reduce motion" setting. */
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
 }
