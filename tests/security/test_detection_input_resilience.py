@@ -22,7 +22,6 @@ import pytest
 import lsadra.detection.detection_orchestrator as orch_mod
 from lsadra.features.feature_extractor import build_features
 from lsadra.features.timestamps import parse_event_timestamps
-from lsadra.session.session_builder import SessionBuilder
 
 DEVICE = "device-resilience.demo"
 
@@ -86,12 +85,6 @@ def test_build_features_scores_every_event(timestamps):
     df = build_features(_events(timestamps))
     assert len(df) == len(timestamps)
     assert not df["timestamp"].isna().any()
-
-
-def test_session_builder_accepts_mixed_timestamps():
-    out = SessionBuilder().build(_events(MIXED_TIMESTAMPS))
-    assert len(out) == len(MIXED_TIMESTAMPS)
-    assert all("session_id" in ev for ev in out)
 
 
 @pytest.fixture

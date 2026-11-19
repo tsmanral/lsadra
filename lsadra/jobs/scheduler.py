@@ -13,8 +13,10 @@ V3 jobs (preserved):
     after start; bounded batches, see storage.database.cleanup_old_data)
 
 V4 jobs (new — added after V3 jobs):
-  - Cross-source correlation check (every 5 min)    [Capability: cross-source correlation]
-  - Lateral movement scan (every 10 min)            [Capability: lateral movement detection]
+  - Cross-source correlation check (every 5 min): raises the severity of open
+    incidents whose address shows up in 2+ log sources [Capability: cross-source correlation]
+  - Lateral movement scan (every 10 min): raises a stored, published alert
+    per address and window, and feeds entity risk [Capability: lateral movement detection]
   - Ingestion health check (every 15 min)           [V4 ENHANCEMENT]
 
 Started and stopped by server.py's lifespan (LSADRA_SCHEDULER_ENABLED). Every
@@ -320,37 +322,43 @@ def _run_audit_chain_check() -> None:
 
 def _run_cross_source_correlation() -> None:
     """
-    Check each recently active source_ip for activity across 2+ source types.
+    Find addresses active in 2+ log-source families in the last 10 minutes.
 
-    If found, log the correlation and update incident severity.
+    Activity across sources is not an alert by itself. When the address
+    already has an open incident, that incident's severity goes up one step,
+    once (lsadra/detection/scan_alerts.py).
 
     [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: cross-source correlation]
     """
     try:
+        from lsadra.config import CROSS_SOURCE_ELEVATION_THRESHOLD
+        from lsadra.detection.scan_alerts import corroborate_cross_source
         from lsadra.storage.database import get_connection
 
         cutoff = _iso_cutoff(minutes=10)
         conn = get_connection()
-        rows = conn.execute(
-            """SELECT source_ip,
-                      GROUP_CONCAT(DISTINCT event_type) AS event_types,
-                      COUNT(DISTINCT
-                          CASE
-                            WHEN event_type LIKE 'ssh%' OR event_type LIKE 'session%' THEN 'ssh_log'
-                            WHEN event_type IN ('connection','firewall_deny') THEN 'network_flow'
-                            WHEN event_type IN ('process_create','file_write','dll_load') THEN 'endpoint'
-                            ELSE 'other'
-                          END
-                      ) AS source_count
-               FROM normalized_events
-               WHERE timestamp >= ?
-                 AND source_ip IS NOT NULL
-               GROUP BY source_ip
-               HAVING source_count >= 2""",
-            (cutoff,),
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT source_ip,
+                          GROUP_CONCAT(DISTINCT event_type) AS event_types,
+                          COUNT(DISTINCT
+                              CASE
+                                WHEN event_type LIKE 'ssh%' OR event_type LIKE 'session%' THEN 'ssh_log'
+                                WHEN event_type IN ('connection','firewall_deny') THEN 'network_flow'
+                                WHEN event_type IN ('process_create','file_write','dll_load') THEN 'endpoint'
+                                ELSE 'other'
+                              END
+                          ) AS source_count
+                   FROM normalized_events
+                   WHERE timestamp >= ?
+                     AND source_ip IS NOT NULL
+                   GROUP BY source_ip
+                   HAVING source_count >= ?""",
+                (cutoff, max(2, CROSS_SOURCE_ELEVATION_THRESHOLD)),
+            ).fetchall()
+        finally:
+            conn.close()
 
         for row in rows:
             d = dict(row)
@@ -359,42 +367,51 @@ def _run_cross_source_correlation() -> None:
                 "[V4 ENHANCEMENT] Cross-source correlation: %s active in %d source types (%s)",
                 ip, d["source_count"], d.get("event_types", ""),
             )
+            corroborate_cross_source(ip, int(d["source_count"]))
     except Exception:
         logger.exception("[V4] Cross-source correlation job failed.")
 
 
 def _run_lateral_movement_scan() -> None:
     """
-    Run detect_lateral_movement() for recently active IPs.
+    Run detect_lateral_movement() for every address active in the window.
 
-    Stores any new lateral movement alerts to the database.
+    Each finding becomes an alert: stored in ``anomalies`` with its rule ID and
+    ATT&CK technique and tactics, linked to an incident, published to
+    ``/ws/alerts`` and added to entity risk. One address raises at most one
+    alert per window (lsadra/detection/scan_alerts.py).
 
     [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: relationship modeling]
     """
     try:
+        from lsadra.config import LATERAL_MOVEMENT_WINDOW_MINUTES
+        from lsadra.detection import rule_engine
+        from lsadra.detection.scan_alerts import raise_lateral_movement
         from lsadra.storage.database import get_connection
-        from lsadra.detection.rule_engine import detect_lateral_movement
 
         conn = get_connection()
-        active_ips = conn.execute(
-            """SELECT DISTINCT source_ip FROM normalized_events
-               WHERE timestamp >= ?
-                 AND source_ip IS NOT NULL""",
-            (_iso_cutoff(minutes=30),),
-        ).fetchall()
+        try:
+            active_ips = conn.execute(
+                """SELECT DISTINCT source_ip FROM normalized_events
+                   WHERE timestamp >= ?
+                     AND source_ip IS NOT NULL""",
+                (_iso_cutoff(minutes=LATERAL_MOVEMENT_WINDOW_MINUTES),),
+            ).fetchall()
 
-        for row in active_ips:
-            ip = row[0]
-            if not ip:
-                continue
-            result = detect_lateral_movement(conn, ip)
-            if result:
-                logger.warning(
-                    "[V4 ENHANCEMENT] Lateral movement detected: %s — %s",
-                    ip, result.get("reason", ""),
-                )
-        conn.close()
+            for row in active_ips:
+                ip = row[0]
+                if not ip:
+                    continue
+                result = rule_engine.detect_lateral_movement(conn, ip)
+                if not result:
+                    continue
+                try:
+                    raise_lateral_movement(conn, result)
+                except Exception:
+                    logger.exception("Could not raise the lateral movement alert for %s", ip)
+        finally:
+            conn.close()
     except Exception:
         logger.exception("[V4] Lateral movement scan job failed.")
 

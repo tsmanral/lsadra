@@ -101,7 +101,7 @@ def test_token_for_deleted_or_unknown_user_is_refused(identity_env):
 
 
 def test_ws_handshake_refuses_a_revoked_token(identity_env):
-    from lsadra.ui.alert_stream import authenticate_handshake
+    from lsadra.api.alert_stream import authenticate_handshake
 
     client = identity_env
     uid = make_user()

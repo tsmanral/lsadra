@@ -183,7 +183,7 @@ const Admin = () => {
           return { data: { entity: r.data.entity, incident_id: r.data.incident_id } };
         },
         warnDetail: 'The newest incident could not be resolved through GET /api/entity.',
-        warnFix: '1. Backend must expose GET /api/entity?q=...\n2. Check lsadra/ui/api_investigation.py',
+        warnFix: '1. Backend must expose GET /api/entity?q=...\n2. Check lsadra/api/investigation.py',
       },
     ];
 

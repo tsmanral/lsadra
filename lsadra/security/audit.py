@@ -215,7 +215,7 @@ def raise_self_alert(
     }
     try:
         from lsadra.storage.database import insert_anomaly
-        from lsadra.ui.alert_stream import alert_hub
+        from lsadra.api.alert_stream import alert_hub
 
         anomaly["id"] = insert_anomaly(anomaly)
         anomaly["created_at"] = _now()

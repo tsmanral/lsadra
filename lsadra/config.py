@@ -63,7 +63,6 @@ if BENCH_SKIP_DETECTION and not DEV_MODE:
 # unless TLS is configured, generated, or terminated by a trusted proxy.
 API_HOST: str = os.getenv("LSADRA_API_HOST", "127.0.0.1")
 API_PORT: int = int(os.getenv("LSADRA_API_PORT", "8000"))
-DASHBOARD_PORT: int = int(os.getenv("LSADRA_DASH_PORT", "8501"))
 
 # CORS: explicit browser-origin allowlist for the SPA (comma-separated).
 # Empty (default) = no cross-origin access. Agents authenticate with header
@@ -211,6 +210,25 @@ if SIGMA_MODE not in ("off", "shadow", "alert"):
 SIGMA_SUPPRESSIONS: str = os.getenv("LSADRA_SIGMA_SUPPRESSIONS", "").strip()
 
 # ---------------------------------------------------------------------------
+# Entity risk scoring (lsadra/detection/risk.py). Every rule, Sigma and anomaly
+# signal adds risk to its host and user; the 0-100 score sums the signals of the
+# last RISK_WINDOW_DAYS with a RISK_HALF_LIFE_HOURS decay. A score at or above
+# RISK_THRESHOLD opens a risk case. "shadow" (default) records scores and cases
+# without alerting; "alert" also raises an alert when a case opens.
+RISK_MODE: str = os.getenv("LSADRA_RISK_MODE", "shadow").strip().lower()
+if RISK_MODE not in ("off", "shadow", "alert"):
+    raise RuntimeError("LSADRA_RISK_MODE must be off, shadow or alert.")
+RISK_THRESHOLD: float = float(os.getenv("LSADRA_RISK_THRESHOLD", "70"))  # risk.DEFAULT_*
+if not 0 < RISK_THRESHOLD <= 100:
+    raise RuntimeError("LSADRA_RISK_THRESHOLD must be > 0 and <= 100.")
+RISK_WINDOW_DAYS: int = int(os.getenv("LSADRA_RISK_WINDOW_DAYS", "7"))
+if not 1 <= RISK_WINDOW_DAYS <= 90:
+    raise RuntimeError("LSADRA_RISK_WINDOW_DAYS must be between 1 and 90.")
+RISK_HALF_LIFE_HOURS: float = float(os.getenv("LSADRA_RISK_HALF_LIFE_HOURS", "24"))
+if not 0 < RISK_HALF_LIFE_HOURS <= 24 * 90:
+    raise RuntimeError("LSADRA_RISK_HALF_LIFE_HOURS must be > 0 and <= 2160.")
+
+# ---------------------------------------------------------------------------
 # Input Validation Caps
 # These mirror docs/contracts/event-schema.v1.json (frozen). The schema file is
 # the source of truth; tests/test_contracts.py fails if the two drift.
@@ -248,7 +266,7 @@ DETECTION_QUEUE_RETRY_AFTER_SECONDS: int = 5
 
 # /ws/alerts: alerts buffered per connected client before the server gives up
 # on a client that is not reading. It is closed with 1013 and should reconnect
-# and backfill from GET /api/dashboard/anomalies (lsadra/ui/alert_stream.py).
+# and backfill from GET /api/dashboard/anomalies (lsadra/api/alert_stream.py).
 WS_ALERT_QUEUE_SIZE: int = int(os.getenv("LSADRA_WS_ALERT_QUEUE_SIZE", "256"))
 if WS_ALERT_QUEUE_SIZE < 1:
     raise RuntimeError("LSADRA_WS_ALERT_QUEUE_SIZE must be >= 1.")
@@ -307,6 +325,12 @@ RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECON
 # A candidate model is promoted only if its ML layers still flag at least this
 # share of the attack events in each canary scenario of the demo corpus.
 CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+# While the live models were trained on fewer than TRAINING_MAX_EVENTS events,
+# retrain automatically each time the stored event count has grown by this
+# factor since the last training run (50 -> 100 -> 200 ...). The first model
+# otherwise stays fitted on the first MIN_TRAINING_EVENTS events for good.
+# Same gate, cooldown, canary and audit trail as every other run; 0 turns it off.
+AUTO_RETRAIN_GROWTH: float = float(os.getenv("LSADRA_AUTO_RETRAIN_GROWTH", "2.0"))
 # Phase 1 shadow scorer (ADR 0007): share of training events the ECOD shadow
 # verdict may flag. Shadow verdicts are logged and returned, never alerted on.
 SHADOW_ECOD_TARGET_FPR: float = float(os.getenv("LSADRA_SHADOW_ECOD_TARGET_FPR", "0.001"))

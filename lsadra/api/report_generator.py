@@ -2,7 +2,7 @@
 LSADRA V3 — PDF report generator.
 
 Generates downloadable PDF security reports from dashboard data
-using fpdf2 and Plotly's to_image (via kaleido).
+using fpdf2.
 """
 
 import io

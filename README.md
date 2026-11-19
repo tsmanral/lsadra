@@ -59,8 +59,8 @@ Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are a
 - 🔍 **Explainable by design.** Every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline yet; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
-- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) runs alongside them in shadow mode.
-- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles. A legacy Streamlit interface is also included.
+- 🚨 **Detection rules that matter.** 18 rules on the live path (brute force, credential stuffing, success after failures, port scans, large transfers, LOLBin abuse, encoded PowerShell, new services, scheduled tasks, cron and registry autostarts, cleared event logs) plus a scheduled lateral-movement scan, each with an ID, version, level and ATT&CK v20 technique and tactic, its own tests, and a committed [scorecard](docs/detection/scorecard.md). An alert names an ATT&CK technique only when a rule matched; an anomaly the ML layers raise without a matching rule is shown as *Unknown Anomalous Activity* with no technique. A Sigma layer (67 SigmaHQ and LSADRA rules, including a password-spraying correlation) and a 0-100 entity risk score with risk cases run alongside them in shadow mode.
+- 📊 **SOC dashboard.** A React (Vite + TypeScript) command center with live alerts over an authenticated WebSocket, analytics, entity investigation, threat intel (a signed, key-free CISA KEV and MITRE ATT&CK bundle, optional IP feeds and local geolocation), device and model views, and JWT auth with roles.
 
 ## Quick start (local, about 10 minutes)
 
@@ -195,7 +195,7 @@ Every enrolled device grouped by platform, with its status. Select devices and *
 
 <img src="docs/screenshots/model-analytics.png" alt="Model Analytics" width="720"/>
 
-The model registry: which detection models are trained, on how many events, and when. A trained model replaces the live one only if it passes the canary check in [Model integrity and training](#model-integrity-and-training). On the demo data alone the first candidate fails that check, so the registry stays empty, as shown here; detection still runs, and its rules raise the alerts shown on the other pages. Further down are feature drift (PSI), which the scheduler computes daily and you can trigger by hand, and a summary of the detection pipeline.
+The model registry: which detection models are trained, on how many events, and when. A trained model replaces the live one only if it passes the canary check in [Model integrity and training](#model-integrity-and-training). With the demo data loaded, the first automatic training run promotes a baseline and an ensemble model, as shown here (the labelled attack events are left out of training). Further down are feature drift (PSI), which the scheduler computes daily and you can trigger by hand, and a summary of the detection pipeline.
 
 ### Connect Device
 
@@ -253,7 +253,7 @@ See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_
 
 ## Run with Docker
 
-The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard is off by default; `docker compose -f docker-compose.yml --profile legacy up -d` starts it on `127.0.0.1:8501`.
+The Compose stack runs the API (`127.0.0.1:8000`), the React dashboard (**http://localhost:8080**, change with `WEB_PORT`) and an idle agent simulator. Both ports are published on the host's loopback only. The legacy Streamlit dashboard has been removed; the React dashboard is the only UI.
 
 ```bash
 cp .env.example .env
@@ -408,6 +408,25 @@ A second rule layer runs standard [Sigma](https://sigmahq.io/) 2.0 rules in-proc
 - **Scorecard.** The [scorecard](docs/detection/scorecard.md) has a Sigma section: today the layer matches all 3 attack scenarios and 0 of 99 benign events.
 - Rules are code to pySigma (it compiles them to Python), so the layer loads only the bundled folder and the operator's suppression file.
 
+### Entity risk and risk cases (shadow mode)
+
+Single weak signals rarely prove an attack; several on the same machine or account usually do. [`lsadra/detection/risk.py`](lsadra/detection/risk.py) gives every host and user a 0-100 risk score:
+
+- **Signals.** Every built-in rule match (low ones included), every Sigma match, and every anomaly no rule explained is stored in `risk_events` for the event's host and user. A failed login adds risk to the host only, because the account it names is usually the target.
+- **Score.** Points by level (low 4, medium 12, high 24, critical 40), summed over the last `LSADRA_RISK_WINDOW_DAYS` (default 7) with a `LSADRA_RISK_HALF_LIFE_HOURS` decay (default 24). One event counts once, and the same rule counts once per hour per entity. Each distinct ATT&CK tactic after the first multiplies the total by 1.25 (up to 2x), and an admin-set **asset weight** (1 to 5) multiplies it again. The total maps to 0-100 (`100 * (1 - exp(-total / 60))`): one `high` signal scores about 33, a chain across three tactics passes 70. These constants are a starting point for the detection bench to tune.
+- **Risk cases.** A score at or above `LSADRA_RISK_THRESHOLD` (default 70) opens a risk case (`risk_notables`) for that host or user, with its ordered tactic chain (for example *Credential Access -> Persistence -> Collection*); later signals update the open case. On the demo corpus, the brute-force and new-service scenarios open host cases and the benign set peaks at 22 ([scorecard](docs/detection/scorecard.md)).
+- **Modes.** `LSADRA_RISK_MODE=shadow` (default) records scores and cases without alerting; `alert` also turns the event that opens a case into an alert (*Entity risk threshold crossed*); `off` records nothing.
+
+| Endpoint | Roles | What it returns |
+|---|---|---|
+| `GET /api/risk/entities` | all | Hosts and users with recent signals, highest score first |
+| `GET /api/risk/timeline?entity_type=host&entity=…` | all | One entity's score, open case, and the signals behind it, oldest first |
+| `GET /api/risk/cases?status=OPEN` | all | Risk cases, highest score first |
+| `PATCH /api/risk/cases/{id}` | ADMIN, ANALYST | Close or reopen a case (`{"status": "CLOSED"}`) |
+| `PUT /api/risk/asset-weights` | ADMIN | Set an asset's weight (`{"entity_type": "host", "entity": "dc-01", "weight": 3}`) |
+
+Admins see every entity; analysts and viewers see only entities whose signals came from their own devices.
+
 ## Live alert stream (WebSocket)
 
 `/ws/alerts` is a WebSocket that pushes each anomaly to connected clients as soon as detection persists it. It authenticates at the handshake with the same JWT the dashboard uses for REST (`POST /api/auth/login`), and nothing is accepted before the token verifies. Browsers pass the token as a subprotocol; other clients can send an `Authorization: Bearer` header instead. Tokens in the query string are not read.
@@ -457,6 +476,7 @@ Training is gated:
 - **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies, events inside an open or investigating incident, and events whose `attributes.ground_truth.label` marks them as an attack (the labelled demo corpus carries this; real agents never send it). With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
 - **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
 - **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
+- **Retrains as data grows.** The first automatic model learns from the first `LSADRA_MIN_TRAINING_EVENTS` usable events. Until the live model has seen `LSADRA_TRAINING_MAX_EVENTS`, a new run (trigger `auto-growth`) starts each time the number of stored events has grown by `LSADRA_AUTO_RETRAIN_GROWTH` since the last run (default 2.0, so at about 100, 200, 400 ... events; 0 turns it off). Each run goes through the same gate, cooldown, canary, audit row and model card. A candidate the canary rejects is retried at the next step, not every cooldown. On the [detection bench](benchmarks/detection/README.md) this takes the shipped configuration from 72 to 7 false alerts per host per day.
 - **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
 - **Audit trail and model cards.** Every attempt (promoted, rejected, skipped, refused, rolled back) is a row in `model_training_runs`. Each promoted model gets a JSON model card: type, file hash, features, training window and event counts, exclusions, canary result and library versions.
 
@@ -499,6 +519,8 @@ Ingestion never runs detection inside the request: the handler stores the batch 
 
 Background jobs (APScheduler) handle cross-source correlation, lateral-movement scans, metrics pre-aggregation, local geo-resolution, runtime intel feed refresh, drift detection and data retention. No external queue or cron is required.
 
+The lateral-movement scan (every 10 minutes) raises a real alert when one address reaches 3 or more accounts or devices inside `LSADRA_V4_LAT_MOV_WINDOW_MINUTES` (default 30): it is stored with rule `lsadra-lateral-remote-services` and ATT&CK T1021 (Lateral Movement), opens or joins an incident, appears on `/ws/alerts` for admins, and adds risk to every host and account it touched. One address raises at most one such alert per window. The cross-source job (every 5 minutes) does not alert on its own, because activity in two log sources is normal; when an address with an open incident shows up in `LSADRA_V4_CROSS_SOURCE_ELEVATION` (default 2) or more source families, that incident's severity goes up one step, once.
+
 **Today** the stack is Python end to end: a FastAPI core (ingestion, detection, storage, orchestration), a React + Vite SOC dashboard, and a thin Python endpoint agent.
 
 **In progress:** the endpoint agent is being replaced by **Rust collectors** in [`collectors/`](collectors/): small static binaries that read the OS log source (journald on Linux, the Windows Event Log on Windows), check every event against the contract, spool it to disk and ship it over HTTPS, so an outage or a restart loses nothing. The first build is about 2 MB on disk and under 4 MB RSS; see [`collectors/README.md`](collectors/README.md). The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code. See [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning. Until the Rust agent ships, the Python Linux agent remains the stopgap: it tails the files listed in `log_paths` in its config (or journald when none is set), sends at most 100 events per batch, drops a batch the core rejects as invalid instead of re-sending it, and waits out `Retry-After` on `429`/`503`.
@@ -506,7 +528,8 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, admin CLI (admin_cli.py)
+  api/              REST and WebSocket API the dashboard and desktop app use (routers, data layer, PDF report)
   intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
   detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
@@ -523,7 +546,7 @@ scripts/            Operator tooling (seed_demo.py replays the demo corpus throu
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus; release_notes.py checks the version and writes release notes;
                     check_tier_boundary.py is the Lite/Team import check, ADR 0008)
-requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, dev, ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
@@ -542,7 +565,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release-please (release PR) + release (signed + attested) + release dry run, secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff; requirements/docs.txt is the docs-site toolchain
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff; requirements/docs.txt is the docs-site toolchain
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent

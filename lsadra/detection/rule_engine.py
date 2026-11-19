@@ -508,8 +508,9 @@ def _log_cleared(row: Dict[str, Any]) -> Optional[Hit]:
 # Lateral movement is a database query run by the scheduler, not a row
 # matcher; it is registered here so its metadata and technique are checked
 # with everything else.
-RULES["lsadra-lateral-remote-services"] = Rule(
-    id="lsadra-lateral-remote-services", title="Lateral Movement", code="LATERAL_MOVEMENT",
+LATERAL_RULE_ID = "lsadra-lateral-remote-services"
+RULES[LATERAL_RULE_ID] = Rule(
+    id=LATERAL_RULE_ID, title="Lateral Movement", code="LATERAL_MOVEMENT",
     version=2, status="stable", level="high", technique_ids=("T1021",),
     event_types=(), confidence=0.85, evaluated_by="scheduler",
     description="One source address reaches 3 or more users or devices in 30 minutes.",
@@ -648,7 +649,7 @@ def detect_lateral_movement(
     Query the database for lateral movement signals from a source IP.
 
     Flags if the same IP accessed 3+ distinct users OR 3+ distinct devices
-    within the last 30 minutes.
+    within the last ``LATERAL_MOVEMENT_WINDOW_MINUTES`` (default 30).
 
     The window is an ISO cutoff computed here, not SQLite's
     ``datetime('now', ...)``: ingestion stores ``isoformat()`` of a UTC time
@@ -678,24 +679,36 @@ def detect_lateral_movement(
         GROUP BY source_ip
         HAVING unique_users >= 3 OR unique_devices >= 3
     """
+    from lsadra.config import LATERAL_MOVEMENT_WINDOW_MINUTES as window
+
+    rule_meta = RULES[LATERAL_RULE_ID]
+    tech = rule_meta.techniques[0]
     try:
-        cutoff = (datetime.utcnow() - timedelta(minutes=30)).isoformat()
+        cutoff = (datetime.utcnow() - timedelta(minutes=window)).isoformat()
         row = db_conn.execute(sql, (ip, cutoff)).fetchone()
         if row is None:
             return None
         d = dict(row)
         return {
             "ip":              ip,
-            "type":            "LATERAL_MOVEMENT",
+            "type":            rule_meta.code,
             "reason":          (
                 f"IP {ip} accessed {d['unique_users']} users and "
-                f"{d['unique_devices']} devices in 30 min"
+                f"{d['unique_devices']} devices in {window} min"
             ),
-            "severity":        "HIGH",
-            "rule_weight":     0.85,
+            "severity":        _LEVEL_TO_SEVERITY[rule_meta.level],
+            "rule_weight":     rule_meta.confidence,
             "source_type":     "multi_source",
-            "mitre_id":        "T1021",
-            "mitre_name":      "Remote Services",
+            "mitre_id":        tech.id,
+            "mitre_name":      tech.name,
+            "mitre_tactics":   [t.name for t in tech.tactics],
+            "rule_id":         rule_meta.id,
+            "rule_version":    rule_meta.version,
+            "rule_title":      rule_meta.title,
+            "level":           rule_meta.level,
+            "window_minutes":  window,
+            "unique_users":    int(d["unique_users"]),
+            "unique_devices":  int(d["unique_devices"]),
             "affected_users":  d.get("affected_users", ""),
             "affected_devices": d.get("affected_devices", ""),
         }

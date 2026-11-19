@@ -131,8 +131,10 @@ def test_bundle_opens_read_only():
 
 def test_simulated_intel_scores_are_gone():
     tsx = (REPO / "frontend/src/pages/ThreatIntel.tsx").read_text(encoding="utf-8")
-    py = (REPO / "lsadra/ui/pages/threat_intel.py").read_text(encoding="utf-8")
-    for src in (tsx, py):
+    # The Streamlit threat-intel page that also carried them was removed; no
+    # Python module in the package may bring the simulated data back.
+    py = [p.read_text(encoding="utf-8") for p in sorted((REPO / "lsadra").rglob("*.py"))]
+    for src in (tsx, *py):
         assert "BUILTIN_INTEL" not in src
         assert "185.15.202.13" not in src
     assert "Math.random" not in tsx
