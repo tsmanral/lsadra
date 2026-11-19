@@ -47,7 +47,7 @@ def test_root_requirements_only_includes_locks():
 def test_every_lock_pins_exact_versions_with_hashes():
     locks = sorted(REQ_DIR.glob("*.txt"))
     names = {p.stem for p in locks}
-    assert {"base", "ml", "ui", "dev", "torch", "ci-tools"} <= names
+    assert {"base", "ml", "ui", "dev", "ci-tools"} <= names
     for lock in locks:
         assert (REQ_DIR / f"{lock.stem}.in").exists(), f"{lock.name} has no .in source"
         entries = _lock_entries(lock)
@@ -57,10 +57,21 @@ def test_every_lock_pins_exact_versions_with_hashes():
             assert "--hash=sha256:" in entry, f"{lock.name}: no hash: {entry.split()[0]}"
 
 
-def test_torch_lock_uses_only_the_cpu_index():
-    text = (REQ_DIR / "torch.txt").read_text(encoding="utf-8")
-    index_lines = [ln for ln in text.splitlines() if ln.startswith(("--index-url", "--extra-index-url"))]
-    assert index_lines == ["--index-url https://download.pytorch.org/whl/cpu"]
+def test_no_lock_installs_torch_or_uses_another_index():
+    """PyTorch is not a dependency (the autoencoder is a scikit-learn MLP).
+
+    Importing torch cost ~900 MB of server RSS on Linux, so a lock that pulls
+    it back in would break the M1 600 MB limit. Every lock resolves from PyPI
+    only: no file may point pip at a different or extra index.
+    """
+    for lock in sorted(REQ_DIR.glob("*.txt")):
+        text = lock.read_text(encoding="utf-8")
+        names = [e.split("==")[0].lower() for e in _lock_entries(lock)]
+        assert "torch" not in names, f"{lock.name} pins torch"
+        index_lines = [
+            ln for ln in text.splitlines() if ln.startswith(("--index-url", "--extra-index-url"))
+        ]
+        assert index_lines == [], f"{lock.name} sets a package index: {index_lines}"
 
 
 def test_dockerfile_is_digest_pinned_and_non_root():

@@ -55,8 +55,6 @@ jobs:
             -r requirements/dev.txt \
             -r requirements/docs.txt \
             -r requirements/ci-tools.txt
-          pip-audit --require-hashes --disable-pip --no-deps --progress-spinner off \
-            -r requirements/torch.txt
 
   npm-audit:
     name: npm audit (frontend lockfile)

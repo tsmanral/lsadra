@@ -41,16 +41,18 @@ import pandas as pd
 
 from lsadra import config
 from lsadra.features.feature_extractor import FEATURE_COLS
+from lsadra.features.model_features import MODEL_FEATURE_NAMES
 from lsadra.models.integrity import ModelIntegrityError, ModelStore
 
 logger = logging.getLogger(__name__)
 
 ENSEMBLE_FILE = "ensemble.joblib"
-AUTOENCODER_FILE = "autoencoder.pt"
+AUTOENCODER_FILE = "autoencoder.json"
 BASELINE_FILE = "baseline.json"
+ECOD_FILE = "ecod.json"
 REFERENCE_FILE = "reference.json"
 PREVIOUS_DIR = "previous"
-MODEL_NAMES = ("ensemble", "autoencoder", "baseline")
+MODEL_NAMES = ("ensemble", "autoencoder", "baseline", "ecod")
 
 
 def card_file(model_name: str) -> str:
@@ -432,7 +434,7 @@ def library_versions() -> Dict[str, str]:
     from lsadra import __version__
 
     versions = {"lsadra": __version__, "python": platform.python_version()}
-    for mod in ("numpy", "pandas", "sklearn", "joblib", "torch"):
+    for mod in ("numpy", "pandas", "sklearn", "joblib"):
         try:
             versions[mod] = __import__(mod).__version__
         except Exception:  # noqa: BLE001 - optional dependency
@@ -447,14 +449,20 @@ _MODEL_DESCRIPTIONS = {
         "file": ENSEMBLE_FILE,
     },
     "autoencoder": {
-        "type": "Feed-forward autoencoder, 95th-percentile reconstruction error threshold",
-        "format": "torch state dict, tensors only, loaded with weights_only=True",
+        "type": "Feed-forward autoencoder (scikit-learn MLP, numpy scoring), 95th-percentile reconstruction error threshold",
+        "format": "plain JSON (weights, normalisation, threshold), verified against the signed manifest",
         "file": AUTOENCODER_FILE,
     },
     "baseline": {
         "type": "Per user and device rolling z-score baseline",
         "format": "plain JSON",
         "file": BASELINE_FILE,
+    },
+    "ecod": {
+        "type": "ECOD empirical-CDF tail scorer, shadow mode (reported, never alerts)",
+        "format": "plain JSON (distinct values and cumulative counts per feature)",
+        "file": ECOD_FILE,
+        "features": "model",
     },
 }
 
@@ -477,7 +485,7 @@ def build_model_card(
         "sha256": sha256,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,
-        "features": list(FEATURE_COLS),
+        "features": list(MODEL_FEATURE_NAMES) if desc.get("features") == "model" else list(FEATURE_COLS),
         "training_data": {
             k: selection.get(k)
             for k in (

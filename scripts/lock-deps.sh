@@ -27,9 +27,3 @@ compile ml.in "${extra[@]}"
 compile ui.in "${extra[@]}"
 compile dev.in "${extra[@]}"
 compile docs.in "${extra[@]}"
-# torch comes from the CPU wheel index only. --emit-index-url writes that
-# index into torch.txt so pip never looks at PyPI for it. --no-deps: its
-# dependencies are locked in ml.in from PyPI; install torch.txt with
-# `pip install --no-deps --require-hashes -r requirements/torch.txt`.
-compile torch.in "${extra[@]}" --no-deps \
-  --index-url https://download.pytorch.org/whl/cpu --emit-index-url

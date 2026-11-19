@@ -1,8 +1,7 @@
 # LSADRA Python dependencies: full install (server + explanations + legacy
 # Streamlit UI + tests). Every package is pinned with hashes; pip checks them.
 #
-#   pip install -r requirements.txt                # everything except torch
-#   pip install -r requirements/torch.txt          # optional autoencoder (CPU)
+#   pip install -r requirements.txt                # everything
 #   pip install -r requirements/base.txt           # API server only (Lite)
 #
 # Edit requirements/*.in, never the .txt locks; regenerate with
