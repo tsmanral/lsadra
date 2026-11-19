@@ -47,7 +47,7 @@ def test_root_requirements_only_includes_locks():
 def test_every_lock_pins_exact_versions_with_hashes():
     locks = sorted(REQ_DIR.glob("*.txt"))
     names = {p.stem for p in locks}
-    assert {"base", "ml", "ui", "dev", "torch", "ci-tools"} <= names
+    assert {"base", "ml", "dev", "torch", "ci-tools"} <= names
     for lock in locks:
         assert (REQ_DIR / f"{lock.stem}.in").exists(), f"{lock.name} has no .in source"
         entries = _lock_entries(lock)

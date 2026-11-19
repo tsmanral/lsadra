@@ -45,8 +45,9 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 | `lsadra/storage/` | Database layer + SQL migrations |
 | `lsadra/scheduler/` | Background job definitions |
 | `lsadra/endpoint_agent/` | Linux agent (auth.log / journalctl auto-detection) |
-| `lsadra/ui/` | Legacy Streamlit dashboard + dashboard data layer |
+| `lsadra/api/` | REST and WebSocket API for the dashboard and desktop app (routers, data layer, PDF report) |
 | `frontend/` | React SOC dashboard |
+| `desktop/` | Tauri tray app around the dashboard |
 | `tests/` | Test suite + end-to-end smoke tests |
 | `datasets/` | Synthetic log generators for local experimentation |
 

@@ -1,5 +1,5 @@
 """Investigation API behind the incident drill-down, Investigate, Response and
-Feedback pages (``lsadra/ui/api_investigation.py``).
+Feedback pages (``lsadra/api/investigation.py``).
 
 Seeds two analysts with one device each. Everything is synthetic: ``*.demo``
 users, RFC 5737 addresses.

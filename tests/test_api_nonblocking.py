@@ -97,7 +97,7 @@ async def _health_latency_while(request_coro, started: threading.Event):
 def _case(name):
     """(patch target, real callable, request coroutine factory) per handler."""
     import lsadra.ingestion.api_ingestion as ingestion
-    import lsadra.ui.api_dashboard as dashboard
+    import lsadra.api.dashboard as dashboard
     import server
 
     if name == "events/batch":
@@ -122,7 +122,7 @@ def _case(name):
     if name == "dashboard/kpis":
         # ADMIN: the non-admin KPI query fails on main too (ambiguous column), unrelated here.
         headers = _bearer("ADMIN")
-        return ("lsadra.ui.api_dashboard.get_dashboard_kpis", dashboard.get_dashboard_kpis,
+        return ("lsadra.api.dashboard.get_dashboard_kpis", dashboard.get_dashboard_kpis,
                 lambda c: c.get("/api/dashboard/kpis", headers=headers))
     if name == "devices/config":
         # The route authenticates the device first; that lookup is the storage call.

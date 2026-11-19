@@ -437,28 +437,26 @@ except Exception as e:
     fail("Scheduler V4 jobs", e)
 
 # ──────────────────────────────────────────────────────────────
-# 9. UI page imports
+# 9. Dashboard API routers
 # ──────────────────────────────────────────────────────────────
-section("9. UI page imports (no browser required)")
+section("9. Dashboard API routers (lsadra.api)")
 
-for page_name, module_path in [
-    ("investigate", "lsadra.ui.pages.investigate"),
-    ("multi_source", "lsadra.ui.pages.multi_source"),
-    ("feedback",     "lsadra.ui.pages.feedback"),
-    ("live_alerts",  "lsadra.ui.pages.live_alerts"),
+for router_name, module_path in [
+    ("dashboard",    "lsadra.api.dashboard"),
+    ("identity",     "lsadra.api.identity"),
+    ("models",       "lsadra.api.models"),
+    ("alert_stream", "lsadra.api.alert_stream"),
 ]:
     try:
         import importlib
+        from fastapi import APIRouter
         mod = importlib.import_module(module_path)
-        assert callable(getattr(mod, "render", None)), "render() function missing"
-        ok(f"{page_name}.render() importable")
+        router = getattr(mod, "router", None)
+        assert isinstance(router, APIRouter), "router missing"
+        assert router.routes, "router has no routes"
+        ok(f"{router_name} router importable ({len(router.routes)} routes)")
     except Exception as e:
-        # Streamlit pages may fail on import due to st.* calls at module level
-        # This is expected in non-Streamlit context — just check ImportError
-        if "streamlit" in str(e).lower() or "ModuleNotFoundError" in type(e).__name__:
-            ok(f"{page_name} — import blocked by Streamlit context (expected in CLI)")
-        else:
-            fail(f"{page_name} import", e)
+        fail(f"{router_name} router import", e)
 
 # ──────────────────────────────────────────────────────────────
 # 10. Config V4 keys
