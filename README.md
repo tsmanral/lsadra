@@ -41,6 +41,7 @@
 - [Ingesting logs](#ingesting-logs)
 - [Detection rules](#detection-rules)
 - [Live alert stream (WebSocket)](#live-alert-stream-websocket)
+- [Investigating incidents](#investigating-incidents)
 - [Model integrity and training](#model-integrity-and-training)
 - [LLM guardrails](#llm-guardrails-before-the-llm-ships)
 - [Architecture](#architecture)
@@ -217,18 +218,12 @@ Admins only. List users, change their roles, and create accounts with a chosen r
 
 ### Pages that still show placeholder data
 
-Some screens are designed but not yet wired to the API. They render, but parts of what they show are fixed sample content rather than your data. They are good first contributions:
+Incident drill-down, Investigate, Response, Feedback, Live Alerts, Sources and Device Behavior read real data (see [Investigating incidents](#investigating-incidents)). Two screens still show fixed content in places. They are good first contributions:
 
 | Page | What is still placeholder |
 | --- | --- |
-| Incident drill-down (`/app/incident/:id`) and its playbook | The whole page: entity details, attack timeline and raw log are the same sample incident, whichever incident you open |
-| Investigate | The API has no entity endpoint yet (`GET /api/entity/{id}` returns 404), so every search shows a generic profile with a fixed risk score of 42 |
 | Threat Intel | The lookup box does not call the API yet, so it returns nothing; the server-side AbuseIPDB cache (`LSADRA_ABUSEIPDB_API_KEY`) is not shown here |
-| Response | Playbook steps, the console and the response metrics are simulated, and labelled as dry-run |
-| Live Alerts header and footer | The ingestion rate, uptime and status line |
-| Sources | The average latency tile |
 | Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours |
-| Device Behavior | "Last seen" shows `NaNh ago` |
 
 ## Connect a real device
 
@@ -421,6 +416,19 @@ python -m lsadra.intel geo-update     # download a local geolocation database
 
 API (JWT, any role unless noted): `GET /api/intel/status`, `GET /api/intel/ip/{ip}` (`?remote=true` asks AbuseIPDB; analysts and admins only), `GET /api/intel/cve/{cve}`, `GET /api/intel/kev?q=`, `GET /api/intel/technique/{id}`, `GET /api/intel/flagged-ips` (public IPs from your anomalies; admins see all), `POST /api/intel/feeds/refresh` (admin).
 
+## Investigating incidents
+
+Every investigation page in the dashboard reads real data from these endpoints. An ADMIN sees everything; other roles see only data from their own devices, and anything else answers `404`.
+
+| Endpoint | Used by | Returns |
+|---|---|---|
+| `GET /api/incidents/{id}` | Incident drill-down, Response | The incident, every alert in it oldest first (narrative, MITRE technique, raw log line), the IPs, users and hosts involved, and its response playbook. |
+| `GET /api/entity?q=...` | Investigate | Profile of an IP, user name or host: risk (highest alert severity, 0 to 100), alerts, related incidents and entities, latest raw events. An incident id (`12`, `inc_12`, `INC-12`) resolves to that incident. Nothing on record is a `404`, never a made-up profile. |
+| `GET /api/feedback` | Feedback | Analyst labels with totals and the share confirmed as real threats. |
+| `POST /api/feedback` | Feedback, drill-down | Labels one alert `true_positive` or `false_positive` with a note (ADMIN or ANALYST). |
+
+Playbooks are guidance: LSADRA does not run their commands. Commands use placeholders such as `<SOURCE_IP>` and `<USERNAME>` that the analyst fills in, and are never filled in from log text, which an attacker controls. Narratives render as a small, link-free markdown subset in the dashboard.
+
 ## Model integrity and training
 
 Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
@@ -490,7 +498,8 @@ demo/               Labeled synthetic demo corpus (JSONL) + scenario documentati
   llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
 scripts/            Operator tooling (seed_demo.py replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
-                    llm_redteam.py runs the LLM injection corpus)
+                    llm_redteam.py runs the LLM injection corpus;
+                    check_tier_boundary.py is the Lite/Team import check, ADR 0008)
 requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, torch (CPU index), ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
@@ -515,6 +524,15 @@ windows_live_agent.py       Live Windows event agent
 server.py           FastAPI entry point
 CLAUDE.md           Rules for AI coding agents working in this repo
 ```
+
+## Editions
+
+LSADRA comes in two editions, and the line between them is recorded in [ADR 0008](docs/architecture/adr/0008-lite-team-line.md).
+
+- **Lite** is this repository: free, AGPL-3.0, and complete on its own. It watches several devices for one owner, with one local admin created from the command line, the existing `ADMIN` / `ANALYST` / `VIEWER` roles, correlation across your own devices, and keyless bundled threat intel. Nothing Lite ships will ever move to the paid edition.
+- **Team** is a separate, private, paid edition for startups and managed service providers. It adds multi-tenant fleets, SSO, cross-tenant correlation, approval workflows and OCSF export. It talks to a Lite core only through the event schema and the HTTP API, and is written fresh rather than copied from contributed code.
+
+Lite never depends on Team code: [`scripts/check_tier_boundary.py`](scripts/check_tier_boundary.py) runs in CI and fails any change that imports from the reserved `lsadra_team` / `lsadra.team` / `@lsadra/team` namespaces.
 
 ## Contributing
 
