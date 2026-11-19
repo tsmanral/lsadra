@@ -1,0 +1,16 @@
+{
+  "name": "lsadra-desktop",
+  "private": true,
+  "version": "0.1.0",
+  "description": "LSADRA desktop tray app (Tauri v2) around the React dashboard",
+  "license": "AGPL-3.0-only",
+  "scripts": {
+    "tauri": "tauri",
+    "dev": "tauri dev",
+    "build": "tauri build",
+    "icons": "tauri icon assets/icon.png"
+  },
+  "devDependencies": {
+    "@tauri-apps/cli": "2.12.5"
+  }
+}

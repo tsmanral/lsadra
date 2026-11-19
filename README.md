@@ -34,6 +34,7 @@
 - [Quick start (local, about 10 minutes)](#quick-start-local-about-10-minutes)
 - [Dashboard tour](#dashboard-tour)
 - [Connect a real device](#connect-a-real-device)
+- [Desktop app (preview)](#desktop-app-preview)
 - [Run with Docker](#run-with-docker)
 - [Configuration](#configuration)
 - [Testing](#testing)
@@ -240,6 +241,17 @@ The command saves the installer to a file and checks its SHA-256 before running 
 **Windows (test agent).** `python windows_agent_simulator.py` starts a local API, registers a simulated Windows device and streams events from a dummy log file. `windows_live_agent.py` reads the live Windows event log.
 
 **Anything else.** Send events straight to the [ingestion API](#ingesting-logs).
+
+## Desktop app (preview)
+
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first as in step 5 above (`LSADRA_DEV_MODE=true` is fine for that one command, since it only writes to the database). For now it runs the server from a source checkout set up as in step 1 of the quick start; a self-contained server bundle comes later.
+
+```bash
+cd frontend && npm ci && npm run build && cd ..
+cd desktop && npm ci && npm run dev      # or: npm run build  (installers in src-tauri/target/release/bundle)
+```
+
+See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
 
 ## Run with Docker
 
@@ -499,6 +511,7 @@ lsadra/             Core platform: auth, ingestion, detection, storage, schedule
   detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
+desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
@@ -525,7 +538,7 @@ docs/               Documentation tree
 fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix (Python and Rust collectors), DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
+.github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff (not torch); requirements/docs.txt is the docs-site toolchain
