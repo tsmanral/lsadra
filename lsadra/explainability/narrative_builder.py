@@ -426,7 +426,7 @@ def generate_investigative_summary(
         incident_data:           Incident record dict from DB.
         entity_timeline:         Ordered event history for the IP.
         similar_past_incidents:  Previous incidents matching the IP/type.
-        threat_intel:            Optional AbuseIPDB cache entry.
+        threat_intel:            Optional lsadra.intel.legacy_view() dict.
 
     Returns:
         Full investigation report as a formatted markdown string.
@@ -463,9 +463,22 @@ def _para_executive_summary(
 
     ti_note = ""
     if threat_intel:
-        score = clean_field(threat_intel.get("abuse_score", 0), MAX_LABEL)
+        # Report only what a real source said; never print a default score.
+        parts = []
+        if threat_intel.get("abuse_score") is not None:
+            parts.append(
+                f"AbuseIPDB score {clean_field(threat_intel['abuse_score'], MAX_LABEL)}/100"
+            )
+        matches = threat_intel.get("feed_matches") or []
+        if matches:
+            parts.append("listed on " + ", ".join(clean_field(m, MAX_LABEL) for m in matches[:3]))
+        if threat_intel.get("is_tor"):
+            parts.append("Tor exit node")
         country = clean_field(threat_intel.get("country_code", ""), MAX_LABEL)
-        ti_note = f" Threat intelligence: AbuseIPDB score {score}/100 (origin: {country})."
+        if parts or country:
+            body = "; ".join(parts) if parts else "no reputation data"
+            origin = f" (origin: {country})" if country else ""
+            ti_note = f" Threat intelligence: {clean_field(body, MAX_TEXT)}{origin}."
 
     return (
         f"## 📋 Executive Summary\n\n"
@@ -660,7 +673,7 @@ def get_confidence_level(
     Args:
         features:    Enriched V4 feature dict.
         rule_alert:  V4 rule alert dict.
-        threat_intel: Optional AbuseIPDB cache entry.
+        threat_intel: Optional lsadra.intel.legacy_view() dict.
         timeline:    Ordered entity event history.
 
     Returns:
@@ -670,7 +683,9 @@ def get_confidence_level(
 
     if rule_alert.get("rule_weight", 0) >= 0.7:
         signals.append("high-weight rule triggered")
-    if threat_intel and threat_intel.get("abuse_score", 0) > 25:
+    if threat_intel and (
+        (threat_intel.get("abuse_score") or 0) > 25 or threat_intel.get("feed_matches")
+    ):
         signals.append("malicious threat intel hit")
     if len(timeline) >= 5:
         signals.append("sustained event timeline (5+ events)")
