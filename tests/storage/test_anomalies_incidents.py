@@ -57,6 +57,7 @@ INCIDENT_KEYS = {
     "notes",
     "created_at",
     "playbook",
+    "cross_source_at",  # migration 011 (W5)
 }
 IP = "192.0.2.10"
 
@@ -310,3 +311,36 @@ def test_get_all_incidents_filters_by_status_and_owner(seeded):
     assert seeded.get_all_incidents(status="RESOLVED", user_id=USER_ID) == []
     assert len(seeded.get_all_incidents(limit=1)) == 1
     assert all(set(i) == INCIDENT_KEYS for i in seeded.get_all_incidents(user_id="user-2"))
+
+
+# ── scheduled-scan helpers (W5) ────────────────────────────────────────────
+
+
+def test_get_recent_rule_alert_matches_rule_address_and_window(seeded, sql):
+    old = seeded.insert_anomaly(_anomaly(rule_id="r1"))
+    sql("UPDATE anomalies SET created_at = '2026-01-01 00:00:00' WHERE id = ?", (old,))
+    assert seeded.get_recent_rule_alert("r1", IP, "2026-01-01 00:00:01") is None
+    new = seeded.insert_anomaly(_anomaly(rule_id="r1"))
+    seeded.insert_anomaly(_anomaly(rule_id="r2"))
+    assert seeded.get_recent_rule_alert("r1", IP, "2026-01-01 00:00:01")["id"] == new
+    assert seeded.get_recent_rule_alert("r1", "198.51.100.1", "2026-01-01 00:00:01") is None
+    assert seeded.get_recent_rule_alert("r3", IP, "2026-01-01 00:00:01") is None
+
+
+def test_elevate_cross_source_incidents_raises_open_ones_once(seeded):
+    low = _incident(seeded, severity_label="LOW")
+    crit = _incident(seeded, severity_label="CRITICAL", attack_type="exfil")
+    closed = _incident(seeded, severity_label="LOW", attack_type="persistence")
+    other_ip = _incident(seeded, severity_label="LOW", source_ip="198.51.100.1")
+    seeded.update_incident_status(closed, "RESOLVED")
+
+    changed = seeded.elevate_cross_source_incidents(IP, "2026-01-01T00:05:00+00:00")
+    assert changed == [{"id": low, "old": "LOW", "new": "MEDIUM"}]
+    assert seeded.get_incident(low)["cross_source_at"] == "2026-01-01T00:05:00+00:00"
+    # CRITICAL cannot go higher, but is stamped so later runs skip it.
+    assert seeded.get_incident(crit)["severity_label"] == "CRITICAL"
+    assert seeded.get_incident(crit)["cross_source_at"]
+    assert seeded.get_incident(closed)["cross_source_at"] is None
+    assert seeded.get_incident(other_ip)["cross_source_at"] is None
+    assert seeded.elevate_cross_source_incidents(IP, "2026-01-01T00:10:00+00:00") == []
+    assert seeded.get_incident(low)["severity_label"] == "MEDIUM"

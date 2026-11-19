@@ -44,7 +44,6 @@ over
 | `detection/` | Orchestrator, detection worker, model lifecycle (training hygiene, canary gate, rollback), rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
 | `intel/` | Threat intel in two tiers ([ADR 0004](docs/architecture/adr/0004-intel-two-tier-licensing.md)): a signed, hash-verified bundle (CISA KEV, MITRE ATT&CK) shipped in the package, and an opt-in runtime tier (keyless IP list feeds, AbuseIPDB, local `.mmdb` geolocation); `python -m lsadra.intel` manages it |
 | `explainability/` | Narrative builder, log-value sanitizer, threat-intel adapter for narratives, SHAP helpers (not called by the live pipeline) |
-| `session/` | Session building and user-journey analysis |
 | `jobs/` | Scheduler and IP geolocation from the local `.mmdb` file |
 | `storage/` | Database access, migrations, metrics aggregation |
 | `api/` | Dashboard REST API, `/api/intel`, `/api/risk`, investigation and feedback, device revoke and key rotation, `/ws/alerts`, PDF report. `lsadra/ui` is a deprecated import alias for it |
