@@ -34,6 +34,7 @@ class _Store:
         self.events = []
         self.watermark = 0
         self.anomalies = []
+        self.sigma = []
 
     def add(self, minutes, event_type="auth_failure", ip=ATTACKER, **attributes):
         self.events.append({
@@ -55,6 +56,10 @@ class _Store:
         self.anomalies.append(res)
         return len(self.anomalies)
 
+    def insert_sigma(self, results):
+        self.sigma.extend(results)
+        return sum(len(r["sigma_matches"]) for r in results)
+
 
 @pytest.fixture
 def store(monkeypatch):
@@ -66,6 +71,7 @@ def store(monkeypatch):
     monkeypatch.setattr(orch_mod, "increment_device_event_count", lambda d, n: 10_000)
     monkeypatch.setattr(orch_mod, "get_device", lambda d: {"status": "ONLINE"})
     monkeypatch.setattr(orch_mod, "insert_anomaly", s.insert)
+    monkeypatch.setattr(orch_mod, "insert_sigma_matches", s.insert_sigma)
     monkeypatch.setattr(orch_mod.alert_hub, "publish", lambda res: None)
     return s
 

@@ -38,6 +38,7 @@ CI runs all of these on every pull request:
 ```bash
 npx tsc -b --noEmit   # type check
 npm run build         # production build into dist/
+npm test              # unit tests (node --test, no extra dependencies)
 npx eslint .          # lint
 ```
 

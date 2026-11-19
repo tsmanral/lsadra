@@ -1,0 +1,24 @@
+# Reviewed suppressions for the bundled Sigma rules (Sigma 2.0 filter format).
+#
+# A filter names the rule IDs it applies to and adds a condition every match
+# must also meet; here, "not" the known-benign selection. Add a filter only
+# after reviewing the false positive it removes, and keep a description that
+# says why. Analyst feedback never edits rules directly: it becomes a reviewed
+# entry here (ADR 0007). Operators can add their own file with
+# LSADRA_SIGMA_SUPPRESSIONS=/path/to/filters.yml.
+title: Ignore crontab edits by the demo backup service
+id: 8d6c1c55-3f0c-5c5c-9f41-3a3d6a0e1f10
+description: >-
+  Example of a reviewed suppression. The demo backup service rewrites its own
+  cron file on every deploy; that write is expected and is not persistence.
+author: LSADRA contributors
+date: 2026-11-18
+logsource:
+    category: file_event
+    product: linux
+filter:
+    rules:
+        - lsadra_lnx_cron_file_write
+    selection:
+        TargetFilename: '/etc/cron.d/demo-backupd'
+    condition: not selection

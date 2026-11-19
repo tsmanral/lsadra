@@ -1,0 +1,23 @@
+title: Dynamic Linker Preload File Written
+name: lsadra_lnx_ld_preload_write
+id: 600bc34a-1e09-5e30-a330-989fd30ce09d
+status: test
+description: Detects a write to /etc/ld.so.preload, which makes every dynamically linked program load an attacker's library.
+references:
+    - https://attack.mitre.org/techniques/T1574/006/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1574.006
+logsource:
+    category: file_event
+    product: linux
+detection:
+    selection:
+        TargetFilename: '/etc/ld.so.preload'
+    condition: selection
+falsepositives:
+    - Very rare; some debugging and profiling tools
+level: high

@@ -5,8 +5,8 @@ Extends the V3 feature pipeline with temporal, relationship, network-flow,
 and endpoint-specific features computed via pandas rolling windows and groupby.
 
 [V4 ENHANCEMENT — gap: temporal + relationship features]
-[GLASSWING ALIGNMENT — multi-source unified schema]
-[MYTHOS ALIGNMENT — cross-source behavioral sequences]
+[Capability: multi-source unified schema]
+[Capability: cross-source behavioral sequences]
 
 All existing V3 features and the build_features() function are preserved.
 """
@@ -237,7 +237,7 @@ def _add_relationship_features(df: pd.DataFrame) -> pd.DataFrame:
     Add cross-entity relationship features per source_ip and username.
 
     [V4 ENHANCEMENT — gap: relationship modeling]
-    [MYTHOS ALIGNMENT — cross-source behavioral sequences]
+    [Capability: cross-source behavioral sequences]
     """
     # Unique usernames per IP
     uniq_users = (
@@ -395,7 +395,7 @@ def build_entity_timeline(
     Supports cross-source timelines (same IP across SSH, network, endpoint).
 
     [V4 ENHANCEMENT — gap: temporal intelligence]
-    [MYTHOS ALIGNMENT — cross-source behavioral sequences]
+    [Capability: cross-source behavioral sequences]
 
     Args:
         db_conn:        Active SQLite3 connection.

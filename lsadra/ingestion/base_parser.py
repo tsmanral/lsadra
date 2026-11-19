@@ -5,7 +5,7 @@ Defines the unified event schema contract all V4 parsers must satisfy.
 Existing V3 parsers (LinuxSSHParser, WindowsLogonParser) are not replaced —
 they continue to work via the IngestionManager adapter.
 
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 [V4 ENHANCEMENT — gap: multi-source ingestion]
 """
 
@@ -38,7 +38,7 @@ class BaseParser(ABC):
     IngestionManager to treat SSH, syslog, Windows, network, and endpoint
     events identically downstream.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [DESIGN CHOICE] ABC enforces contract at class-definition time; validation
     at runtime guards against parser bugs without crashing the ingest pipeline.
     """

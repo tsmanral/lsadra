@@ -82,9 +82,11 @@ Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` inst
 ```bash
 py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
+venv/Scripts/pip install --no-deps -r requirements/torch.txt   # optional autoencoder (CPU torch)
 ```
 
-The first install downloads the CPU build of PyTorch, so expect a few minutes.
+The optional torch line downloads the CPU build of PyTorch, so expect a few minutes. Every package
+is pinned and hash-checked; see [requirements/README.md](requirements/README.md).
 
 Start the API in **local dev mode**. Outside dev mode the server refuses to start without a
 `LSADRA_JWT_SECRET` and TLS, which is what you want in production and not what you want on your
@@ -138,7 +140,7 @@ These are the same checks CI runs. Run the ones that match what you changed:
 | Anything in Python | `venv/Scripts/ruff check .` | 1 s |
 | Parsers, detection, storage, API | `venv/Scripts/python -m pytest tests/ -q` (full suite) | 1-2 min |
 | One area only | `venv/Scripts/python -m pytest tests/storage -q`, `tests/test_detection_pipeline.py`, ... | seconds |
-| `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npx eslint .` | 30 s |
+| `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npm test && npx eslint .` | 30 s |
 
 The frontend ESLint check in CI fails when the error count goes **above** a recorded baseline
 (lint debt is being paid down file by file). If your PR lowers the count, lower the baseline in

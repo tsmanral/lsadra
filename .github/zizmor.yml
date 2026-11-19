@@ -1,0 +1,11 @@
+# zizmor configuration (workflow linter, see .github/workflows/zizmor.yml).
+rules:
+  # Suggests the newer `$/` form for same-repo reusable workflows; keep the
+  # long-supported `./` form until it is widely documented.
+  self-repository:
+    disable: true
+  # commitlint.yml installs exact versions of @commitlint/cli and
+  # config-conventional with npm; moving it to a lockfile is a follow-up.
+  adhoc-packages:
+    ignore:
+      - commitlint.yml
