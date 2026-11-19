@@ -110,7 +110,7 @@ const DataDrawer: React.FC<Props> = ({ type, statusFilter, onClose, incidents = 
     const blob = new Blob([hdr + '\n' + body], { type: 'text/csv' });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
-    a.download = `sentinel_${type}_${timeF}.csv`;
+    a.download = `lsadra_${type}_${timeF}.csv`;
     a.click();
   };
 

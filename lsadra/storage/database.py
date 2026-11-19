@@ -23,6 +23,7 @@ from pathlib import Path
 from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from lsadra.config import (
+    ALERT_RETENTION_DAYS,
     DB_PATH,
     RETENTION_BATCH_PAUSE_S,
     RETENTION_BATCH_SIZE,
@@ -53,6 +54,9 @@ def get_connection() -> sqlite3.Connection:
         conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_S * 1000}")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # G-27: deleted rows (retention, device deletes) are overwritten with
+        # zeros instead of lingering in free pages of the database file.
+        conn.execute("PRAGMA secure_delete=ON")
     except BaseException:
         conn.close()
         raise
@@ -144,17 +148,87 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
 
 
 def update_user_role(user_id: str, role: str) -> None:
-    """Update a user's role."""
+    """Update a user's role; sessions issued under the old role end at once (G-9)."""
     with _connection() as conn:
-        conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        conn.execute(
+            "UPDATE users SET role = ?, token_version = token_version + 1 WHERE id = ?",
+            (role, user_id),
+        )
         conn.commit()
 
 
 def list_users() -> List[Dict[str, Any]]:
     """Return all users."""
     with _connection() as conn:
-        rows = conn.execute("SELECT id, username, role, created_at FROM users").fetchall()
+        rows = conn.execute(
+            "SELECT id, username, role, created_at, disabled, totp_enabled FROM users"
+        ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Session revocation and second factor (G-9, G-33) ──────────────────────
+# Every change below bumps users.token_version, which every access token
+# carries ("tv") and every request compares, so earlier tokens stop working.
+
+
+def bump_token_version(user_id: str) -> bool:
+    """End every session of *user_id*. False if there is no such user."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = ?", (user_id,)
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_disabled(user_id: str, disabled: bool) -> bool:
+    """Disable or re-enable an account; disabling ends its sessions."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET disabled = ?, token_version = token_version + 1 WHERE id = ?",
+            (1 if disabled else 0, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_password_hash(user_id: str, password_hash: str) -> bool:
+    """Replace a password hash; every existing session ends."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?",
+            (password_hash, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_totp(user_id: str, secret: Optional[str], enabled: bool) -> bool:
+    """Store (or clear, with secret=None) a TOTP secret; enabling ends other sessions."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_last_step = 0,
+                      token_version = token_version + ?
+               WHERE id = ?""",
+            (secret, 1 if enabled else 0, 1 if enabled else 0, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def claim_totp_step(user_id: str, step: int) -> bool:
+    """Record *step* as used; False if it (or a later one) was already used.
+
+    One conditional UPDATE, so two concurrent logins with the same code cannot
+    both succeed.
+    """
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?",
+            (step, user_id, step),
+        )
+        conn.commit()
+        return cur.rowcount == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -215,10 +289,40 @@ def touch_device(device_id: str) -> None:
         conn.commit()
 
 
-def update_device_status(device_id: str, status: str) -> None:
-    """Update device status (BASELINING | ONLINE | OFFLINE)."""
+def revoke_device(device_id: str) -> bool:
+    """Mark a device REVOKED: its key (and any rotation overlap key) stops working."""
     with _connection() as conn:
-        conn.execute("UPDATE devices SET status = ? WHERE id = ?", (status, device_id))
+        cur = conn.execute(
+            """UPDATE devices SET status = 'REVOKED', previous_api_key_hash = NULL,
+                      previous_key_expires_at = NULL
+               WHERE id = ?""",
+            (device_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def rotate_device_key(device_id: str, new_key_hash: str, overlap_until: datetime) -> bool:
+    """Install a new key hash; the old one keeps working until *overlap_until*."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE devices SET previous_api_key_hash = api_key_hash,
+                      previous_key_expires_at = ?, api_key_hash = ?
+               WHERE id = ? AND status != 'REVOKED'""",
+            (overlap_until.isoformat(), new_key_hash, device_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def update_device_status(device_id: str, status: str) -> None:
+    """Update device status (BASELINING | ONLINE | OFFLINE); never un-revokes."""
+    with _connection() as conn:
+        # A revoked device stays revoked; only revoke_device() sets that state.
+        conn.execute(
+            "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
+            (status, device_id),
+        )
         conn.commit()
 
 
@@ -1032,21 +1136,63 @@ def get_drift_records(model_name: str, limit: int = 50) -> List[Dict[str, Any]]:
 # Retention order matters: the only FK into ``normalized_events`` is
 # ``anomalies.event_id`` (migration 001), so anomalies go first. Table and column
 # names are constants, never input.
+#
+# Each table belongs to a tier (gap G-35): "raw" telemetry expires after
+# RETENTION_DAYS (default 30), "alert" rows (anomalies and the rollups built from
+# events) after ALERT_RETENTION_DAYS (default 365).
 _RETENTION_STEPS = (
-    ("anomalies", "created_at", ""),
+    ("anomalies", "created_at", "alert", ""),
     (
         "normalized_events",
         "timestamp",
+        "raw",
         "AND id NOT IN (SELECT event_id FROM anomalies WHERE event_id IS NOT NULL)",
     ),
-    ("device_heartbeats", "timestamp", ""),
-    ("metrics_5min", "window_start", ""),
-    ("feature_drift", "measured_at", ""),
+    ("device_heartbeats", "timestamp", "raw", ""),
+    ("metrics_5min", "window_start", "alert", ""),
+    ("feature_drift", "measured_at", "alert", ""),
+    # G-27: personal data that used to be kept forever. Closed incidents go once
+    # no retained anomaly points at them; open ones stay until someone closes them.
+    # Incidents and analyst feedback are alert records, so they follow the alert tier.
+    (
+        "incidents",
+        "last_seen",
+        "alert",
+        "AND status IN ('RESOLVED', 'FALSE_POSITIVE') "
+        "AND id NOT IN (SELECT incident_id FROM anomalies WHERE incident_id IS NOT NULL)",
+    ),
+    ("alerts_feedback", "created_at", "alert", ""),
+    ("threat_intel_cache", "queried_at", "raw", ""),
+    ("ip_geolocation", "resolved_at", "raw", ""),
+    ("registration_tokens", "expires_at", "raw", ""),
 )
+
+# Audit rows have their own, longer floor (config.AUDIT_RETENTION_DAYS >= 365);
+# the table's trigger refuses anything younger than 365 days.
+_AUDIT_RETENTION = ("audit_events", "ts")
+
+
+def _retention_cutoffs(now: Optional[datetime] = None) -> Dict[str, str]:
+    """ISO cutoff per tier; rows older than their tier's cutoff are deleted."""
+    from lsadra import config as _config
+
+    now = now or datetime.utcnow()
+    alert_days = max(ALERT_RETENTION_DAYS, RETENTION_DAYS)
+    return {
+        "raw": (now - timedelta(days=RETENTION_DAYS)).isoformat(),
+        "alert": (now - timedelta(days=alert_days)).isoformat(),
+        "audit": (now - timedelta(days=_config.AUDIT_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"),
+    }
 
 
 def cleanup_old_data(batch_size: Optional[int] = None) -> int:
-    """Delete rows older than RETENTION_DAYS. Returns the number of events deleted.
+    """Delete rows past their retention tier. Returns the number of events deleted.
+
+    Tiered: raw telemetry (events, heartbeats, enrichment caches, expired
+    registration tokens) older than ``RETENTION_DAYS``; alert records
+    (anomalies, closed incidents, analyst feedback, 5-minute metrics, drift
+    records) older than ``ALERT_RETENTION_DAYS``; ``audit_events`` older than
+    ``AUDIT_RETENTION_DAYS`` (365 minimum).
 
     Bounded: each table is cleared in transactions of at most ``batch_size`` rows
     (default ``RETENTION_BATCH_SIZE``), each committed on its own, with a short
@@ -1055,19 +1201,23 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
     and the next run picks up where this one stopped.
 
     Tables go in foreign-key-safe order (``_RETENTION_STEPS``). An expired event
-    still referenced by a *retained* anomaly (e.g. a back-filled log line whose
-    anomaly is recent) is kept until that anomaly ages out: deleting it would
-    violate the FK, deleting the anomaly early would drop a finding inside its
-    retention window. ``incidents`` are not part of retention; they are only
-    ever the parent side (``anomalies.incident_id``), so they impose no ordering.
+    still referenced by a *retained* anomaly (e.g. the evidence behind an alert
+    that is inside the alert tier) is kept until that anomaly ages out: deleting
+    it would violate the FK, deleting the anomaly early would drop a finding
+    inside its retention window. Closed incidents expire after their anomalies
+    (an incident still referenced by a retained anomaly stays); open incidents
+    are never expired.
     """
     batch = batch_size or RETENTION_BATCH_SIZE
     if batch < 1:
         raise ValueError("retention batch size must be at least 1")
-    cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
+    cutoffs = _retention_cutoffs()
+    steps = [(t, c, tier, e) for t, c, tier, e in _RETENTION_STEPS]
+    steps.append((_AUDIT_RETENTION[0], _AUDIT_RETENTION[1], "audit", ""))
     events_deleted = 0
     with _connection() as conn:
-        for table, column, extra in _RETENTION_STEPS:
+        for table, column, tier, extra in steps:
+            cutoff = cutoffs[tier]
             while True:
                 cur = conn.execute(
                     f"""DELETE FROM {table} WHERE rowid IN (
@@ -1081,7 +1231,12 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
                 if deleted < batch:
                     break
                 time.sleep(RETENTION_BATCH_PAUSE_S)
-    logger.info("Retention cleanup: removed %d events older than %s", events_deleted, cutoff)
+    logger.info(
+        "Retention cleanup: removed %d events older than %s (alerts kept until %s)",
+        events_deleted,
+        cutoffs["raw"],
+        cutoffs["alert"],
+    )
     return events_deleted
 
 
