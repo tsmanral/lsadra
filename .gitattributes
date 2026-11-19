@@ -1,0 +1,5 @@
+# The bundled intel manifest is signed byte for byte (ADR 0004). Keep git from
+# rewriting line endings on checkout (core.autocrlf on Windows), or the
+# signature stops matching.
+lsadra/intel/data/** -text
+lsadra/intel/trusted_keys.json -text
