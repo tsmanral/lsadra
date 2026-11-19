@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 #: Accounts named by failed logins are usually the target, not the actor
 #: (same rule as lsadra/detection/risk.py), so they get no user risk.
-_FAILED_LOGIN_TYPES = ("auth_failure",)
+_FAILED_LOGIN_TYPE = "auth_failure"
 _MAX_NAMED = 5  # entities spelled out in a narrative before "and N more"
 
 
@@ -65,14 +65,13 @@ def _touched(
            ORDER BY device_id, 2""",
         (ip, since_iso),
     ).fetchall()
-    placeholders = ",".join("?" for _ in _FAILED_LOGIN_TYPES)
     users = conn.execute(
-        f"""SELECT DISTINCT effective_username FROM normalized_events
-            WHERE source_ip = ? AND timestamp >= ?
-              AND effective_username IS NOT NULL AND effective_username != ''
-              AND event_type NOT IN ({placeholders})
-            ORDER BY effective_username""",
-        (ip, since_iso, *_FAILED_LOGIN_TYPES),
+        """SELECT DISTINCT effective_username FROM normalized_events
+           WHERE source_ip = ? AND timestamp >= ?
+             AND effective_username IS NOT NULL AND effective_username != ''
+             AND event_type != ?
+           ORDER BY effective_username""",
+        (ip, since_iso, _FAILED_LOGIN_TYPE),
     ).fetchall()
     return [(str(d[0]), str(d[1])) for d in devices], [str(u[0]) for u in users]
 
