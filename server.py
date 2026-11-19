@@ -27,7 +27,7 @@ from lsadra.auth import (
     require_role,
     verify_password,
 )
-from lsadra import config
+from lsadra import __version__, config
 from lsadra.authz import owned_incident
 from lsadra.config import BENCH_SKIP_DETECTION, CORS_ALLOWED_ORIGINS, DEV_MODE, REQUIRE_TLS
 from lsadra.detection.detection_worker import detection_queue
@@ -118,7 +118,8 @@ async def lifespan(app: FastAPI):
 
 
 app = FastAPI(
-    title="LSADRA V3 API",
+    title="LSADRA API",
+    version=__version__,
     lifespan=lifespan,
     # G-11: the API inventory (OpenAPI schema and its pages) is dev-only.
     docs_url="/docs" if config.EXPOSE_API_DOCS else None,
@@ -194,7 +195,7 @@ async def root():
 
 @app.get("/api/health", tags=["health"])
 async def api_health():
-    body: Dict[str, Any] = {"status": "ok", "service": "lsadra-api", "version": "5.0.0"}
+    body: Dict[str, Any] = {"status": "ok", "service": "lsadra-api", "version": __version__}
     if DEV_MODE:
         # Benchmark telemetry — never exposed outside dev mode.
         body["benchmark"] = {
