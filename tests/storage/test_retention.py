@@ -194,7 +194,7 @@ def test_cleanup_old_data_rolls_back_only_the_failing_batch(seeded, sql):
 
 def test_cleanup_old_data_deletes_in_bounded_batches(seeded, sql, monkeypatch):
     pauses = []
-    monkeypatch.setattr(database.time, "sleep", pauses.append)
+    monkeypatch.setattr(database, "_retention_pause", pauses.append)
     seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(5)])
     recent_ts = (datetime.utcnow() - timedelta(days=1)).isoformat()
     seeded.insert_event(make_event(timestamp=recent_ts))
@@ -208,7 +208,7 @@ def test_cleanup_old_data_deletes_in_bounded_batches(seeded, sql, monkeypatch):
 
 def test_cleanup_old_data_uses_the_configured_batch_size(seeded, monkeypatch):
     pauses = []
-    monkeypatch.setattr(database.time, "sleep", pauses.append)
+    monkeypatch.setattr(database, "_retention_pause", pauses.append)
     monkeypatch.setattr(database, "RETENTION_BATCH_SIZE", 1)
     seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(3)])
 
@@ -240,7 +240,7 @@ def test_cleanup_old_data_releases_the_write_lock_between_batches(seeded, sql, m
         finally:
             other.close()
 
-    monkeypatch.setattr(database.time, "sleep", write_during_pause)
+    monkeypatch.setattr(database, "_retention_pause", write_during_pause)
     seeded.insert_events_batch([make_event(timestamp=OLD) for _ in range(3)])
 
     assert seeded.cleanup_old_data(batch_size=2) == 3

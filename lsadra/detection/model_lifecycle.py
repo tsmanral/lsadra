@@ -179,6 +179,28 @@ def _in_open_incident(event: Dict[str, Any], windows: List[Dict[str, Any]]) -> b
     return False
 
 
+def labelled_attack(event: Dict[str, Any]) -> bool:
+    """True for an event whose ``attributes.ground_truth.label`` marks it as non-benign.
+
+    Only labelled corpora (the demo seeder, benchmarks) carry ground truth; a
+    real agent never sends it. Honouring it can only remove events from
+    training, so a forged label cannot add anything to "normal".
+    """
+    attrs = event.get("attributes")
+    if isinstance(attrs, str):
+        try:
+            attrs = json.loads(attrs)
+        except ValueError:
+            return False
+    if not isinstance(attrs, dict):
+        return False
+    truth = attrs.get("ground_truth")
+    if not isinstance(truth, dict):
+        return False
+    label = str(truth.get("label") or "benign").strip().lower()
+    return label != "benign"
+
+
 def cap_device_share(
     events: List[Dict[str, Any]], max_share: float
 ) -> Tuple[List[Dict[str, Any]], int]:
@@ -237,6 +259,10 @@ def select_training_events(
     else:
         excluded_incidents = 0
 
+    kept = [e for e in events if not labelled_attack(e)]
+    excluded_labelled = len(events) - len(kept)
+    events = kept
+
     events, capped = cap_device_share(events, max_share)
 
     timestamps = [t for t in (_parse_ts(e.get("timestamp")) for e in events) if t is not None]
@@ -250,8 +276,9 @@ def select_training_events(
         "events_per_device": per_device,
         "excluded_anomalies": excluded_anomalies,
         "excluded_open_incidents": excluded_incidents,
+        "excluded_labelled_attacks": excluded_labelled,
         "excluded_device_cap": capped,
-        "excluded_count": excluded_anomalies + excluded_incidents + capped,
+        "excluded_count": excluded_anomalies + excluded_incidents + excluded_labelled + capped,
         "max_device_share": max_share,
         "window_start": min(timestamps).isoformat() if timestamps else None,
         "window_end": max(timestamps).isoformat() if timestamps else None,

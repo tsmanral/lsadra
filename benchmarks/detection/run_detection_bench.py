@@ -15,8 +15,10 @@ Three configurations are scored:
     What a fresh install does today. Detection runs per device on the events
     that arrived since its last run (agent flush 3 s / 50 events, per-device
     throttle 5 s, at most 500 events per run), so features only see that chunk.
-    The first device to pass the baselining threshold trains every model, once,
-    on its first <= 500 events.
+    Models train as ``_auto_train`` does since PR #131: once a device leaves
+    baselining, from recent events of every device (anomalies excluded, no
+    device over half), at least ``MIN_TRAINING_EVENTS``, and only promoted if
+    the canary passes.
 ``retrained-online``
     Same online chunking, but every layer is trained on all hosts' training
     days first: today's algorithms with clean training data.
@@ -209,10 +211,11 @@ def _new_orchestrator(seed: int):
 
 
 def _train(orch, df) -> bool:
-    """``DetectionOrchestrator.train`` without ``_save_models`` (no disk, no DB).
+    """Fit every layer on *df* in place (no disk, no DB, no canary).
 
-    Same order and the same failure behaviour: a layer that raises leaves the
-    earlier layers trained and ``_trained`` False.
+    Used by the ``retrained-*`` configurations, which measure the algorithms
+    on clean training data rather than the production promotion path. A layer
+    that raises leaves the earlier layers trained and ``_trained`` False.
     """
     try:
         orch.baseline.train(df)
@@ -223,6 +226,68 @@ def _train(orch, df) -> bool:
         return False
     orch._trained = True
     return True
+
+
+class ProductionTrainer:
+    """``DetectionOrchestrator._auto_train`` -> ``retrain`` -> ``train``, replayed in event time.
+
+    Mirrors the shipped controls (``lsadra.detection.model_lifecycle``): the
+    most recent ``TRAINING_MAX_EVENTS`` stored events from every device, minus
+    events already recorded as anomalies, with no device above
+    ``TRAINING_MAX_DEVICE_SHARE``; at least ``MIN_TRAINING_EVENTS`` or the run
+    is skipped (short cooldown); then a candidate is trained and promoted only
+    if it passes the real canary (``run_canary``), otherwise the full
+    ``RETRAIN_COOLDOWN_SECONDS`` applies before the next attempt. The bench has
+    no incidents, so the open-incident exclusion never removes anything.
+    """
+
+    def __init__(self, orch) -> None:
+        self.orch = orch
+        self.next_allowed = -math.inf
+        self.attempts: List[Dict[str, Any]] = []
+
+    def maybe_train(self, now: float, stored: List[Dict[str, Any]], results: Dict[int, Dict[str, Any]]) -> None:
+        from lsadra import config as cfg
+        from lsadra.detection import model_lifecycle as lifecycle
+        from lsadra.models.autoencoder_model import AutoencoderModel
+        from lsadra.models.ensemble_model import EnsembleModel
+        from lsadra.models.statistical_baseline import StatisticalBaselineModel
+
+        if self.orch._trained or now < self.next_allowed:
+            return
+        recent = stored[-cfg.TRAINING_MAX_EVENTS:]
+        events = [r for r in recent if not results.get(r["id"], {}).get("is_anomaly")]
+        excluded_anomalies = len(recent) - len(events)
+        events, capped = lifecycle.cap_device_share(events, cfg.TRAINING_MAX_DEVICE_SHARE)
+        attempt: Dict[str, Any] = {
+            "at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"),
+            "events": len(events), "excluded_anomalies": excluded_anomalies,
+            "excluded_device_cap": capped,
+        }
+        self.attempts.append(attempt)
+        df = _features(events) if len(events) >= cfg.MIN_TRAINING_EVENTS else None
+        if df is None or df.empty:
+            attempt["status"] = "skipped"
+            self.next_allowed = now + lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
+            return
+        baseline, ensemble, autoencoder = StatisticalBaselineModel(), EnsembleModel(), AutoencoderModel()
+        try:
+            baseline.train(df)
+            ensemble.train(df)
+            autoencoder.train(df)
+        except Exception as exc:
+            attempt.update(status="failed", error=type(exc).__name__)
+            self.next_allowed = now + cfg.RETRAIN_COOLDOWN_SECONDS
+            return
+        canary = lifecycle.run_canary(ensemble, autoencoder)
+        attempt["canary"] = {k: v.get("recall") for k, v in canary.get("scenarios", {}).items()}
+        self.next_allowed = now + cfg.RETRAIN_COOLDOWN_SECONDS
+        if not canary["passed"]:
+            attempt["status"] = "rejected"
+            return
+        attempt["status"] = "promoted"
+        self.orch.baseline, self.orch.ensemble, self.orch.autoencoder = baseline, ensemble, autoencoder
+        self.orch._trained = True
 
 
 def _clean(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
@@ -292,8 +357,12 @@ def online_features(rows: List[Dict[str, Any]], workers: int):
 
 
 def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed: int,
-               online: Optional[Tuple[List[Any], List[Any]]] = None) -> Dict[int, Dict[str, Any]]:
-    """Score every test-period row under *config*; returns results by event id."""
+               online: Optional[Tuple[List[Any], List[Any]]] = None,
+               training_log: Optional[List[Dict[str, Any]]] = None) -> Dict[int, Dict[str, Any]]:
+    """Score every test-period row under *config*; returns results by event id.
+
+    For ``production``, each training attempt is appended to *training_log*.
+    """
     import pandas as pd
 
     from lsadra.config import MIN_BASELINE_EVENTS
@@ -325,24 +394,28 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
         if not _train(orch, train):
             raise RuntimeError("retrained-online: training failed")
 
+    trainer = ProductionTrainer(orch) if config == "production" else None
     totals: Dict[str, int] = defaultdict(int)
-    stored: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+    stored: List[Dict[str, Any]] = []  # the events table, in insertion order
     deferred: List[Any] = []
     for (dev, chunk, _final), df in zip(runs, chunk_feats):
-        stored[dev].extend(chunk)
+        stored.extend(chunk)
         totals[dev] += len(chunk)
         if totals[dev] < MIN_BASELINE_EVENTS:
             continue  # BASELINING: events stored, no detection
-        if config == "production" and not orch._trained:
-            # _auto_train: all stored events for this device, first 500.
-            first = sorted(stored[dev], key=lambda r: r["id"])[:EVENTS_PER_RUN]
-            _train(orch, _features(first))
-        if chunk[-1]["_ts"] < test_start or df.empty:
-            continue  # training period: nothing is measured (scoring has no side effects)
+        if trainer is not None:
+            trainer.maybe_train(chunk[-1]["_ts"], stored, results)
+        if df.empty:
+            continue
         if orch._trained:
-            deferred.append(df)  # model state is final from here on
+            if chunk[-1]["_ts"] >= test_start:
+                deferred.append(df)  # model state is final from here on
         else:
+            # Untrained runs are scored even in the training period: their
+            # anomaly verdicts decide which events later training leaves out.
             score(df)
+    if trainer is not None and training_log is not None:
+        training_log.extend(trainer.attempts)
     if deferred:
         score(pd.concat(deferred, ignore_index=True))
     return results
@@ -413,6 +486,19 @@ def render_markdown(report: Dict[str, Any]) -> str:
             f"Alert labels: {', '.join(f'{k} x{v}' for k, v in dv['alert_labels'].items()) or 'none'}. "
             f"Share of attack alerts carrying the right technique: {dv['label_matches_technique']}.",
             "",
+        ]
+        tr = res.get("training")
+        if tr:
+            lines += [
+                f"Training: {tr['skipped_too_few_events']} attempts skipped for too few events, then "
+                + ("; ".join(
+                    f"{a['status']} at {a['at']} on {a['events']} events"
+                    + (f" (canary recall {', '.join(f'{k} {v}' for k, v in a['canary'].items())})" if a.get("canary") else "")
+                    for a in tr["attempts"]) or "no training run")
+                + ".",
+                "",
+            ]
+        lines += [
             "Event-level TPR per technique: the deployed verdict, then each score at 1 % / 0.1 % FPR.",
             "",
             "| Technique | Events | Verdict | " + " | ".join(f"`{k}`" for k in SCORE_KEYS) + " |",
@@ -483,9 +569,15 @@ def main(argv: Optional[List[str]] = None) -> int:
         logger.info("online replay: %d detection runs, features in %.1fs", len(online[0]), timings["online_features"])
     for cfg in args.configs:
         t0 = time.perf_counter()
-        scored = run_config(cfg, rows, test_start, args.seed, online)
+        training_log: List[Dict[str, Any]] = []
+        scored = run_config(cfg, rows, test_start, args.seed, online, training_log)
         recs = to_records(stream, rows, scored, test_start)
         results[cfg] = metrics.summarize(recs, SCORE_KEYS, FPRS, host_days)
+        if cfg == "production":
+            results[cfg]["training"] = {
+                "skipped_too_few_events": sum(1 for a in training_log if a["status"] == "skipped"),
+                "attempts": [a for a in training_log if a["status"] != "skipped"],
+            }
         timings[cfg] = round(time.perf_counter() - t0, 1)
         dv = results[cfg]["deployed_verdict"]
         logger.info("%s: %.1fs, verdict FPR %s TPR %s, %s false alerts/host/day",

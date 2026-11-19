@@ -101,7 +101,7 @@ def test_lifespan_starts_and_stops_the_scheduler_behind_the_flag(enabled, monkey
 def test_data_cleanup_job_runs_bounded_retention(seeded, sql, monkeypatch):  # noqa: F811
     monkeypatch.setattr(seeded, "RETENTION_DAYS", 30)
     monkeypatch.setattr(seeded, "RETENTION_BATCH_SIZE", 2)
-    monkeypatch.setattr(seeded.time, "sleep", lambda _s: None)
+    monkeypatch.setattr(seeded, "_retention_pause", lambda _s: None)
     seeded.insert_events_batch([make_event(timestamp="2000-01-01T00:00:00") for _ in range(5)])
 
     scheduler._run_data_cleanup()
