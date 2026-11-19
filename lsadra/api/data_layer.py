@@ -1,9 +1,9 @@
 """
-LSADRA V3 — Dashboard data layer.
+Dashboard data layer.
 
-Centralized data access for the Streamlit dashboard. Provides cached
-query functions so multiple components don't issue duplicate DB hits.
-All functions use Streamlit's TTL cache for performance.
+Read queries behind the dashboard API (lsadra/api/dashboard.py), each
+memoised for a few seconds so several widgets asking at once cost one
+database round trip.
 """
 
 import copy
@@ -17,12 +17,7 @@ from typing import Any, Dict, List, Optional
 
 
 def _ttl_cache(ttl: int):
-    """Small stand-in for ``st.cache_data(ttl=...)`` when Streamlit is absent.
-
-    The API server imports this module too. A base install
-    (requirements/base.txt) has no Streamlit, so results are memoised here
-    per argument tuple for ``ttl`` seconds instead.
-    """
+    """Memoise results per argument tuple for ``ttl`` seconds."""
 
     def decorator(fn):
         store: Dict[Any, Any] = {}
@@ -35,8 +30,8 @@ def _ttl_cache(ttl: int):
             with lock:
                 hit = store.get(key)
                 if hit is not None and now - hit[0] < ttl:
-                    # Hand out a copy, as st.cache_data does, so a caller
-                    # that mutates the result cannot poison the cache.
+                    # Hand out a copy so a caller that mutates the result
+                    # cannot poison the cache.
                     return copy.deepcopy(hit[1])
             value = fn(*args, **kwargs)
             with lock:
@@ -46,18 +41,13 @@ def _ttl_cache(ttl: int):
                         store.pop(stale, None)
             return copy.deepcopy(value)
 
-        wrapper.clear = store.clear  # same name as st.cache_data's clear()
+        wrapper.clear = store.clear
         return wrapper
 
     return decorator
 
 
-try:
-    import streamlit as st
-
-    _cache_data = st.cache_data
-except ImportError:  # API-only install without the legacy Streamlit UI
-    _cache_data = _ttl_cache
+_cache_data = _ttl_cache
 
 from lsadra.storage.database import (
     get_all_devices,

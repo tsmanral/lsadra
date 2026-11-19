@@ -5,8 +5,8 @@ Simulates multiple devices to fully populate all dashboard tabs.
 Cleans the database on start so it generates a fresh view every time.
 
 Usage:
-    1. Start the API server:  python -m uvicorn server:app --host 0.0.0.0 --port 8000
-    2. Start the dashboard:   python -m streamlit run lsadra/ui/dashboard.py
+    1. Start the API server:  python -m lsadra.serve
+    2. Start the dashboard:   cd frontend && npm run dev   (or the desktop app in desktop/)
     3. Run this simulator:    python fleet_simulator.py
 """
 

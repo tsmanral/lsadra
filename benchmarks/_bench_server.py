@@ -8,6 +8,9 @@ does) — the only difference is that the database and model directory point at
 does it (patch ``lsadra.config`` before ``lsadra.storage.database`` is
 imported), so a benchmark can never touch a developer's real database.
 
+With ``--trace-file`` it also installs ``_bench_trace.py`` (per-request
+timings, detection runs, garbage collections), wrapping the core from outside.
+
 Requires ``LSADRA_DEV_MODE=true`` in the environment (the harness sets it).
 """
 
@@ -25,6 +28,8 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--data-dir", required=True)
+    parser.add_argument("--trace-file", default=None,
+                        help="write per-request timing records here (_bench_trace.py)")
     args = parser.parse_args()
 
     if os.environ.get("LSADRA_DEV_MODE", "").lower() != "true":
@@ -47,7 +52,13 @@ def main() -> None:
 
     import server  # noqa: E402 — must follow the config patch
 
-    uvicorn.run(server.app, host="127.0.0.1", port=args.port)
+    app = server.app
+    if args.trace_file:
+        sys.path.insert(0, str(Path(__file__).resolve().parent))
+        import _bench_trace
+
+        app = _bench_trace.install(args.trace_file, server)
+    uvicorn.run(app, host="127.0.0.1", port=args.port)
 
 
 if __name__ == "__main__":

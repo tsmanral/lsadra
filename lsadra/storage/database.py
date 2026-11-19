@@ -1419,6 +1419,15 @@ def _retention_cutoffs(now: Optional[datetime] = None) -> Dict[str, str]:
     }
 
 
+def _retention_pause(seconds: float) -> None:
+    """Pause between retention batches so waiting writers get the lock.
+
+    Its own function so tests can replace this pause alone; patching
+    ``time.sleep`` would also catch sleeps on unrelated threads.
+    """
+    time.sleep(seconds)
+
+
 def cleanup_old_data(batch_size: Optional[int] = None) -> int:
     """Delete rows past their retention tier. Returns the number of events deleted.
 
@@ -1464,7 +1473,7 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
                     events_deleted += deleted
                 if deleted < batch:
                     break
-                time.sleep(RETENTION_BATCH_PAUSE_S)
+                _retention_pause(RETENTION_BATCH_PAUSE_S)
     logger.info(
         "Retention cleanup: removed %d events older than %s (alerts kept until %s)",
         events_deleted,
