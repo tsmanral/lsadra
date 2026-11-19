@@ -11,7 +11,7 @@ V4 additions (additive only — existing layout and logic preserved):
   - "Mark as False Positive" button with FP analysis inline
 
 [V4 ENHANCEMENT — gap: dynamic severity]
-[MYTHOS ALIGNMENT — human-readable incident narrative]
+[Capability: human-readable incident narrative]
 """
 
 import html
@@ -130,7 +130,7 @@ def render():
             narrative = a.get("narrative", "")
 
             # ── V4 ADDITION: enhanced narrative ──────────────────────
-            # [MYTHOS ALIGNMENT — human-readable incident narrative]
+            # [Capability: human-readable incident narrative]
             v4_narrative = _try_build_v4_narrative(a)
             if v4_narrative:
                 st.markdown("**LSADRA V4 Narrative:**")
@@ -158,7 +158,7 @@ def render():
             )
 
             # ── V4 ADDITION: False Positive button ────────────────────
-            # [MYTHOS ALIGNMENT — adaptive feedback reasoning]
+            # [Capability: adaptive feedback reasoning]
             _render_fp_button(alert_id, a)
 
 
@@ -199,7 +199,7 @@ def _try_build_v4_narrative(a: dict) -> str:
     """
     Attempt to build a V4 narrative from anomaly data.
 
-    [MYTHOS ALIGNMENT — human-readable incident narrative]
+    [Capability: human-readable incident narrative]
     Gracefully degrades — returns empty string on any failure.
     """
     try:
@@ -268,7 +268,7 @@ def _render_fp_button(alert_id: int, a: dict) -> None:
     """
     Render the 'Mark as False Positive' button and inline FP analysis.
 
-    [MYTHOS ALIGNMENT — adaptive feedback reasoning]
+    [Capability: adaptive feedback reasoning]
     """
     fp_key  = f"fp_btn_{alert_id}"
     res_key = f"fp_res_{alert_id}"

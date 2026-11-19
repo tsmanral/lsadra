@@ -14,3 +14,4 @@ Format: Status · Date · Deciders · Context · Decision · Consequences.
 | [0005](0005-apple-testing-strategy.md) | Apple testing strategy — Apple-less local dev, Apple-covered CI | Accepted (supersedes 0003 in part) |
 | [0006](0006-event-schema-v1-freeze.md) | Event schema v1 freeze and boundary enforcement | Accepted |
 | [0007](0007-detection-stack.md) | Detection stack — rules, entity baselines, small ONNX models, bench-gated | Accepted |
+| [0008](0008-lite-team-line.md) | Where Lite ends and Team begins | Accepted |

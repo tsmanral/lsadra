@@ -1,4 +1,5 @@
 import axios from 'axios';
+import { pickHealth, type IngestionHealth } from './health';
 
 export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
 
@@ -473,7 +474,7 @@ const getMockData = (endpoint: string): any => {
 
     const content = `
 ================================================================================
-AI-SENTINEL SOC EXECUTIVE SUMMARY REPORT
+LSADRA SOC EXECUTIVE SUMMARY REPORT
 ================================================================================
 Generated At: ${new Date().toLocaleString()}
 Classification: CONFIDENTIAL / INTERNAL USE ONLY
@@ -559,7 +560,7 @@ export const getServerIdentity = async (): Promise<{ tls: boolean; cert_sha256: 
   catch { return { tls: false, cert_sha256: null }; }
 };
 
-export const updateIncidentStatus = async (id: string | number, status: string) => {
+export const updateIncidentStatus = async (id: string | number, status: string, notes = '') => {
   // Demo sessions keep canned incidents' status in the browser only.
   if (isTestUser()) {
     const store = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
@@ -570,7 +571,7 @@ export const updateIncidentStatus = async (id: string | number, status: string) 
   }
   // Real sessions: the server is the only source of an incident's status. A
   // failed update is an error, never a silent "saved locally" (G-11).
-  const res = await api.post(`/api/incidents/${id}/status`, { status });
+  const res = await api.post(`/api/incidents/${id}/status`, { status, notes });
   window.dispatchEvent(new Event('sentinel_state_change'));
   return res;
 };
@@ -593,26 +594,27 @@ export const getIncidents = async () => {
   return { data: { incidents: [] } };
 };
 
-export const assignIncident = async (id: number, assigned_to: string) => api.post(`/incidents/${id}/assign`, { assigned_to });
+export const assignIncident = async (id: number, user_id: string) => api.post(`/api/incidents/${id}/assign`, { user_id });
+
+// ── Investigation (real data only, no demo mocks) ───────────────────────────
+export const getIncidentDetail = async (id: string | number) => api.get(`/api/incidents/${encodeURIComponent(String(id))}`);
+export const getFeedback = async (limit = 200) => api.get('/api/feedback', { params: { limit } });
+export const submitFeedback = async (alert_id: number, label: 'true_positive' | 'false_positive', note: string) =>
+  api.post('/api/feedback', { alert_id, label, note });
 
 export const getIngestionStats = async () => {
+  let body: IngestionHealth | undefined;
   try {
-    const res = await api.get('/api/dashboard/health');
-    if (res.data?.events_per_second > 0) return res;
-  } catch { }
+    body = (await api.get('/api/dashboard/health')).data;
+  } catch { /* unreachable: pickHealth reports it */ }
 
+  let mock: IngestionHealth | undefined;
   if (DEMO_MOCKS_ENABLED && isTestUser()) {
-    // Provide "pulsing" mock stats for demo
+    // "Pulsing" demo stats, dev server only
     const pulse = Math.sin(Date.now() / 2000) * 2;
-    return {
-      data: {
-        events_per_second: 12.5 + pulse,
-        avg_latency_ms: 4.2 + (pulse * 0.1),
-        drop_rate_pct: 0.0
-      }
-    };
+    mock = { status: 'HEALTHY', events_per_second: 12.5 + pulse, avg_latency_ms: 4.2 + (pulse * 0.1), drop_rate_pct: 0.0 };
   }
-  return { data: { events_per_second: 0, avg_latency_ms: null, drop_rate_pct: null } };
+  return { data: pickHealth(body, mock) };
 };
 
 export const getAnomalies = async () => {
@@ -765,7 +767,5 @@ export const getStats = async () => {
   try { return await api.get('/api/dashboard/stats'); } catch { return { data: { normalized_events: 0, anomalies: 0, incidents: 0, devices: 0, model_registry: 0, feedback_labels: 0, users: 0, agents: 0 } }; }
 };
 
-export const getEntity = async (id: string) => {
-  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData(`/api/entity/${id}`) || api.get(`/api/entity/${id}`);
-  return api.get(`/api/entity/${id}`);
-};
+// Profile of an IP, user name, host or incident id. 404 means nothing on record.
+export const getEntity = async (q: string) => api.get('/api/entity', { params: { q } });

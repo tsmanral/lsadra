@@ -41,6 +41,7 @@
 - [Ingesting logs](#ingesting-logs)
 - [Detection rules](#detection-rules)
 - [Live alert stream (WebSocket)](#live-alert-stream-websocket)
+- [Investigating incidents](#investigating-incidents)
 - [Model integrity and training](#model-integrity-and-training)
 - [LLM guardrails](#llm-guardrails-before-the-llm-ships)
 - [Architecture](#architecture)
@@ -215,18 +216,12 @@ Admins only. List users, change their roles, and create accounts with a chosen r
 
 ### Pages that still show placeholder data
 
-Some screens are designed but not yet wired to the API. They render, but parts of what they show are fixed sample content rather than your data. They are good first contributions:
+Incident drill-down, Investigate, Response, Feedback, Live Alerts, Sources and Device Behavior read real data (see [Investigating incidents](#investigating-incidents)). Two screens still show fixed content in places. They are good first contributions:
 
 | Page | What is still placeholder |
 | --- | --- |
-| Incident drill-down (`/app/incident/:id`) and its playbook | The whole page: entity details, attack timeline and raw log are the same sample incident, whichever incident you open |
-| Investigate | The API has no entity endpoint yet (`GET /api/entity/{id}` returns 404), so every search shows a generic profile with a fixed risk score of 42 |
 | Threat Intel | The lookup box does not call the API yet, so it returns nothing; the server-side AbuseIPDB cache (`LSADRA_ABUSEIPDB_API_KEY`) is not shown here |
-| Response | Playbook steps, the console and the response metrics are simulated, and labelled as dry-run |
-| Live Alerts header and footer | The ingestion rate, uptime and status line |
-| Sources | The average latency tile |
 | Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours |
-| Device Behavior | "Last seen" shows `NaNh ago` |
 
 ## Connect a real device
 
@@ -286,7 +281,7 @@ The API listens on **127.0.0.1** unless you set `LSADRA_API_HOST`. On any other 
 
 ### Data at rest and backups
 
-At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention (`LSADRA_RETENTION_DAYS`) also expires closed incidents, analyst feedback, IP intelligence and geolocation rows, and old registration tokens. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
+At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention is tiered. Raw events, heartbeats, IP intelligence and geolocation rows, and old registration tokens are kept `LSADRA_RETENTION_DAYS` (default 30). Alerts, closed incidents, analyst feedback and rollups are kept `LSADRA_ALERT_RETENTION_DAYS` (default 365, never less than the raw window), and the events behind a kept alert stay with it. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
 
 ```bash
 python -m lsadra.backup create                 # online copy + SHA-256 manifest, in data/backups/
@@ -310,7 +305,8 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | `LSADRA_ADMIN_TOTP` | `optional` | `required` stops admins signing in without an authenticator |
 | `LSADRA_ABUSEIPDB_API_KEY` | empty | Enables IP reputation lookups on Threat Intel |
 | `LSADRA_GEO_RESOLUTION_ENABLED` | `false` | Opt-in IP geolocation (sends observed public IPs to ipinfo.io) |
-| `LSADRA_RETENTION_DAYS` | `30` | How long events are kept |
+| `LSADRA_RETENTION_DAYS` | `30` | How long raw events are kept |
+| `LSADRA_ALERT_RETENTION_DAYS` | `365` | How long alerts, closed incidents and rollups are kept (never less than the raw window) |
 | `LSADRA_SCHEDULER_ENABLED` | `true` | Background jobs: retention, metrics, correlation, drift, device health |
 | `LSADRA_MIN_BASELINE_EVENTS` | `200` | Events a device needs before its baseline is trusted |
 
@@ -375,6 +371,8 @@ Per-source ingestion health is available at `GET /api/events/stats`.
 
 Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
 
+**Posture checks.** The Linux agent also runs about ten read-only host checks once a day (SSH root login and password authentication, an active firewall, automatic updates, disk encryption, system logging, extra UID-0 accounts, `/etc/shadow` and `/etc/passwd` permissions), each tagged with the CIS Controls v8.1 IG1 safeguard it supports. Results arrive as `posture_check` events with `check_id`, `cis_safeguards`, `status` (`pass`, `fail`, `not_applicable`, `error`) and `detail` attributes. The checks only read files and run allow-listed status commands; they never change the host. Set `posture_interval_hours: 0` in the agent config to turn them off, or run `python3 posture.py` on a host to see the report locally. The checks live in [`lsadra/endpoint_agent/posture_checks_linux.yml`](lsadra/endpoint_agent/posture_checks_linux.yml); the agent needs `posture.py` and that file next to `linux_agent.py`.
+
 ## Detection rules
 
 Rules live in one registry, [`lsadra/detection/rule_engine.py`](lsadra/detection/rule_engine.py), and the detection orchestrator runs every one of them on every scored event. What you get on each alert:
@@ -399,6 +397,19 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data)); // {"type":"ready",...} t
 ```
 
 Scoping matches the REST API: an ADMIN receives every alert, other roles only their own. A missing, invalid or expired token, or plain `ws://` while TLS is required, is refused with close code `1008` (an HTTP `403` at the handshake). An open socket is closed with `1008` when its token expires, so the client reconnects with a fresh one. A client that stops reading is closed with `1013` once `LSADRA_WS_ALERT_QUEUE_SIZE` alerts (default 256) are waiting for it; it should reconnect and backfill from `GET /api/dashboard/anomalies`. The dashboard's Command Center and Live Alerts pages load recent alerts over REST, then add each pushed alert as it arrives. After any disconnect they reconnect with backoff (1 s doubling to 30 s) and backfill over REST, and while the socket is down the Command Center falls back to polling every 5 s. Incidents, KPIs and ingestion health still refresh over REST, every 10 s and shortly after each new alert.
+
+## Investigating incidents
+
+Every investigation page in the dashboard reads real data from these endpoints. An ADMIN sees everything; other roles see only data from their own devices, and anything else answers `404`.
+
+| Endpoint | Used by | Returns |
+|---|---|---|
+| `GET /api/incidents/{id}` | Incident drill-down, Response | The incident, every alert in it oldest first (narrative, MITRE technique, raw log line), the IPs, users and hosts involved, and its response playbook. |
+| `GET /api/entity?q=...` | Investigate | Profile of an IP, user name or host: risk (highest alert severity, 0 to 100), alerts, related incidents and entities, latest raw events. An incident id (`12`, `inc_12`, `INC-12`) resolves to that incident. Nothing on record is a `404`, never a made-up profile. |
+| `GET /api/feedback` | Feedback | Analyst labels with totals and the share confirmed as real threats. |
+| `POST /api/feedback` | Feedback, drill-down | Labels one alert `true_positive` or `false_positive` with a note (ADMIN or ANALYST). |
+
+Playbooks are guidance: LSADRA does not run their commands. Commands use placeholders such as `<SOURCE_IP>` and `<USERNAME>` that the analyst fills in, and are never filled in from log text, which an attacker controls. Narratives render as a small, link-free markdown subset in the dashboard.
 
 ## Model integrity and training
 
@@ -451,22 +462,25 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 **Today** the stack is Python end to end: a FastAPI core (ingestion, detection, storage, orchestration), a React + Vite SOC dashboard, and a thin Python endpoint agent.
 
-**Planned:** the endpoint agent is being replaced by **Rust collectors**, small static binaries (target: <15 MB RSS) that read the OS log source, batch, and ship over HTTPS with disk spooling across outages. The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code. See [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning.
+**In progress:** the endpoint agent is being replaced by **Rust collectors** in [`collectors/`](collectors/): small static binaries that read the OS log source (journald on Linux, the Windows Event Log on Windows), check every event against the contract, spool it to disk and ship it over HTTPS, so an outage or a restart loses nothing. The first build is about 2 MB on disk and under 4 MB RSS; see [`collectors/README.md`](collectors/README.md). The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code. See [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning. Until the Rust agent ships, the Python Linux agent remains the stopgap: it tails the files listed in `log_paths` in its config (or journald when none is set), sends at most 100 events per batch, drops a batch the core rejects as invalid instead of re-sending it, and waits out `Retry-After` on `429`/`503`.
 
 ## Project structure
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
+  fuzz/             Property-based fuzz tests for every log parser (Hypothesis)
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
   llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
 scripts/            Operator tooling (seed_demo.py replays the demo corpus through the real API; --rate/--devices load mode;
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
-                    llm_redteam.py runs the LLM injection corpus)
+                    llm_redteam.py runs the LLM injection corpus;
+                    check_tier_boundary.py is the Lite/Team import check, ADR 0008)
 requirements/       Hash-locked Python dependencies: base (server), ml, ui (legacy Streamlit), dev, ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
@@ -477,9 +491,11 @@ docs/               Documentation tree
   detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
   screenshots/      Dashboard screenshots used in this README
   threat-models/    Threat models (product, agent-key custody, prompt injection)
+  security/         Data inventory, incident runbook, SSDF and CRA position, release security review
+fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix, DCO, commitlint, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
+.github/workflows/  CI matrix (Python and Rust collectors), DCO, commitlint, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff
@@ -489,6 +505,15 @@ windows_live_agent.py       Live Windows event agent
 server.py           FastAPI entry point
 CLAUDE.md           Rules for AI coding agents working in this repo
 ```
+
+## Editions
+
+LSADRA comes in two editions, and the line between them is recorded in [ADR 0008](docs/architecture/adr/0008-lite-team-line.md).
+
+- **Lite** is this repository: free, AGPL-3.0, and complete on its own. It watches several devices for one owner, with one local admin created from the command line, the existing `ADMIN` / `ANALYST` / `VIEWER` roles, correlation across your own devices, and keyless bundled threat intel. Nothing Lite ships will ever move to the paid edition.
+- **Team** is a separate, private, paid edition for startups and managed service providers. It adds multi-tenant fleets, SSO, cross-tenant correlation, approval workflows and OCSF export. It talks to a Lite core only through the event schema and the HTTP API, and is written fresh rather than copied from contributed code.
+
+Lite never depends on Team code: [`scripts/check_tier_boundary.py`](scripts/check_tier_boundary.py) runs in CI and fails any change that imports from the reserved `lsadra_team` / `lsadra.team` / `@lsadra/team` namespaces.
 
 ## Contributing
 
@@ -518,6 +543,8 @@ LSADRA treats logs as **attacker-controlled input**: they reach parsers, the det
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by tests in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Fuzzing:** every log parser is fuzzed on each PR with Hypothesis ([`tests/fuzz/`](tests/fuzz/)), and with Atheris under ClusterFuzzLite when parser code changes.
+- **Operating it safely:** the [incident runbook](docs/security/incident-runbook.md) covers leaked secrets and keys, compromised hosts and a stolen database; [SSDF and CRA](docs/security/ssdf-cra.md) maps the project to NIST SSDF and states its EU Cyber Resilience Act position; the maintainer runs a [release security review](docs/security/release-security-review.md) before every tag.
 - **Supply chain:** hash-locked Python dependencies ([`requirements/`](requirements/)) and SHA-pinned Actions; secret scanning on every PR diff plus a weekly full-history scan; dependency review, `pip-audit` and `npm audit` on every PR and weekly; CodeQL; `zizmor` on workflow changes; a ruff security-rule ratchet; OpenSSF Scorecard; Dependabot for pip/npm/Actions/Docker. Release images are built only after CI passes and ship with an SBOM, SLSA provenance, a GitHub attestation and a Sigstore signature (see [Run with Docker](#run-with-docker)).
 
 ## License
