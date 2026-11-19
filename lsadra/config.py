@@ -306,6 +306,12 @@ RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECON
 # A candidate model is promoted only if its ML layers still flag at least this
 # share of the attack events in each canary scenario of the demo corpus.
 CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+# While the live models were trained on fewer than TRAINING_MAX_EVENTS events,
+# retrain automatically each time the stored event count has grown by this
+# factor since the last training run (50 -> 100 -> 200 ...). The first model
+# otherwise stays fitted on the first MIN_TRAINING_EVENTS events for good.
+# Same gate, cooldown, canary and audit trail as every other run; 0 turns it off.
+AUTO_RETRAIN_GROWTH: float = float(os.getenv("LSADRA_AUTO_RETRAIN_GROWTH", "2.0"))
 # Phase 1 shadow scorer (ADR 0007): share of training events the ECOD shadow
 # verdict may flag. Shadow verdicts are logged and returned, never alerted on.
 SHADOW_ECOD_TARGET_FPR: float = float(os.getenv("LSADRA_SHADOW_ECOD_TARGET_FPR", "0.001"))
