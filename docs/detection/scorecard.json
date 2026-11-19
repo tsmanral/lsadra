@@ -540,5 +540,74 @@
         ]
       }
     }
+  },
+  "risk": {
+    "threshold": 70.0,
+    "scenarios": {
+      "benign_background": {
+        "max_host_score": 22.4,
+        "max_user_score": 12.4,
+        "cases": [],
+        "detection_scenario": true
+      },
+      "data_movement_offhours": {
+        "max_host_score": 52.6,
+        "max_user_score": 52.6,
+        "cases": [],
+        "detection_scenario": true
+      },
+      "injection_attempts": {
+        "max_host_score": 0.0,
+        "max_user_score": 0.0,
+        "cases": [],
+        "detection_scenario": false
+      },
+      "persistence_new_service": {
+        "max_host_score": 95.9,
+        "max_user_score": 95.9,
+        "cases": [
+          {
+            "entity_type": "host",
+            "entity": "demo-host-02",
+            "score": 95.9,
+            "tactics": [
+              "Execution",
+              "Persistence",
+              "Privilege Escalation"
+            ]
+          },
+          {
+            "entity_type": "user",
+            "entity": "alice.demo",
+            "score": 95.9,
+            "tactics": [
+              "Execution",
+              "Persistence",
+              "Privilege Escalation"
+            ]
+          }
+        ],
+        "detection_scenario": true
+      },
+      "ssh_bruteforce": {
+        "max_host_score": 89.6,
+        "max_user_score": 60.6,
+        "cases": [
+          {
+            "entity_type": "host",
+            "entity": "demo-host-01",
+            "score": 89.6,
+            "tactics": [
+              "Initial Access",
+              "Persistence",
+              "Privilege Escalation",
+              "Stealth",
+              "Credential Access"
+            ]
+          }
+        ],
+        "detection_scenario": true
+      }
+    }
   }
 }
