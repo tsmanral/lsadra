@@ -769,3 +769,12 @@ export const getStats = async () => {
 
 // Profile of an IP, user name, host or incident id. 404 means nothing on record.
 export const getEntity = async (q: string) => api.get('/api/entity', { params: { q } });
+
+// ── Threat intel (/api/intel, ADR 0004 two tiers) ────────────────────────────
+// Real sources only: the signed bundle, local runtime feeds, local geolocation,
+// and AbuseIPDB when the operator configured a key. No mock fallback.
+export const getIntelStatus = async () => api.get('/api/intel/status');
+export const lookupIntelIp = async (ip: string, remote = false) =>
+  api.get(`/api/intel/ip/${encodeURIComponent(ip)}`, { params: { remote } });
+export const searchKev = async (q = '', limit = 25) => api.get('/api/intel/kev', { params: { q, limit } });
+export const getFlaggedIps = async (limit = 20) => api.get('/api/intel/flagged-ips', { params: { limit } });
