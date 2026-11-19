@@ -22,11 +22,13 @@ the code disagree, the code is right and this page is a bug.
 | Model files | `data/models/` | Trained detectors, loaded only after their SHA-256 matches an HMAC-authenticated manifest |
 | React dashboard | `frontend/` | React 19, Vite, TypeScript, Tailwind; the supported UI. Docker Compose serves the built app from an unprivileged nginx `web` container |
 | Endpoint agents | `lsadra/endpoint_agent/linux_agent.py`, `windows_live_agent.py` | Python agents that tail OS logs and send batches |
+| Rust collectors | `collectors/` | First cut of the M2 agents: journald (Linux) and Event Log (Windows) sources, disk spool, HTTPS shipper, device key in the OS credential store. Built and tested in CI on three OSes; not shipped in releases yet |
 | Streamlit dashboard | `lsadra/ui/dashboard.py` | Legacy V3 UI, kept for reference only; off by default (Compose `legacy` profile) |
 
 The core is one process. There is no external queue, broker or cron. The
-planned Rust collectors (M2) replace the Python agents behind the same event
-contract, so the core does not change when they land
+Rust collectors in [`collectors/`](collectors/README.md) replace the Python
+agents behind the same event contract, so the core does not change as they take
+over
 ([ADR 0001](docs/architecture/adr/0001-rust-collector-split.md)).
 
 ## 2. Code map (`lsadra/`)

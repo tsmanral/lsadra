@@ -12,7 +12,8 @@ core checks it, and how it stops working. Written STRIDE-style against `main`.
 In scope: registration tokens, device API keys, their storage on the endpoint
 and in the core, their use on the ingestion endpoints, and removal of a device.
 
-Out of scope: analyst logins and JWTs (covered by the product threat model),
+Out of scope: analyst logins and JWTs (covered by the
+[product threat model](product-stride.md)),
 and transport configuration of the reverse proxy in front of the core. Agent
 file integrity is covered here only as far as the install command's hash
 checks; signed agent packages are planned with release engineering (M5).
@@ -101,6 +102,9 @@ Trust boundaries crossed:
 | Outside development mode, TLS enforcement is on by default | `lsadra/config.py`, `lsadra/tls_middleware.py` |
 | The server listens on loopback by default and refuses plain HTTP on any other address; it prints and serves its certificate's SHA-256 fingerprint | `lsadra/serve.py`, `lsadra/security/tls.py` |
 | Agents can pin that fingerprint (`server_cert_sha256` on Linux, `LSADRA_SERVER_CERT_SHA256` on Windows) and then send their key only to that certificate | `lsadra/endpoint_agent/linux_agent.py`, `windows_live_agent.py` |
+| The Rust collector refuses a config file that contains a key; the key lives in Credential Manager (Windows) or the Keychain (macOS) | `collectors/core/src/keystore.rs`, `collectors/core/src/config.rs` |
+| On Linux the Rust collector keeps the key in a mode `600` file in its state directory and refuses to read it if group or others can, or if another user owns it | `collectors/core/src/keystore.rs` |
+| The Rust collector sends plain HTTP only to loopback unless explicitly allowed, and can trust a private CA for a self-hosted core | `collectors/core/src/config.rs`, `collectors/core/src/ship.rs` |
 | Security fixes ship with a regression test | `tests/security/` |
 
 ## STRIDE
@@ -110,7 +114,7 @@ Trust boundaries crossed:
 | **Spoofing** | Someone sends events as a device they do not own | Per-device random key, bcrypt-verified; registration needs an owner-issued, single-use, short-lived token | Whoever holds a device's key can send as that device until it is removed |
 | **Tampering** | Forged events written into a device's history | Key check on every batch; schema v1 validation; storage writes only after both pass | Events from a compromised host are authentic from the core's point of view; detection has to judge them |
 | **Repudiation** | A device denies having sent a batch | Every stored event carries the authenticated device id | Analyst actions on devices (token creation, removal) belong to the product threat model |
-| **Information disclosure** | Key read from the host, the wire or the database | File mode `600` on Linux; TLS by default outside dev mode, with optional certificate pinning in the agent; only bcrypt hashes in the database; keys never logged | Root or Administrator on the endpoint can read the key; that is accepted until OS-keychain storage lands |
+| **Information disclosure** | Key read from the host, the wire or the database | File mode `600` on Linux; TLS by default outside dev mode, with optional certificate pinning in the agent; only bcrypt hashes in the database; keys never logged | Root or Administrator on the endpoint can read the key. The Rust collector keeps it out of config files and in the OS credential store on Windows and macOS; Linux has no system keyring for a root service, so the file stays |
 | **Denial of service** | Flooding registration or ingestion; forcing bcrypt on every request | Registration rate limit; bounded detection queue answering `503` + `Retry-After`; credential cache keeps bcrypt off the hot path | Large floods are expected to be absorbed by the reverse proxy or firewall in front of the core |
 | **Elevation of privilege** | A device key used to reach analyst or admin APIs | Device keys are accepted only by the device endpoints (ingestion, heartbeat, device config), and a heartbeat must name the device its key belongs to; dashboard APIs require a JWT with a role | None known |
 
@@ -118,7 +122,7 @@ Trust boundaries crossed:
 
 | Control | Milestone |
 |---|---|
-| Rust collectors keep the key in the OS credential store instead of a config file | M2 |
+| Rust collectors ship in releases as services (systemd unit, Windows service), replacing the Python agents and their config-file keys | M2 |
 | Key rotation: the agent obtains a new key and the old one stops working after a short overlap | M2 |
 | Revoke a device without deleting its event history | M2 |
 | Signed agent packages and installers | M5 |
