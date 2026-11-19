@@ -27,12 +27,12 @@
 set -euo pipefail
 
 # ── Defaults ──────────────────────────────────────────────────────────────
-LSADRA_SERVER="${LSADRA_SERVER:-https://your-sentinel-server.example.com}"
+LSADRA_SERVER="${LSADRA_SERVER:-https://your-lsadra-server.example.com}"
 INSTALL_DIR="/opt/lsadra-agent"
 CONFIG_DIR="/etc/lsadra-agent"
 CONFIG_FILE="${CONFIG_DIR}/config.yml"
 SERVICE_NAME="lsadra-agent"
-AGENT_USER="sentinel-agent"
+AGENT_USER="lsadra-agent"
 TOKEN=""
 AGENT_SHA256=""
 EXTRA_FILES=()   # name=sha256 pairs for optional agent files (e.g. posture checks)

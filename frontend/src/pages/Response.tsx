@@ -422,7 +422,7 @@ const Response = () => {
               )}
               {!isExecuting && (
                 <div className="mt-4 border-t border-[rgba(255,255,255,0.05)] pt-3 flex items-center">
-                  <span className="text-[var(--color-primary)] mr-2">SENTINEL_CMD &gt;</span>
+                  <span className="text-[var(--color-primary)] mr-2">LSADRA_CMD &gt;</span>
                   <span className="w-2 h-4 bg-[var(--color-primary)] inline-block"/>
                 </div>
               )}
