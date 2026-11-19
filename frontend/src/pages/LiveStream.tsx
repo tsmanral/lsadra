@@ -175,7 +175,7 @@ const LiveStream = () => {
           <span>UPTIME: 142h 12m 04s</span>
         </div>
         <div className="text-[10px] font-mono text-[var(--color-primary)] tracking-widest">
-          AI_SENTINEL_V4 // GLOBAL_THREAT_INTEL_READY
+          LSADRA // GLOBAL_THREAT_INTEL_READY
         </div>
       </footer>
     </div>

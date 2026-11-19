@@ -70,3 +70,21 @@ updates:
       default-days: 7
     commit-message:
       prefix: "chore(docker)"
+
+  # Rust collectors (collectors/Cargo.lock).
+  - package-ecosystem: cargo
+    directory: "/collectors"
+    schedule:
+      interval: weekly
+      day: monday
+      time: "04:00"
+    # Wait a week before proposing a brand-new release (lets yanked or
+    # compromised versions get caught upstream first).
+    cooldown:
+      default-days: 7
+    open-pull-requests-limit: 5
+    commit-message:
+      prefix: "chore(deps)"
+    groups:
+      cargo-minor-and-patch:
+        update-types: ["minor", "patch"]
