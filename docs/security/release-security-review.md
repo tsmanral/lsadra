@@ -21,7 +21,7 @@ its raw output never goes into a public issue, PR or commit.
    failing test, a request that returns data it should not, a crash. Drop the
    ones you cannot reproduce and note why.
 4. **Track privately.** Confirmed findings go into a private security advisory,
-   as described in [SECURITY.md](../../SECURITY.md). Never describe the location
+   as described in [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md). Never describe the location
    of an unfixed issue anywhere public.
 5. **Fix with a test.** Each fix ships with a regression test in
    `tests/security/` that fails on the old code.
