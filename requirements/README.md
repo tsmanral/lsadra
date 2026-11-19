@@ -7,9 +7,8 @@ package on the index cannot be installed.
 | Source (`.in`) | Lock (`.txt`) | What it is for |
 | --- | --- | --- |
 | `base.in` | `base.txt` | The API server (`uvicorn server:app`). A Lite install needs only this. |
-| `ml.in` | `ml.txt` | Optional SHAP explanations, plus the dependencies of torch. |
+| `ml.in` | `ml.txt` | Optional SHAP explanations. |
 | `dev.in` | `dev.txt` | Tests and the benchmark harness. |
-| `torch.in` | `torch.txt` | Optional autoencoder: CPU torch from the PyTorch index only. |
 | `ci-tools.in` | `ci-tools.txt` | Tools CI runs: ruff, pip-audit, zizmor. |
 | `docs.in` | `docs.txt` | The docs site (MkDocs Material), built with `mkdocs build --strict` in CI. |
 
@@ -21,14 +20,11 @@ Python dependencies.
 ## Install
 
 ```bash
-pip install -r requirements.txt                    # everything except torch
-pip install --no-deps -r requirements/torch.txt    # optional, after the line above
+pip install -r requirements.txt                    # everything
 pip install -r requirements/base.txt               # API server only
 ```
 
-torch installs in its own run because `torch.txt` points pip at the PyTorch
-CPU index alone (`--index-url`). It uses `--no-deps` because its dependencies
-are already locked in `ml.txt` from PyPI.
+PyTorch is not a dependency: the autoencoder layer is a scikit-learn MLP.
 
 ## Change a dependency
 

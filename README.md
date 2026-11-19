@@ -55,7 +55,7 @@
 
 Enterprise SIEMs like Splunk and Microsoft Sentinel are powerful, and they are also heavy, expensive and opaque. Lightweight consumer tools watch the network but have no real detection intelligence. **LSADRA fills the gap**: a self-hostable SOC platform for individuals and small teams that explains *why* every alert fired.
 
-- 🧠 **Multi-layer ML detection.** Statistical baselining (Z-score), an ensemble (Isolation Forest, LOF, One-Class SVM), and a PyTorch autoencoder, with drift tracking via Population Stability Index.
+- 🧠 **Multi-layer ML detection.** Statistical baselining (Z-score), an ensemble (Isolation Forest, LOF, One-Class SVM), and a small autoencoder (a scikit-learn MLP, no PyTorch), with drift tracking via Population Stability Index.
 - 🔍 **Explainable by design.** Every alert says which detection layers fired and how strongly (z-score, ensemble score, reconstruction error), with a composite severity score broken down in plain English and a MITRE ATT&CK technique when a detection rule matched. Per-feature SHAP attribution is not in the live pipeline yet; it is planned for the supervised model in the detection roadmap.
 - 🌐 **Multi-source ingestion.** Parsers for SSH auth logs, Syslog, Windows Events, network flows (NetFlow / firewall) and endpoint telemetry, through a structured-event API and a raw-log API.
 - 📖 **Threat narratives without an LLM.** A template case-file generator turns correlated anomalies into readable incident stories. Zero API keys, zero recurring cost.
@@ -83,11 +83,9 @@ git clone https://github.com/tsmanral/lsadra.git
 cd lsadra
 python3.12 -m venv venv                        # Windows: py -3.12 -m venv venv
 venv/bin/pip install -r requirements.txt      # Windows: venv\Scripts\pip install -r requirements.txt
-# Optional: CPU PyTorch for the autoencoder layer (the server runs without it)
-venv/bin/pip install --no-deps -r requirements/torch.txt
 ```
 
-Every dependency is pinned and hash-checked ([`requirements/README.md`](requirements/README.md)); `requirements.txt` installs everything except PyTorch, and `requirements/base.txt` alone is enough for the API server. PyTorch (CPU build, a few hundred MB from the PyTorch index) is optional: without it the server still starts and the autoencoder layer becomes a no-op, while the statistical and ensemble layers keep working.
+Every dependency is pinned and hash-checked ([`requirements/README.md`](requirements/README.md)); `requirements.txt` installs everything, and `requirements/base.txt` alone is enough for the API server. PyTorch is not needed: the autoencoder layer is a small scikit-learn network, which keeps the server around 300 MB of memory with detection running (see [`benchmarks/README.md`](benchmarks/README.md)).
 
 ### 2. Start the API in dev mode
 
@@ -452,11 +450,11 @@ Playbooks are guidance: LSADRA does not run their commands. Commands use placeho
 
 ## Model integrity and training
 
-Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; autoencoder weights additionally load with `weights_only=True`. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
+Model files are never trusted just because they sit in `data/models/`. Every file the detection stack writes (the scikit-learn ensemble, the autoencoder weights, per-entity baselines, drift reference, model cards) is listed with its SHA-256 in `data/models/manifest.json`, and the manifest carries an HMAC keyed by `LSADRA_MODEL_SIGNING_KEY` (default: a key derived from `LSADRA_JWT_SECRET`). A file is deserialized only after its bytes match an authenticated entry; the autoencoder is plain JSON (weights, normalisation, threshold), so loading it never unpickles anything, and its shapes are checked before use. Anything that does not verify is ignored and the models retrain. Rotating the signing key (or the JWT secret it is derived from) therefore triggers a retrain.
 
 Training is gated:
 
-- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies and events inside an open or investigating incident. With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
+- **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies, events inside an open or investigating incident, and events whose `attributes.ground_truth.label` marks them as an attack (the labelled demo corpus carries this; real agents never send it). With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
 - **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
 - **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
 - **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
@@ -524,7 +522,7 @@ scripts/            Operator tooling (seed_demo.py replays the demo corpus throu
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus;
                     check_tier_boundary.py is the Lite/Team import check, ADR 0008)
-requirements/       Hash-locked Python dependencies: base (server), ml, dev, torch (CPU index), ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, dev, ci-tools;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
@@ -542,7 +540,7 @@ datasets/           Synthetic SSH log generator for local experimentation
 .github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
-requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff (not torch); requirements/docs.txt is the docs-site toolchain
+requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff; requirements/docs.txt is the docs-site toolchain
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent

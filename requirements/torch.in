@@ -1,4 +1,0 @@
-# Optional autoencoder model: the CPU build of torch, from the PyTorch CPU
-# index only (torch.txt sets --index-url). Locked and installed with
-# --no-deps; its dependencies are locked in ml.in.
-torch

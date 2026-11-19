@@ -52,12 +52,9 @@ jobs:
         with:
           python-version: "3.12"
       - name: Install dependencies (hash-checked locks)
-        # torch.txt uses the PyTorch CPU index only and installs with
-        # --no-deps (its dependencies are locked in requirements/ml.txt).
         shell: bash
         run: |
           pip install --require-hashes -r requirements.txt
-          pip install --require-hashes --no-deps -r requirements/torch.txt
           pip check
       - name: Smoke gate
         run: python tests/test_v4_smoke.py
@@ -104,7 +101,6 @@ jobs:
       - name: Install dependencies (hash-checked locks)
         run: |
           pip install --require-hashes -r requirements.txt
-          pip install --require-hashes --no-deps -r requirements/torch.txt
           pip check
       - name: Smoke gate
         run: python tests/test_v4_smoke.py

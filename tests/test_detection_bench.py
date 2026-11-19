@@ -155,4 +155,7 @@ def test_end_to_end_tiny_run(tmp_path):
             assert set(by_fpr) == {"0.01", "0.001"}
             for v in by_fpr.values():
                 assert v["achieved_fpr"] <= v["target_fpr"]
+    training = report["results"]["production"]["training"]
+    assert {a["status"] for a in training["attempts"]} <= {"promoted", "rejected", "failed"}
+    assert "training" not in report["results"]["retrained-full"]
     assert out.with_suffix(".md").exists()
