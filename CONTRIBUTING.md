@@ -28,7 +28,7 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 | Technology | Purpose |
 |---|---|
 | **Python 3.12 / FastAPI** | Ingestion API, auth (JWT + RBAC), detection orchestration |
-| **scikit-learn / PyTorch** | Ensemble anomaly models (Isolation Forest, LOF, One-Class SVM) + autoencoder |
+| **scikit-learn** | Ensemble anomaly models (Isolation Forest, LOF, One-Class SVM) + MLP autoencoder |
 | **SHAP** | Per-alert feature attribution and explainability |
 | **SQLite** | Zero-dependency persistence (events, incidents, models, feedback) |
 | **APScheduler** | Background jobs: correlation, drift detection, threat-intel caching, retention |
@@ -45,8 +45,9 @@ LSADRA is an explainable SIEM platform: a **FastAPI** backend with a multi-layer
 | `lsadra/storage/` | Database layer + SQL migrations |
 | `lsadra/scheduler/` | Background job definitions |
 | `lsadra/endpoint_agent/` | Linux agent (auth.log / journalctl auto-detection) |
-| `lsadra/ui/` | Legacy Streamlit dashboard + dashboard data layer |
+| `lsadra/api/` | REST and WebSocket API for the dashboard and desktop app (routers, data layer, PDF report) |
 | `frontend/` | React SOC dashboard |
+| `desktop/` | Tauri tray app around the dashboard |
 | `tests/` | Test suite + end-to-end smoke tests |
 | `datasets/` | Synthetic log generators for local experimentation |
 
@@ -82,11 +83,9 @@ Windows venv layout (`venv/Scripts/...`); on Linux/macOS use `venv/bin/...` inst
 ```bash
 py -3.12 -m venv venv                          # Linux/macOS: python3.12 -m venv venv
 venv/Scripts/pip install -r requirements.txt -r requirements-dev.txt
-venv/Scripts/pip install --no-deps -r requirements/torch.txt   # optional autoencoder (CPU torch)
 ```
 
-The optional torch line downloads the CPU build of PyTorch, so expect a few minutes. Every package
-is pinned and hash-checked; see [requirements/README.md](requirements/README.md).
+Every package is pinned and hash-checked; see [requirements/README.md](requirements/README.md).
 
 Start the API in **local dev mode**. Outside dev mode the server refuses to start without a
 `LSADRA_JWT_SECRET` and TLS, which is what you want in production and not what you want on your

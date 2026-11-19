@@ -19,13 +19,9 @@ ENV PATH=/opt/venv/bin:$PATH
 
 COPY requirements/ /tmp/requirements/
 # Every file pip downloads must match a hash in the lock (--require-hashes).
-# torch.txt points pip at the PyTorch CPU index only, so it runs as a second
-# install with --no-deps (its dependencies are locked in ml.txt).
 RUN pip install --require-hashes \
       -r /tmp/requirements/base.txt \
       -r /tmp/requirements/ml.txt \
-      -r /tmp/requirements/ui.txt \
- && pip install --require-hashes --no-deps -r /tmp/requirements/torch.txt \
  && pip check
 
 # ── Stage 2: runtime ───────────────────────────────────────────────────────
@@ -48,8 +44,8 @@ RUN mkdir -p /app/data/models /app/logs \
 
 USER 10001:10001
 
-# API + legacy Streamlit dashboard
-EXPOSE 8000 8501
+# API (serves the dashboard's REST and WebSocket endpoints)
+EXPOSE 8000
 
 # Python, not curl: the slim runtime ships no curl. Probes plain HTTP, then the
 # launcher's TLS listener (self-signed by default, so not verified on loopback).

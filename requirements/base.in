@@ -1,6 +1,6 @@
 # Server runtime: everything `uvicorn server:app` needs. A Lite install uses
-# only this file. torch (autoencoder) and shap (explanations) are optional and
-# the code degrades without them; they live in torch.in and ml.in.
+# only this file. shap (explanations) is optional and the code degrades
+# without it; it lives in ml.in. The autoencoder is a scikit-learn MLP (no torch).
 pandas>=3.0.6
 scikit-learn>=1.9.0
 numpy>=2.5.3

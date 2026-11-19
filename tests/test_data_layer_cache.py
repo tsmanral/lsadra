@@ -2,7 +2,7 @@
 
 import time
 
-from lsadra.ui.data_layer import _ttl_cache
+from lsadra.api.data_layer import _ttl_cache
 
 
 def test_ttl_cache_memoises_within_ttl_and_expires(monkeypatch):

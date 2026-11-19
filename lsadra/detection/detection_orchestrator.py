@@ -32,8 +32,10 @@ from lsadra.detection.risk import raise_case_alerts, risk_mode
 from lsadra.detection.risk import record as record_risk
 from lsadra.detection.severity import apply_rule_floor, compute_severity_score, severity_context
 from lsadra.features.feature_extractor import FEATURE_COLS, build_features
+from lsadra.features.model_features import model_feature_matrix
 from lsadra.features.rule_features import RULE_LOOKBACK_MINUTES, build_rule_features
 from lsadra.models.autoencoder_model import AutoencoderModel
+from lsadra.models.ecod_model import ECODModel
 from lsadra.models.ensemble_model import EnsembleModel
 from lsadra.models.integrity import ModelIntegrityError
 from lsadra.models.statistical_baseline import StatisticalBaselineModel
@@ -52,7 +54,7 @@ from lsadra.storage.database import (
     set_watermark,
     update_device_status,
 )
-from lsadra.ui.alert_stream import alert_hub
+from lsadra.api.alert_stream import alert_hub
 
 logger = logging.getLogger(__name__)
 
@@ -83,6 +85,8 @@ class DetectionOrchestrator:
         self._batch_failures: Dict[str, int] = {}  # device_id → consecutive failed runs
         self._trained = False
         self._generation = None
+        self._trained_on: Optional[int] = None   # usable events behind the live models
+        self._growth_base: Optional[int] = None  # event clock at the last training run
 
         # Attempt to load persisted models
         self._load_models()
@@ -106,6 +110,7 @@ class DetectionOrchestrator:
             self.ensemble = ensemble
             self._trained = True
             logger.info("Loaded persisted ensemble model.")
+            self._note_trained_on(_card_event_count(store))
         except ModelIntegrityError as exc:
             self.ensemble = EnsembleModel()
             self._trained = False
@@ -118,9 +123,22 @@ class DetectionOrchestrator:
             self._trained = False
             logger.exception("Failed to load the persisted ensemble — will train from scratch.")
 
+        self.shadow_ecod = None
+        if (self.model_dir / lifecycle.ECOD_FILE).exists():
+            try:
+                self.shadow_ecod = ECODModel.from_dict(store.load_json(lifecycle.ECOD_FILE))
+                logger.info("Loaded the ECOD shadow scorer.")
+            except (ModelIntegrityError, ValueError, KeyError, OSError) as exc:
+                logger.warning("Not loading the ECOD shadow scorer: %s", exc)
+
         autoencoder = AutoencoderModel()
         if autoencoder.load(self.model_dir / lifecycle.AUTOENCODER_FILE):
             logger.info("Loaded persisted autoencoder model.")
+        elif self._trained:
+            # e.g. an install upgraded from the PyTorch autoencoder.pt format:
+            # retrain once rather than run without the autoencoder layer.
+            logger.warning("Ensemble loaded but no usable autoencoder — models will retrain.")
+            self._trained = False
         self.autoencoder = autoencoder
 
         try:
@@ -166,6 +184,7 @@ class DetectionOrchestrator:
         cand_baseline.train(df)
         cand_ensemble.train(df)
         cand_autoencoder.train(df)
+        cand_ecod = fit_shadow_ecod(df)
 
         canary = lifecycle.run_canary(cand_ensemble, cand_autoencoder)
         summary: Dict[str, Any] = {
@@ -184,7 +203,7 @@ class DetectionOrchestrator:
             return summary
 
         self._promote(df, cand_baseline, cand_ensemble, cand_autoencoder,
-                      selection, canary, trigger)
+                      selection, canary, trigger, ecod=cand_ecod)
         self._record_run(trigger, requested_by, "promoted", selection, canary, "")
         logger.info("DetectionOrchestrator: candidate promoted; all layers active.")
         return summary
@@ -198,6 +217,7 @@ class DetectionOrchestrator:
         selection: Dict[str, Any],
         canary: Dict[str, Any],
         trigger: str,
+        ecod: Optional[ECODModel] = None,
     ) -> None:
         """Snapshot the current files to previous/, write the candidate, swap it in."""
         store = lifecycle.current_store(self.model_dir)
@@ -212,6 +232,10 @@ class DetectionOrchestrator:
             else:
                 store.remove(lifecycle.AUTOENCODER_FILE)
             store.save_json(lifecycle.BASELINE_FILE, baseline.to_dict())
+            if ecod is not None:
+                store.save_json(lifecycle.ECOD_FILE, ecod.to_dict())
+            else:
+                store.remove(lifecycle.ECOD_FILE)
             store.save_json(lifecycle.REFERENCE_FILE, lifecycle.reference_quantiles(df))
             self._register_and_card(store, selection, canary, trigger)
         except Exception:
@@ -223,8 +247,10 @@ class DetectionOrchestrator:
         self.baseline = baseline
         self.ensemble = ensemble
         self.autoencoder = autoencoder
+        self.shadow_ecod = ecod
         self._trained = True
         self._generation = lifecycle.bump_generation()
+        self._note_trained_on(int(selection.get("event_count", 0) or len(df)))
 
     def _register_and_card(
         self,
@@ -238,6 +264,7 @@ class DetectionOrchestrator:
             "ensemble": lifecycle.ENSEMBLE_FILE,
             "autoencoder": lifecycle.AUTOENCODER_FILE,
             "baseline": lifecycle.BASELINE_FILE,
+            "ecod": lifecycle.ECOD_FILE,
         }
         for name, fname in files.items():
             sha = store.sha256(fname)
@@ -419,9 +446,12 @@ class DetectionOrchestrator:
         # If models still aren't trained, try training now
         if not self._trained:
             self._auto_train(device_id)
+        else:
+            self._maybe_growth_retrain(max(int(ev.get("id", 0) or 0) for ev in new_events))
 
         # Run full detection pipeline
         results = self._run_layers(df)
+        _log_shadow(device_id, results)
 
         # Record Sigma matches (shadow and alert mode alike), so the bench and
         # analysts can compare the layer with the built-in rules.
@@ -491,6 +521,36 @@ class DetectionOrchestrator:
         except Exception:
             logger.exception("Auto-training failed for device %s", device_id)
 
+    def _note_trained_on(self, event_count: Optional[int]) -> None:
+        """Remember how many events the live models learned from (growth retrain base)."""
+        self._trained_on = event_count
+        if event_count:
+            self._growth_base = max(getattr(self, "_growth_base", None) or 0, event_count)
+
+    def _maybe_growth_retrain(self, event_clock: int) -> None:
+        """Retrain once stored events have grown by AUTO_RETRAIN_GROWTH since the last run.
+
+        *event_clock* is the newest event id, a free and monotonic count of
+        stored events, so nothing is read from the database until a run is due.
+        Only while the live models saw fewer than TRAINING_MAX_EVENTS events.
+        The base moves to the clock before every attempt, so a candidate the
+        canary rejects is retried only after the next doubling, not every
+        cooldown.
+        """
+        if not growth_retrain_due(event_clock, getattr(self, "_growth_base", None),
+                                  getattr(self, "_trained_on", None)):
+            return
+        if lifecycle.is_training() or lifecycle.cooldown_remaining() > 0:
+            return
+        self._growth_base = event_clock
+        try:
+            result = self.retrain(trigger="auto-growth")
+            logger.info("Growth retrain at %d stored events: %s", event_clock, result.get("status"))
+        except lifecycle.TrainingRefused as exc:
+            logger.debug("Growth retrain not started: %s", exc.reason)
+        except Exception:
+            logger.exception("Growth retrain failed.")
+
     # ── batch mode ────────────────────────────────────────────────────────
 
     def run_batch(self, df: pd.DataFrame) -> List[Dict[str, Any]]:
@@ -550,6 +610,14 @@ class DetectionOrchestrator:
 
         # Layer 3 — autoencoder
         l3 = self.autoencoder.score(df)
+
+        # Shadow (ADR 0007, Phase 1): ECOD over the wider feature set. Its score
+        # and verdict are reported next to the live ones and never change them.
+        shadow = getattr(self, "shadow_ecod", None)
+        if shadow is not None and shadow.is_fitted:
+            ls = shadow.predict(model_feature_matrix(df))
+        else:
+            ls = [{"ecod_score": None, "is_ecod_anomaly": None}] * n
 
         # Merge and apply Layer 4 (rules + narrative + severity)
         merged: List[Dict[str, Any]] = []
@@ -649,6 +717,8 @@ class DetectionOrchestrator:
                 "mitre_confidence": best.rule.confidence if labelled else 0.0,
                 "mitre_tactics": (best.tactics if labelled
                                   else list(top_sigma.tactics) if sigma_labelled else []),
+                "shadow_ecod_score": ls[i]["ecod_score"],
+                "shadow_ecod_anomaly": ls[i]["is_ecod_anomaly"],
                 "rule_id": (best.rule.id if labelled
                             else f"sigma:{top_sigma.rule_id}" if sigma_labelled else None),
                 "rule_version": best.rule.version if labelled else None,
@@ -673,3 +743,46 @@ class DetectionOrchestrator:
             })
 
         return merged
+
+
+def _card_event_count(store: Any) -> Optional[int]:
+    """Training-set size recorded on the live ensemble's model card, if any."""
+    try:
+        card = store.load_json(lifecycle.card_file("ensemble"))
+        return int(card["training_data"]["event_count"])
+    except Exception:
+        return None
+
+
+def growth_retrain_due(event_clock: int, base: Optional[int], trained_on: Optional[int]) -> bool:
+    """Whether the stored-event count has outgrown the live models (see ``_maybe_growth_retrain``)."""
+    growth = config.AUTO_RETRAIN_GROWTH
+    if growth <= 1 or not base or trained_on is None:
+        return False
+    if trained_on >= config.TRAINING_MAX_EVENTS:
+        return False
+    return event_clock >= base * growth
+
+
+def fit_shadow_ecod(df: pd.DataFrame) -> Optional[ECODModel]:
+    """Fit the ECOD shadow scorer on a training frame; never blocks training."""
+    try:
+        return ECODModel(target_fpr=config.SHADOW_ECOD_TARGET_FPR).fit(model_feature_matrix(df))
+    except Exception:
+        logger.exception("Training the ECOD shadow scorer failed; continuing without it.")
+        return None
+
+
+def _log_shadow(device_id: str, results: List[Dict[str, Any]]) -> None:
+    """One line per run when shadow and live verdicts differ (shadow mode, ADR 0007)."""
+    scored = [r for r in results if r.get("shadow_ecod_anomaly") is not None]
+    if not scored:
+        return
+    shadow_only = sum(1 for r in scored if r["shadow_ecod_anomaly"] and not r.get("is_anomaly"))
+    live_only = sum(1 for r in scored if r.get("is_anomaly") and not r["shadow_ecod_anomaly"])
+    both = sum(1 for r in scored if r.get("is_anomaly") and r["shadow_ecod_anomaly"])
+    if shadow_only or live_only:
+        logger.info(
+            "Shadow ECOD on device %s: %d events, both flagged %d, shadow only %d, live only %d.",
+            device_id, len(scored), both, shadow_only, live_only,
+        )

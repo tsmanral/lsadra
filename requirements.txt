@@ -1,13 +1,11 @@
-# LSADRA Python dependencies: full install (server + explanations + legacy
-# Streamlit UI + tests). Every package is pinned with hashes; pip checks them.
+# LSADRA Python dependencies: full install (server + explanations + tests).
+# Every package is pinned with hashes; pip checks them.
 #
-#   pip install -r requirements.txt                # everything except torch
-#   pip install -r requirements/torch.txt          # optional autoencoder (CPU)
+#   pip install -r requirements.txt                # everything
 #   pip install -r requirements/base.txt           # API server only (Lite)
 #
 # Edit requirements/*.in, never the .txt locks; regenerate with
 # scripts/lock-deps.sh (needs uv). See requirements/README.md.
 -r requirements/base.txt
 -r requirements/ml.txt
--r requirements/ui.txt
 -r requirements/dev.txt

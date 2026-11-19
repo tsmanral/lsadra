@@ -22,7 +22,7 @@ OTHER_DEVICE_ID = "device-other-1"
 @pytest.fixture(autouse=True)
 def _test_db(tmp_path):
     setup_test_db(tmp_path)
-    from lsadra.ui.data_layer import get_dashboard_kpis
+    from lsadra.api.data_layer import get_dashboard_kpis
 
     # Streamlit's cache would otherwise carry results across tests and databases.
     get_dashboard_kpis.clear()

@@ -17,7 +17,7 @@ import pytest
 import lsadra.config as config
 from lsadra.detection import scan_alerts
 from lsadra.jobs import scheduler
-from lsadra.ui.alert_stream import alert_hub
+from lsadra.api.alert_stream import alert_hub
 from tests.storage._support import DEVICE_ID, USER_ID, make_event
 from tests.storage.conftest import db, seeded, sql  # noqa: F401 — shared fixtures
 

@@ -113,7 +113,7 @@ def raise_lateral_movement(
     """
     from lsadra.detection.incident_manager import IncidentManager
     from lsadra.storage.database import get_recent_rule_alert, insert_anomaly
-    from lsadra.ui.alert_stream import alert_hub
+    from lsadra.api.alert_stream import alert_hub
 
     rule = RULES[LATERAL_RULE_ID]
     ip = str(finding["ip"])
