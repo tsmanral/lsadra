@@ -150,7 +150,8 @@ def test_end_to_end_tiny_run(tmp_path):
     assert set(report["results"]) == {"production", "retrained-full"}
     for res in report["results"].values():
         assert res["events"]["positive"] > 0 and res["events"]["negative"] > 0
-        assert set(res["scores"]) == {"severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencoder"}
+        assert set(res["scores"]) == {"severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencoder",
+                                      "shadow_ecod"}
         for by_fpr in res["scores"].values():
             assert set(by_fpr) == {"0.01", "0.001"}
             for v in by_fpr.values():
@@ -212,3 +213,15 @@ class TestChallengers:
         for key in ("ch_iforest", "ch_ecod", "ch_unsup", "ch_lgbm"):
             assert res["scores"][key]["0.01"]["achieved_fpr"] <= 0.01
         assert res["challengers"]["iforest"]["max_abs_diff_vs_sklearn"] < 1e-4
+
+
+def test_product_ecod_matches_the_bench_challenger():
+    import numpy as np
+
+    import challengers
+    from lsadra.models.ecod_model import ECODModel
+
+    rng = np.random.default_rng(3)
+    X = np.round(rng.normal(size=(600, len(challengers.feature_names()))), 2)
+    probe = np.round(rng.normal(scale=2.0, size=(50, X.shape[1])), 2)
+    np.testing.assert_allclose(ECODModel().fit(X).score(probe), challengers.ECOD().fit(X).score(probe))

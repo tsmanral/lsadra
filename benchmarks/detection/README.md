@@ -125,3 +125,4 @@ cross-source) and a one-hot of the canonical event type, 56 columns in all.
 | [`results/baseline-2026-11-18.json`](results/baseline-2026-11-18.json) / [`.md`](results/baseline-2026-11-18.md) | Phase 0 baseline of the pipeline as merged at the time |
 | [`results/after-131-2026-11-18.json`](results/after-131-2026-11-18.json) / [`.md`](results/after-131-2026-11-18.md) | `main` after #120, #133 and #131: production training through the canary-gated `retrain` path |
 | [`results/phase1-challengers-2026-11-18.json`](results/phase1-challengers-2026-11-18.json) / [`.md`](results/phase1-challengers-2026-11-18.md) | Phase 1 challengers next to today's layers (`retrained-*` configs) |
+| [`results/phase1b-ecod-shadow-2026-11-18.json`](results/phase1b-ecod-shadow-2026-11-18.json) / [`.md`](results/phase1b-ecod-shadow-2026-11-18.md) | The product's ECOD shadow scorer (`shadow_ecod`) in all three configs; live verdicts unchanged |

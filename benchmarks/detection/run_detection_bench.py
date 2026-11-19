@@ -66,7 +66,7 @@ from challengers import CHALLENGER_KEYS  # noqa: E402
 logger = logging.getLogger("detection_bench")
 
 CONFIGS = ("production", "retrained-online", "retrained-full")
-SCORE_KEYS = ["severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencoder"]
+SCORE_KEYS = ["severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencoder", "shadow_ecod"]
 FPRS = [0.01, 0.001]
 
 # Agent and server behaviour the online replay mirrors.
@@ -206,6 +206,7 @@ def _new_orchestrator(seed: int):
     orch.baseline = StatisticalBaselineModel()
     orch.ensemble = EnsembleModel()
     orch.autoencoder = AutoencoderModel()
+    orch.shadow_ecod = None
     orch._trained = False
     orch._last_run = {}
     return orch
@@ -225,6 +226,9 @@ def _train(orch, df) -> bool:
     except Exception as exc:
         logger.info("training failed (%s): %s", type(exc).__name__, exc)
         return False
+    from lsadra.detection.detection_orchestrator import fit_shadow_ecod
+
+    orch.shadow_ecod = fit_shadow_ecod(df)
     orch._trained = True
     return True
 
@@ -287,7 +291,10 @@ class ProductionTrainer:
             attempt["status"] = "rejected"
             return
         attempt["status"] = "promoted"
+        from lsadra.detection.detection_orchestrator import fit_shadow_ecod
+
         self.orch.baseline, self.orch.ensemble, self.orch.autoencoder = baseline, ensemble, autoencoder
+        self.orch.shadow_ecod = fit_shadow_ecod(df)
         self.orch._trained = True
 
 
@@ -461,6 +468,8 @@ def to_records(stream: List[bench_events.BenchEvent], rows: List[Dict[str, Any]]
             "layer1_z": float(res["layer1_score"]) if scored else metrics.NEG_INF,
             "layer2_ensemble": float(res["layer2_score"]) if scored else metrics.NEG_INF,
             "layer3_autoencoder": float(res["layer3_score"]) if scored else metrics.NEG_INF,
+            "shadow_ecod": (float(res["shadow_ecod_score"])
+                            if scored and res.get("shadow_ecod_score") is not None else metrics.NEG_INF),
             **{k: float(res[k]) if scored and k in res else metrics.NEG_INF for k in challenger_keys},
             "is_anomaly": bool(res["is_anomaly"]) if scored else False,
             "mitre_technique": res["mitre_technique"] if scored else None,
