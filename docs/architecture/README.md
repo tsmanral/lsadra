@@ -15,8 +15,12 @@ See [adr/](adr/README.md). Start with:
 - [0002 — Product name (LSADRA)](adr/0002-product-name.md)
 - [0003 — Apple-less development strategy](adr/0003-apple-less-strategy.md)
 - [0004 — Threat-intel two-tier architecture & licensing](adr/0004-intel-two-tier-licensing.md)
+- [0006 — Event schema v1 freeze and boundary enforcement](adr/0006-event-schema-v1-freeze.md)
+- [0007 — Detection stack: rules, entity baselines, small ONNX models](adr/0007-detection-stack.md)
+- [0008 — Lite and Team line](adr/0008-lite-team-line.md)
 
 ## Diagrams
 
-C4 context / container diagrams (Mermaid) land here as the M0 docs milestone
-completes.
+[C4 diagrams](c4.md): system context, containers, the components of the Python
+core, and the planned target state. The repository's `ARCHITECTURE.md` walks
+through the same system in prose (code map, event flow, background jobs).

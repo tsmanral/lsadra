@@ -53,6 +53,7 @@ jobs:
             -r requirements/ml.txt \
             -r requirements/ui.txt \
             -r requirements/dev.txt \
+            -r requirements/docs.txt \
             -r requirements/ci-tools.txt
 
   npm-audit:

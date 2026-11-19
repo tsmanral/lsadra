@@ -46,8 +46,11 @@ Retention runs every `LSADRA_RETENTION_INTERVAL_MINUTES` in small batches.
 
 ## What leaves the machine
 
-Nothing, unless you opt in: `LSADRA_ABUSEIPDB_API_KEY` sends observed public IPs
-to AbuseIPDB, and `LSADRA_GEO_RESOLUTION_ENABLED=true` sends them to ipinfo.io.
+Nothing, unless you opt in: `LSADRA_ABUSEIPDB_API_KEY` sends looked-up public IPs
+to AbuseIPDB, and the hourly job re-checks cached ones as they expire. `LSADRA_INTEL_FEEDS` downloads
+public IP lists, and `python -m lsadra.intel geo-update` downloads a geolocation
+database; neither sends your IPs anywhere. Geolocation reads the local `.mmdb`
+file only.
 
 ## Backups and restore
 

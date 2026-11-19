@@ -314,8 +314,37 @@ FP_RATE_THRESHOLD: float = float(os.getenv("LSADRA_FP_RATE_THRESHOLD", "0.15"))
 # ---------------------------------------------------------------------------
 # Threat Intelligence
 # ---------------------------------------------------------------------------
+# Two tiers (ADR 0004). The bundled tier ships inside the package as a signed,
+# hash-verified SQLite file (CISA KEV, MITRE ATT&CK) and needs no key and no
+# network. The runtime tier lives only in a local, gitignored intel_runtime.db,
+# filled from sources the operator turns on; nothing in it is redistributed.
+#
+# Directory holding a newer signed bundle (intel-YYYYMMDD.sqlite + manifest.json
+# + manifest.sig). Optional; the packaged bundle is the fallback. A bundle here
+# is used only if its signature and hash verify against a trusted key.
+INTEL_BUNDLE_DIR: str = os.getenv("LSADRA_INTEL_BUNDLE_DIR", "")
+INTEL_RUNTIME_DB: Path = Path(
+    os.getenv("LSADRA_INTEL_RUNTIME_DB", str(DATA_DIR / "intel_runtime.db"))
+)
+# Keyless runtime feeds to download (comma-separated): feodo, spamhaus_drop,
+# tor_exits. Empty by default so a fresh install makes no outbound requests.
+INTEL_FEEDS: list = [
+    f.strip() for f in os.getenv("LSADRA_INTEL_FEEDS", "").split(",") if f.strip()
+]
+INTEL_FEED_REFRESH_HOURS: int = int(os.getenv("LSADRA_INTEL_FEED_REFRESH_HOURS", "12"))
+# Optional keyed source. Lookups send the IP to AbuseIPDB, so they only happen
+# when the operator sets a key.
 ABUSEIPDB_API_KEY: str = os.getenv("LSADRA_ABUSEIPDB_API_KEY", "")
 THREAT_INTEL_CACHE_HOURS: int = int(os.getenv("LSADRA_TI_CACHE_HOURS", "24"))
+# Local IP geolocation: a MaxMind-format .mmdb file read on this machine (no
+# lookup ever leaves it). Default search: data/geo/GeoLite2-City.mmdb, then
+# GeoLite2-Country, then the DB-IP Lite equivalents. `python -m lsadra.intel
+# geo-update` downloads GeoLite2 when a MaxMind account ID and license key are
+# set, otherwise the keyless DB-IP Lite database (CC BY 4.0).
+GEOIP_DB: str = os.getenv("LSADRA_GEOIP_DB", "")
+GEO_DIR: Path = DATA_DIR / "geo"
+MAXMIND_ACCOUNT_ID: str = os.getenv("LSADRA_MAXMIND_ACCOUNT_ID", "")
+MAXMIND_LICENSE_KEY: str = os.getenv("LSADRA_MAXMIND_LICENSE_KEY", "")
 
 # ---------------------------------------------------------------------------
 # Metrics Aggregation
@@ -351,8 +380,8 @@ RETENTION_INTERVAL_MINUTES: int = int(os.getenv("LSADRA_RETENTION_INTERVAL_MINUT
 # Started by server.py's lifespan. The test suite turns it off (tests/conftest.py)
 # so a TestClient lifespan never runs jobs against a test database.
 SCHEDULER_ENABLED: bool = os.getenv("LSADRA_SCHEDULER_ENABLED", "true").lower() == "true"
-# IP geolocation sends every observed public source IP to ipinfo.io (no key);
-# off unless the operator opts in, like the other runtime-tier sources (§8).
+# Fills the ip_geolocation table from the local .mmdb file (see GEOIP_DB). It
+# makes no network requests; it stays opt-in because it needs that file.
 GEO_RESOLUTION_ENABLED: bool = os.getenv("LSADRA_GEO_RESOLUTION_ENABLED", "false").lower() == "true"
 
 # ---------------------------------------------------------------------------
