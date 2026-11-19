@@ -10,6 +10,7 @@ Thank you for your interest in contributing to LSADRA (Local Security Anomaly De
 - [How to Contribute](#how-to-contribute)
 - [Sign-off (DCO)](#sign-off-dco)
 - [Pull Request Process](#pull-request-process)
+- [Releasing](#releasing)
 - [AI-Assisted Development](#ai-assisted-development)
 - [Coding Standards](#coding-standards)
 - [Adding Detection Rules](#adding-detection-rules)
@@ -212,6 +213,35 @@ git push --force-with-lease                     # then update the PR
 7. A maintainer will review your PR — please be responsive to feedback
 
 Every PR runs the full CI matrix (Ubuntu, Windows, macOS), a lint pass, secret scanning, and the DCO check. `main` is protected — all work lands through pull requests, maintainer changes included.
+
+## Releasing
+
+Releases are cut by [release-please](https://github.com/googleapis/release-please)
+from the Conventional Commit subjects on `main`, which is one more reason to
+write them carefully: `feat:` raises the minor version, `fix:` and `perf:` the
+patch version, and a `!` or a `BREAKING CHANGE:` footer the major version.
+
+- **One version.** The version lives only in `lsadra/__init__.py`
+  (`__version__`). The API reads it from there; never hard-code it elsewhere.
+  `python scripts/release_notes.py --check` (run by the tests) fails if the
+  manifest or the README's "Current release" line disagrees.
+- **The release PR.** On every push to `main`, release-please keeps one PR
+  titled `chore(release): release X.Y.Z` open. It bumps `__version__`, the
+  README line and `.release-please-manifest.json`, and adds the
+  `CHANGELOG.md` entry. Its checks start when the hand-written notes,
+  `docs/releases/vX.Y.Z.md`, are pushed to it.
+- **Cutting the release.** Merging the release PR is the release: it tags the
+  merge commit, opens a draft GitHub release, and starts `release.yml`, which
+  runs the full CI suite on the tag, builds, signs and attests the image, and
+  then publishes the release with the hand-written notes. Only the project
+  lead decides when to merge it.
+- **Rehearsal.** The `release-dry-run` workflow runs on any PR that touches
+  the release files, and on demand: it checks the version, renders the notes,
+  previews the release PR and builds the image, publishing nothing.
+- **Pinned versions.** `release-as` in `release-please-config.json` forces
+  the next version (set to 6.0.0 for the first release-please release). Remove
+  it in the first PR after that release, or every later release PR will try
+  the same version again.
 
 ## AI-Assisted Development
 

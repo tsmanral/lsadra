@@ -53,4 +53,7 @@ nav:
       - SSDF and CRA: security/ssdf-cra.md
       - Release security review: security/release-security-review.md
   - Detection scorecard: detection/scorecard.md
+  - Releases:
+      - How releases work: releases/README.md
+      - v6.0.0: releases/v6.0.0.md
   - Contributing: contributing/README.md
