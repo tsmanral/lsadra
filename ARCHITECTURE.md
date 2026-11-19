@@ -43,11 +43,12 @@ over
 | `models/` | Statistical baseline, Isolation Forest, LOF, One-Class SVM, autoencoder, ensemble; model file integrity (`integrity.py`) |
 | `llm/` | Guardrails for the optional LLM tier (M4): endpoint and weight pinning, output validation, an action broker that can only propose. No model ships yet |
 | `detection/` | Orchestrator, detection worker, model lifecycle (training hygiene, canary gate, rollback), rule registry (`rule_engine.py`, Sigma-shaped metadata), pinned ATT&CK map (`attack_map.py`), canonical event types, rules scorecard, attack classifier, severity, incident manager, drift detector |
-| `explainability/` | Narrative builder, log-value sanitizer, threat-intel lookup, SHAP helpers (not called by the live pipeline) |
+| `intel/` | Threat intel in two tiers ([ADR 0004](docs/architecture/adr/0004-intel-two-tier-licensing.md)): a signed, hash-verified bundle (CISA KEV, MITRE ATT&CK) shipped in the package, and an opt-in runtime tier (keyless IP list feeds, AbuseIPDB, local `.mmdb` geolocation); `python -m lsadra.intel` manages it |
+| `explainability/` | Narrative builder, log-value sanitizer, threat-intel adapter for narratives, SHAP helpers (not called by the live pipeline) |
 | `session/` | Session building and user-journey analysis |
-| `jobs/` | Scheduler and IP geolocation |
+| `jobs/` | Scheduler and IP geolocation from the local `.mmdb` file |
 | `storage/` | Database access, migrations, metrics aggregation |
-| `ui/` | Dashboard REST API, `/ws/alerts`, legacy Streamlit pages |
+| `ui/` | Dashboard REST API, `/api/intel`, device revoke and key rotation, `/ws/alerts`, legacy Streamlit pages |
 
 ## 3. Event flow
 
@@ -78,8 +79,8 @@ over
    [`docs/detection/scorecard.md`](docs/detection/scorecard.md).
 5. **Incidents and narratives.** Related anomalies are grouped into incidents.
    The narrative builder explains each one with MITRE ATT&CK mapping (one
-   pinned Enterprise release, checked in CI) and,
-   where a key is configured, AbuseIPDB reputation. Every log-derived value
+   pinned Enterprise release, checked in CI) and, where the owner turned them
+   on, what the IP list feeds and AbuseIPDB know about the source IP. Every log-derived value
    passes through the sanitizer first, because logs are attacker-controlled
    input.
 6. **Analyst view.** The dashboard reads incidents and metrics over REST and
@@ -95,9 +96,9 @@ over
 | Cross-source correlation | 5 min |
 | Lateral-movement scan | 10 min |
 | Ingestion health check | 15 min |
-| Threat-intel cache refresh | 24 h |
+| Runtime intel refresh (feeds and AbuseIPDB, only if enabled) | 1 h check |
 | Feature drift detection | 24 h |
-| IP geolocation (opt-in) | 24 h |
+| IP geolocation from the local `.mmdb` (opt-in) | 24 h |
 | Data retention cleanup | `LSADRA_RETENTION_INTERVAL_MINUTES` |
 
 ## 5. Performance design
@@ -121,8 +122,9 @@ over
 
 1. **Explain every alert.** An alert comes with a plain-language narrative and
    the evidence behind it.
-2. **Local first.** Core detection and narratives need no cloud service.
-   External lookups (AbuseIPDB, IP geolocation) are optional and off by
+2. **Local first.** Core detection, narratives and the bundled threat intel
+   need no cloud service and no key. IP geolocation reads a local file. The
+   only outside lookups (IP list feeds, AbuseIPDB) are optional and off by
    default.
 3. **Logs are hostile input.** Parsers, narratives and any future LLM treat
    log-derived strings as data, never as instructions

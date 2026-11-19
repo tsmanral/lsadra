@@ -306,7 +306,7 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | `LSADRA_API_HOST` / `LSADRA_API_PORT` | `127.0.0.1` / `8000` | Where `python -m lsadra.serve` listens; any non-loopback host needs TLS |
 | `LSADRA_ADMIN_TOTP` | `optional` | `required` stops admins signing in without an authenticator |
 | `LSADRA_ABUSEIPDB_API_KEY` | empty | Enables IP reputation lookups on Threat Intel |
-| `LSADRA_GEO_RESOLUTION_ENABLED` | `false` | Opt-in IP geolocation (sends observed public IPs to ipinfo.io) |
+| `LSADRA_GEO_RESOLUTION_ENABLED` | `false` | Opt-in IP geolocation from a local `.mmdb` file (no IP leaves the machine; see [Threat Intelligence](#threat-intelligence)) |
 | `LSADRA_RETENTION_DAYS` | `30` | How long raw events are kept |
 | `LSADRA_ALERT_RETENTION_DAYS` | `365` | How long alerts, closed incidents and rollups are kept (never less than the raw window) |
 | `LSADRA_SCHEDULER_ENABLED` | `true` | Background jobs: retention, metrics, correlation, drift, device health |
