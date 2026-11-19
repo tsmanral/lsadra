@@ -147,6 +147,62 @@ def score_sigma(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
     }
 
 
+def score_risk(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
+    """
+    Entity risk on the same corpus (audit G-29): the highest host and user
+    score each scenario reaches from built-in rule and Sigma signals, and
+    whether it would open a risk case. Shadow mode in production.
+    """
+    from lsadra.detection.risk import (
+        DEFAULT_HALF_LIFE_HOURS,
+        DEFAULT_THRESHOLD,
+        DEFAULT_WINDOW_DAYS,
+        risk_rows,
+        score_entity,
+    )
+    from lsadra.detection.sigma_engine import SigmaEngine
+
+    engine = SigmaEngine()
+    out: Dict[str, Any] = {}
+    for path in sorted(corpus_dir.glob("*.jsonl")):
+        by_device: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
+        for ev in _load(path):
+            by_device[ev["device_id"]].append(ev)
+        results: List[Dict[str, Any]] = []
+        for device_events in by_device.values():
+            df = build_features(device_events)
+            if df.empty:
+                continue
+            rows = build_rule_features(df).to_dict(orient="records")
+            for row, hits in zip(rows, engine.evaluate_frame(rows)):
+                results.append({
+                    "event_id": int(row["id"]), "device_id": row.get("device_id"),
+                    "host": row.get("host"), "effective_username": row.get("effective_username"),
+                    "event_type": row.get("canonical_event_type"),
+                    "created_at": str(row.get("timestamp")),
+                    "rule_hits": [{"rule_id": m.rule.id, "title": m.rule.title, "level": m.level,
+                                   "technique": m.technique.id, "tactics": m.tactics}
+                                  for m in evaluate(row)],
+                    "sigma_matches": [h.as_dict() for h in hits],
+                })
+        by_entity: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
+        for r in risk_rows(results):
+            by_entity[(r["entity_type"], r["entity"])].append(r)
+        best: Dict[str, Any] = {"host": 0.0, "user": 0.0}
+        cases: List[Dict[str, Any]] = []
+        for (etype, entity), events in sorted(by_entity.items()):
+            card = score_entity(events, window_days=DEFAULT_WINDOW_DAYS,
+                                half_life_hours=DEFAULT_HALF_LIFE_HOURS)
+            best[etype] = max(best[etype], card["score"])
+            if card["score"] >= DEFAULT_THRESHOLD:
+                cases.append({"entity_type": etype, "entity": entity, "score": card["score"],
+                              "tactics": card["tactics"]})
+        out[path.stem] = {"max_host_score": best["host"], "max_user_score": best["user"],
+                          "cases": cases,
+                          "detection_scenario": path.stem not in NON_DETECTION_SCENARIOS}
+    return {"threshold": DEFAULT_THRESHOLD, "scenarios": out}
+
+
 def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
     """Score every corpus file and every rule. Pure function of corpus + rules."""
     scenarios: Dict[str, Any] = {}
@@ -216,6 +272,7 @@ def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
         "scenarios": scenarios,
         "rules": rules_out,
         "sigma": score_sigma(corpus_dir),
+        "risk": score_risk(corpus_dir),
     }
 
 
@@ -316,6 +373,26 @@ def render_markdown(card: Dict[str, Any]) -> str:
         lines.append("")
         lines.append("Sigma rules not listed did not match any corpus event; "
                      "`tests/test_sigma_engine.py` covers them with curated events.")
+    rk = card.get("risk")
+    if rk:
+        lines += [
+            "",
+            "## Entity risk (shadow mode)",
+            "",
+            "Rule and Sigma signals added up per host and user (`lsadra/detection/risk.py`): "
+            f"a score of {rk['threshold']:.0f} or more opens a risk case. The layer runs in "
+            "shadow mode by default (`LSADRA_RISK_MODE`).",
+            "",
+            "| Scenario | Highest host score | Highest user score | Risk cases (tactic chain) |",
+            "|---|---:|---:|---|",
+        ]
+        for name, sc in rk["scenarios"].items():
+            note = "" if sc["detection_scenario"] else " (R8 fixture)"
+            cases = "; ".join(
+                f"{c['entity_type']} `{c['entity']}` {c['score']:.0f}: {' -> '.join(c['tactics'])}"
+                for c in sc["cases"]) or "none"
+            lines.append(f"| `{name}`{note} | {sc['max_host_score']:.1f} | "
+                         f"{sc['max_user_score']:.1f} | {cases} |")
     return "\n".join(lines) + "\n"
 
 

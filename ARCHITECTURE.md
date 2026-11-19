@@ -47,7 +47,7 @@ over
 | `session/` | Session building and user-journey analysis |
 | `jobs/` | Scheduler and IP geolocation from the local `.mmdb` file |
 | `storage/` | Database access, migrations, metrics aggregation |
-| `api/` | Dashboard REST API, `/api/intel`, investigation and feedback, device revoke and key rotation, `/ws/alerts`, PDF report. `lsadra/ui` is a deprecated import alias for it |
+| `api/` | Dashboard REST API, `/api/intel`, `/api/risk`, investigation and feedback, device revoke and key rotation, `/ws/alerts`, PDF report. `lsadra/ui` is a deprecated import alias for it |
 
 ## 3. Event flow
 

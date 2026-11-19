@@ -69,3 +69,15 @@ An event *alerts* when its best rule match is `medium` or higher; `low` matches 
 | Service Installed From A Temp Folder | lsadra | high | T1543.003 | 1 | 0 | `persistence_new_service` |
 
 Sigma rules not listed did not match any corpus event; `tests/test_sigma_engine.py` covers them with curated events.
+
+## Entity risk (shadow mode)
+
+Rule and Sigma signals added up per host and user (`lsadra/detection/risk.py`): a score of 70 or more opens a risk case. The layer runs in shadow mode by default (`LSADRA_RISK_MODE`).
+
+| Scenario | Highest host score | Highest user score | Risk cases (tactic chain) |
+|---|---:|---:|---|
+| `benign_background` | 22.4 | 12.4 | none |
+| `data_movement_offhours` | 52.6 | 52.6 | none |
+| `injection_attempts` (R8 fixture) | 0.0 | 0.0 | none |
+| `persistence_new_service` | 95.9 | 95.9 | host `demo-host-02` 96: Execution -> Persistence -> Privilege Escalation; user `alice.demo` 96: Execution -> Persistence -> Privilege Escalation |
+| `ssh_bruteforce` | 89.6 | 60.6 | host `demo-host-01` 90: Initial Access -> Persistence -> Privilege Escalation -> Stealth -> Credential Access |
