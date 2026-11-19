@@ -89,7 +89,7 @@ CASES = [
         "registry_set", registry_key="HKLM\\SYSTEM\\CurrentControlSet\\Services\\DemoSvc",
         value_name="ImagePath", new_value="C:\\Windows\\Temp\\demo.exe")),
     ("Archive Written To A Hidden Directory", _row(
-        "archive_create", archive_path="/var/tmp/.stage/out.tar.gz")),
+        "archive_create", archive_path="/var/tmp/.stage/out.tar.gz")),  # noqa: S108 - attacker path under test, not a file we open
 ]
 
 
