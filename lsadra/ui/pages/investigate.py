@@ -6,8 +6,8 @@ full case files for incidents, explore entity timelines, and assess
 cross-source activity — all powered by pure template logic from
 narrative_builder.py. No LLM required.
 
-[MYTHOS ALIGNMENT — structured investigation interface]
-[GLASSWING ALIGNMENT — analyst case file generation]
+[Capability: structured investigation interface]
+[Capability: analyst case file generation]
 """
 
 import streamlit as st

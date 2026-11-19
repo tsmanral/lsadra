@@ -3,6 +3,8 @@
 # Same ruff as CI (ci-tools.txt).
 -c ci-tools.txt
 pytest>=9.1.1
+# Property-based parser fuzzing (tests/fuzz/)
+hypothesis>=6.100.0
 # Contract tests validate the demo corpus against docs/contracts/event-schema.v1.json
 jsonschema>=4.26.0
 # Ingest benchmark harness (benchmarks/): server RSS + CPU sampling

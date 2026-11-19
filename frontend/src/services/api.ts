@@ -473,7 +473,7 @@ const getMockData = (endpoint: string): any => {
 
     const content = `
 ================================================================================
-AI-SENTINEL SOC EXECUTIVE SUMMARY REPORT
+LSADRA SOC EXECUTIVE SUMMARY REPORT
 ================================================================================
 Generated At: ${new Date().toLocaleString()}
 Classification: CONFIDENTIAL / INTERNAL USE ONLY

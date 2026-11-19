@@ -5,7 +5,7 @@ Provides a unified view across all ingestion sources including ingestion
 health, cross-source IP tracking, network flow summaries, and endpoint
 enrichment signals.
 
-[GLASSWING ALIGNMENT — multi-source visibility]
+[Capability: multi-source visibility]
 [V4 ENHANCEMENT — gap: multi-source ingestion]
 """
 
@@ -175,7 +175,7 @@ def _render_cross_source_ips():
     Shows IPs with events in SSH, Network, and Endpoint logs.
     Highlights IPs active in 3+ sources.
 
-    [GLASSWING ALIGNMENT — multi-source visibility]
+    [Capability: multi-source visibility]
     """
     st.subheader("🔗 Cross-Source IP Tracker")
 
