@@ -37,8 +37,6 @@ from lsadra.models.autoencoder_model import AutoencoderModel
 from lsadra.models.ensemble_model import EnsembleModel
 from lsadra.models.integrity import ModelIntegrityError
 from lsadra.models.statistical_baseline import StatisticalBaselineModel
-from lsadra.session.session_builder import SessionBuilder
-from lsadra.session.user_profile_store import UserProfileStore
 from lsadra.storage.database import (
     get_device,
     get_event_count_for_device,
@@ -80,8 +78,6 @@ class DetectionOrchestrator:
         self.baseline = StatisticalBaselineModel()
         self.ensemble = EnsembleModel()
         self.autoencoder = AutoencoderModel()
-        self.session_builder = SessionBuilder()
-        self.profile_store = UserProfileStore()
         self.incident_manager = IncidentManager()
         self._last_run: Dict[str, float] = {}  # device_id → timestamp of last run
         self._batch_failures: Dict[str, int] = {}  # device_id → consecutive failed runs
@@ -398,10 +394,6 @@ class DetectionOrchestrator:
             return
         context_ids = {ev.get("id") for ev in context}
         df["_context_only"] = df["id"].isin(context_ids) if context_ids else False
-
-        # Update user profile
-        user_id = new_events[0].get("user_id", "")
-        self.profile_store.update(user_id, new_events)
 
         # Check if device is still baselining
         if event_total < MIN_BASELINE_EVENTS:

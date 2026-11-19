@@ -89,7 +89,6 @@ def orchestrator():
         {"is_anomaly": False, "anomaly_score": 0.0, "votes": 0, "total_models": 3}] * len(df))})()
     o.autoencoder = _Layer(lambda df: [
         {"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df))
-    o.profile_store = type("P", (), {"update": staticmethod(lambda *a: None)})()
     o.incident_manager = type("I", (), {"process_anomaly": staticmethod(lambda res: 1)})()
     return o
 

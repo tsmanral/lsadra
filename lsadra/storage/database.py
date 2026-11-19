@@ -841,6 +841,25 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
         return row_id or 0
 
 
+def get_recent_rule_alert(
+    rule_id: str, source_ip: str, since: str
+) -> Optional[Dict[str, Any]]:
+    """The newest anomaly *rule_id* raised for *source_ip* at or after *since*.
+
+    *since* is ``YYYY-MM-DD HH:MM:SS`` in UTC, the format of
+    ``anomalies.created_at``. The scheduler uses it so one address raises one
+    alert per rule per window, not one per scan.
+    """
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM anomalies
+               WHERE rule_id = ? AND source_ip = ? AND created_at >= ?
+               ORDER BY id DESC LIMIT 1""",
+            (rule_id, source_ip, since),
+        ).fetchone()
+        return dict(row) if row else None
+
+
 def get_anomalies_for_user(
     user_id: str, synthetic: bool = False, limit: int = 200
 ) -> List[Dict[str, Any]]:
@@ -964,6 +983,35 @@ def update_incident_last_seen(incident_id: int, last_seen: str) -> None:
             (last_seen, incident_id),
         )
         conn.commit()
+
+
+def elevate_cross_source_incidents(source_ip: str, at: str) -> List[Dict[str, Any]]:
+    """Raise each open incident from *source_ip* one severity step, once.
+
+    Only incidents not raised before (``cross_source_at IS NULL``) and below
+    CRITICAL change; each is stamped with *at* so later runs leave it alone.
+    Returns the incidents that changed, with their old and new labels.
+    """
+    order = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+    changed: List[Dict[str, Any]] = []
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT id, severity_label FROM incidents
+               WHERE source_ip = ? AND status IN ('OPEN', 'INVESTIGATING')
+                 AND cross_source_at IS NULL""",
+            (source_ip,),
+        ).fetchall()
+        for row in rows:
+            old = str(row["severity_label"] or "LOW").upper()
+            new = order[min(order.index(old) + 1, len(order) - 1)] if old in order else "MEDIUM"
+            conn.execute(
+                "UPDATE incidents SET severity_label = ?, cross_source_at = ? WHERE id = ?",
+                (new, at, row["id"]),
+            )
+            if new != old:
+                changed.append({"id": row["id"], "old": old, "new": new})
+        conn.commit()
+    return changed
 
 
 def update_incident_status(incident_id: int, status: str, notes: str = "") -> None:
