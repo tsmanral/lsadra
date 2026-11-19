@@ -2,7 +2,7 @@
 
 What to do when something goes wrong with **your own LSADRA deployment**. For
 vulnerabilities in LSADRA itself, report privately as described in
-[SECURITY.md](../../SECURITY.md) instead.
+[SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md) instead.
 
 Each playbook follows the same order: **contain, rotate, check, recover**. Keep
 a short written log as you go (time, what you saw, what you changed). It is the

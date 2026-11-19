@@ -3,7 +3,7 @@
 - **Status:** Accepted
 - **Date:** 2026-11-18
 - **Deciders:** project lead (approved the detection-model plan on 2026-11-18)
-- **Relates to:** [ADR 0001 — Polyglot split](0001-rust-collector-split.md), [ADR 0006 — Event schema v1](0006-event-schema-v1-freeze.md), [detection bench](../../../benchmarks/detection/README.md)
+- **Relates to:** [ADR 0001 — Polyglot split](0001-rust-collector-split.md), [ADR 0006 — Event schema v1](0006-event-schema-v1-freeze.md), [detection bench](https://github.com/tsmanral/lsadra/blob/main/benchmarks/detection/README.md)
 
 ## Context
 
@@ -56,7 +56,7 @@ A small sequence model over process events follows only once the collectors
 send process events.
 
 **Gate.** Nothing replaces the current pipeline until it beats it on the
-[detection bench](../../../benchmarks/detection/README.md): TPR at 1 % and
+[detection bench](https://github.com/tsmanral/lsadra/blob/main/benchmarks/detection/README.md): TPR at 1 % and
 0.1 % FPR per ATT&CK technique, and alerts per host per day, against the
 committed baseline. The lite tier's budget is five or fewer false alerts per host
 per day and models under 20 MB in total, within the M1 throughput gate.

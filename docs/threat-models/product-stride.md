@@ -7,7 +7,7 @@ a change adds a new boundary, a new input, or a new privileged action.
 
 > This page describes defenses and target controls only. Specific unfixed
 > weaknesses are tracked privately through the process in
-> [SECURITY.md](../../SECURITY.md) and never listed here.
+> [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md) and never listed here.
 
 ## Scope and assets
 
