@@ -288,7 +288,7 @@ The API listens on **127.0.0.1** unless you set `LSADRA_API_HOST`. On any other 
 
 ### Data at rest and backups
 
-At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention (`LSADRA_RETENTION_DAYS`) also expires closed incidents, analyst feedback, IP intelligence and geolocation rows, and old registration tokens. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
+At start-up the server restricts `data/` to its own account (0700 / 0600; `LSADRA_RESTRICT_DATA_PERMISSIONS`). Retention is tiered. Raw events, heartbeats, IP intelligence and geolocation rows, and old registration tokens are kept `LSADRA_RETENTION_DAYS` (default 30). Alerts, closed incidents, analyst feedback and rollups are kept `LSADRA_ALERT_RETENTION_DAYS` (default 365, never less than the raw window), and the events behind a kept alert stay with it. Deleted rows are overwritten in the database file. What is stored, and for how long, is listed in [docs/security/data-inventory.md](docs/security/data-inventory.md).
 
 ```bash
 python -m lsadra.backup create                 # online copy + SHA-256 manifest, in data/backups/
@@ -312,7 +312,8 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | `LSADRA_ADMIN_TOTP` | `optional` | `required` stops admins signing in without an authenticator |
 | `LSADRA_ABUSEIPDB_API_KEY` | empty | Enables IP reputation lookups on Threat Intel |
 | `LSADRA_GEO_RESOLUTION_ENABLED` | `false` | Opt-in IP geolocation (sends observed public IPs to ipinfo.io) |
-| `LSADRA_RETENTION_DAYS` | `30` | How long events are kept |
+| `LSADRA_RETENTION_DAYS` | `30` | How long raw events are kept |
+| `LSADRA_ALERT_RETENTION_DAYS` | `365` | How long alerts, closed incidents and rollups are kept (never less than the raw window) |
 | `LSADRA_SCHEDULER_ENABLED` | `true` | Background jobs: retention, metrics, correlation, drift, device health |
 | `LSADRA_MIN_BASELINE_EVENTS` | `200` | Events a device needs before its baseline is trusted |
 
@@ -376,6 +377,8 @@ curl -X POST http://localhost:8000/api/events/raw \
 Per-source ingestion health is available at `GET /api/events/stats`.
 
 Agents report liveness with `POST /heartbeat` and read their settings with `GET /api/devices/config/{device_id}`. Both authenticate with the same `X-Device-Id` / `X-Api-Key` headers as ingestion, and a device can only report for, or read, itself.
+
+**Posture checks.** The Linux agent also runs about ten read-only host checks once a day (SSH root login and password authentication, an active firewall, automatic updates, disk encryption, system logging, extra UID-0 accounts, `/etc/shadow` and `/etc/passwd` permissions), each tagged with the CIS Controls v8.1 IG1 safeguard it supports. Results arrive as `posture_check` events with `check_id`, `cis_safeguards`, `status` (`pass`, `fail`, `not_applicable`, `error`) and `detail` attributes. The checks only read files and run allow-listed status commands; they never change the host. Set `posture_interval_hours: 0` in the agent config to turn them off, or run `python3 posture.py` on a host to see the report locally. The checks live in [`lsadra/endpoint_agent/posture_checks_linux.yml`](lsadra/endpoint_agent/posture_checks_linux.yml); the agent needs `posture.py` and that file next to `linux_agent.py`.
 
 ## Detection rules
 
@@ -453,16 +456,18 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 
 **Today** the stack is Python end to end: a FastAPI core (ingestion, detection, storage, orchestration), a React + Vite SOC dashboard, and a thin Python endpoint agent.
 
-**Planned:** the endpoint agent is being replaced by **Rust collectors**, small static binaries (target: <15 MB RSS) that read the OS log source, batch, and ship over HTTPS with disk spooling across outages. The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code. See [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning.
+**In progress:** the endpoint agent is being replaced by **Rust collectors** in [`collectors/`](collectors/): small static binaries that read the OS log source (journald on Linux, the Windows Event Log on Windows), check every event against the contract, spool it to disk and ship it over HTTPS, so an outage or a restart loses nothing. The first build is about 2 MB on disk and under 4 MB RSS; see [`collectors/README.md`](collectors/README.md). The Python core keeps the ML and explainability work, where its ecosystem is the reason to stay. The two sides are bound by a versioned contract, [`docs/contracts/event-schema.v1.json`](docs/contracts/event-schema.v1.json), rather than shared code. See [ADR 0001](docs/architecture/adr/0001-rust-collector-split.md) for the reasoning. Until the Rust agent ships, the Python Linux agent remains the stopgap: it tails the files listed in `log_paths` in its config (or journald when none is set), sends at most 100 events per batch, drops a batch the core rejects as invalid instead of re-sending it, and waits out `Retry-After` on `429`/`503`.
 
 ## Project structure
 
 ```
 lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, legacy UI, admin CLI (admin_cli.py)
+collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
+  fuzz/             Property-based fuzz tests for every log parser (Hypothesis)
 demo/               Labeled synthetic demo corpus (JSONL) + scenario documentation
   corpus/           ssh_bruteforce · persistence_new_service · data_movement_offhours · benign_background · injection_attempts
   llm_redteam/      Prompt-injection cases for the LLM guardrails (G-30)
@@ -480,9 +485,11 @@ docs/               Documentation tree
   detection/        Rules scorecard on the demo corpus (scorecard.md / .json, generated)
   screenshots/      Dashboard screenshots used in this README
   threat-models/    Threat models (product, agent-key custody, prompt injection)
+  security/         Data inventory, incident runbook, SSDF and CRA position, release security review
+fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix, DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
+.github/workflows/  CI matrix (Python and Rust collectors), DCO, commitlint, strict docs build, release (signed + attested), secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Full install from the hash-locked files in requirements/: server, ML, legacy UI, tests and ruff (not torch); requirements/docs.txt is the docs-site toolchain
@@ -521,6 +528,8 @@ LSADRA treats logs as **attacker-controlled input**: they reach parsers, the det
 
 - **Reporting a vulnerability:** use [private vulnerability reporting](https://github.com/tsmanral/lsadra/security/advisories/new) on this repo, or follow the [Security Policy](SECURITY.md). **Never open a public issue for a security finding.** Acknowledgement within 72 hours, triage within 7 days.
 - **Regression suite:** every remediated finding is pinned by tests in [`tests/security/`](tests/security/), run on every PR across all three platforms. A fix without a regression test is not considered done.
+- **Fuzzing:** every log parser is fuzzed on each PR with Hypothesis ([`tests/fuzz/`](tests/fuzz/)), and with Atheris under ClusterFuzzLite when parser code changes.
+- **Operating it safely:** the [incident runbook](docs/security/incident-runbook.md) covers leaked secrets and keys, compromised hosts and a stolen database; [SSDF and CRA](docs/security/ssdf-cra.md) maps the project to NIST SSDF and states its EU Cyber Resilience Act position; the maintainer runs a [release security review](docs/security/release-security-review.md) before every tag.
 - **Supply chain:** hash-locked Python dependencies ([`requirements/`](requirements/)) and SHA-pinned Actions; secret scanning on every PR diff plus a weekly full-history scan; dependency review, `pip-audit` and `npm audit` on every PR and weekly; CodeQL; `zizmor` on workflow changes; a ruff security-rule ratchet; OpenSSF Scorecard; Dependabot for pip/npm/Actions/Docker. Release images are built only after CI passes and ship with an SBOM, SLSA provenance, a GitHub attestation and a Sigstore signature (see [Run with Docker](#run-with-docker)).
 
 ## License

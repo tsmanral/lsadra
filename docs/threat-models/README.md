@@ -1,10 +1,9 @@
 # Threat models
 
-Placeholders for the M0/M1 threat-modeling work — populated with STRIDE-style
-models and Mermaid data-flow diagrams.
+STRIDE-style models with Mermaid data-flow diagrams.
 
-- **Product threat model** — trust boundaries across collectors, the ingestion
-  API, the detection core, storage, and the UI.
+- **[Product threat model](product-stride.md)** — trust boundaries across
+  collectors, the ingestion API, the detection core, storage, and the UI.
 - **[Agent-key custody](agent-keys.md)** — how endpoint agents obtain, store,
   present and lose their credentials, the trust boundaries on that path, and
   the controls planned for M2 (OS-keychain storage, rotation).

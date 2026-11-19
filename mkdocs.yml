@@ -42,10 +42,14 @@ nav:
       - "V3 to V4 evolution (historical)": V3_VS_V4_EVOLUTION.md
   - Threat models:
       - Overview: threat-models/README.md
+      - Product (STRIDE): threat-models/product-stride.md
       - Agent keys: threat-models/agent-keys.md
   - Contracts: contracts/README.md
-  - Detection scorecard: detection/scorecard.md
   - Security:
       - Overview: security/README.md
       - Data inventory: security/data-inventory.md
+      - Incident runbook: security/incident-runbook.md
+      - SSDF and CRA: security/ssdf-cra.md
+      - Release security review: security/release-security-review.md
+  - Detection scorecard: detection/scorecard.md
   - Contributing: contributing/README.md
