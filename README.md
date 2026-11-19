@@ -41,6 +41,7 @@
 - [Ingesting logs](#ingesting-logs)
 - [Detection rules](#detection-rules)
 - [Live alert stream (WebSocket)](#live-alert-stream-websocket)
+- [Investigating incidents](#investigating-incidents)
 - [Model integrity and training](#model-integrity-and-training)
 - [LLM guardrails](#llm-guardrails-before-the-llm-ships)
 - [Architecture](#architecture)
@@ -217,18 +218,12 @@ Admins only. List users, change their roles, and create accounts with a chosen r
 
 ### Pages that still show placeholder data
 
-Some screens are designed but not yet wired to the API. They render, but parts of what they show are fixed sample content rather than your data. They are good first contributions:
+Incident drill-down, Investigate, Response, Feedback, Live Alerts, Sources and Device Behavior read real data (see [Investigating incidents](#investigating-incidents)). Two screens still show fixed content in places. They are good first contributions:
 
 | Page | What is still placeholder |
 | --- | --- |
-| Incident drill-down (`/app/incident/:id`) and its playbook | The whole page: entity details, attack timeline and raw log are the same sample incident, whichever incident you open |
-| Investigate | The API has no entity endpoint yet (`GET /api/entity/{id}` returns 404), so every search shows a generic profile with a fixed risk score of 42 |
 | Threat Intel | The lookup box does not call the API yet, so it returns nothing; the server-side AbuseIPDB cache (`LSADRA_ABUSEIPDB_API_KEY`) is not shown here |
-| Response | Playbook steps, the console and the response metrics are simulated, and labelled as dry-run |
-| Live Alerts header and footer | The ingestion rate, uptime and status line |
-| Sources | The average latency tile |
 | Analytics | The event and anomaly timeline spreads the 24-hour totals evenly across the hours |
-| Device Behavior | "Last seen" shows `NaNh ago` |
 
 ## Connect a real device
 
@@ -404,6 +399,19 @@ ws.onmessage = (e) => console.log(JSON.parse(e.data)); // {"type":"ready",...} t
 ```
 
 Scoping matches the REST API: an ADMIN receives every alert, other roles only their own. A missing, invalid or expired token, or plain `ws://` while TLS is required, is refused with close code `1008` (an HTTP `403` at the handshake). An open socket is closed with `1008` when its token expires, so the client reconnects with a fresh one. A client that stops reading is closed with `1013` once `LSADRA_WS_ALERT_QUEUE_SIZE` alerts (default 256) are waiting for it; it should reconnect and backfill from `GET /api/dashboard/anomalies`. The dashboard's Command Center and Live Alerts pages load recent alerts over REST, then add each pushed alert as it arrives. After any disconnect they reconnect with backoff (1 s doubling to 30 s) and backfill over REST, and while the socket is down the Command Center falls back to polling every 5 s. Incidents, KPIs and ingestion health still refresh over REST, every 10 s and shortly after each new alert.
+
+## Investigating incidents
+
+Every investigation page in the dashboard reads real data from these endpoints. An ADMIN sees everything; other roles see only data from their own devices, and anything else answers `404`.
+
+| Endpoint | Used by | Returns |
+|---|---|---|
+| `GET /api/incidents/{id}` | Incident drill-down, Response | The incident, every alert in it oldest first (narrative, MITRE technique, raw log line), the IPs, users and hosts involved, and its response playbook. |
+| `GET /api/entity?q=...` | Investigate | Profile of an IP, user name or host: risk (highest alert severity, 0 to 100), alerts, related incidents and entities, latest raw events. An incident id (`12`, `inc_12`, `INC-12`) resolves to that incident. Nothing on record is a `404`, never a made-up profile. |
+| `GET /api/feedback` | Feedback | Analyst labels with totals and the share confirmed as real threats. |
+| `POST /api/feedback` | Feedback, drill-down | Labels one alert `true_positive` or `false_positive` with a note (ADMIN or ANALYST). |
+
+Playbooks are guidance: LSADRA does not run their commands. Commands use placeholders such as `<SOURCE_IP>` and `<USERNAME>` that the analyst fills in, and are never filled in from log text, which an attacker controls. Narratives render as a small, link-free markdown subset in the dashboard.
 
 ## Model integrity and training
 
