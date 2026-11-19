@@ -104,9 +104,11 @@ $env:LSADRA_CORS_ORIGINS = "http://localhost:5173"
 venv\Scripts\python -m lsadra.serve
 ```
 
-`lsadra.serve` listens on `127.0.0.1:8000` (see [Network exposure and TLS](#network-exposure-and-tls) for other addresses). The database is created at `data/sentinel_v3.db` on first launch. Check it is up with `curl http://127.0.0.1:8000/api/health`. Interactive API docs are at http://127.0.0.1:8000/docs (dev mode only).
+`lsadra.serve` listens on `127.0.0.1:8000` (see [Network exposure and TLS](#network-exposure-and-tls) for other addresses). The database is created at `data/sentinel_v3.db` on first launch (`LSADRA_DATA_DIR` moves it). Check it is up with `curl http://127.0.0.1:8000/api/health`. Interactive API docs are at http://127.0.0.1:8000/docs (dev mode only).
 
 > **Dev mode is for your own machine only.** It uses a random JWT secret that changes on every restart (so you sign in again after a restart) and does not require TLS. See [Run with Docker](#run-with-docker) for a production setup.
+
+**Installing the core as a package.** The core is also an installable Python package. `pip install -r requirements/base.txt` followed by `pip install --no-deps .` gives you two commands, `lsadra-server` (the same as `python -m lsadra.serve`) and `lsadra-admin` (the admin CLI). An installed copy keeps its database, models and TLS files wherever `LSADRA_DATA_DIR` points, rather than inside the code.
 
 ### 3. Load the demo data
 
@@ -313,6 +315,7 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | `LSADRA_CORS_ORIGINS` | empty (Compose: `http://localhost:8080`) | Comma-separated browser origins allowed to call the API, e.g. `http://localhost:5173` |
 | `LSADRA_REQUIRE_TLS` | `true` (`false` in dev mode) | Reject plain-HTTP requests |
 | `LSADRA_TRUSTED_PROXY_IPS` | empty | Reverse proxies whose `X-Forwarded-Proto` is trusted |
+| `LSADRA_DATA_DIR` / `LSADRA_LOG_DIR` | `data/` / `logs/` in the checkout | Where the database, models, TLS files and runtime intel are kept; set it for an installed package |
 | `LSADRA_API_HOST` / `LSADRA_API_PORT` | `127.0.0.1` / `8000` | Where `python -m lsadra.serve` listens; any non-loopback host needs TLS |
 | `LSADRA_ADMIN_TOTP` | `optional` | `required` stops admins signing in without an authenticator |
 | `LSADRA_ABUSEIPDB_API_KEY` | empty | Enables IP reputation lookups on Threat Intel |
@@ -507,7 +510,7 @@ Background jobs (APScheduler) handle cross-source correlation, lateral-movement 
 ## Project structure
 
 ```
-lsadra/             Core platform: auth, ingestion, detection, storage, scheduler, admin CLI (admin_cli.py)
+lsadra/             Core platform: the FastAPI app (app.py), server start-up (serve.py), auth, ingestion, detection, storage, scheduler, admin CLI (admin_cli.py)
   api/              REST and WebSocket API the dashboard and desktop app use (routers, data layer, PDF report)
   intel/            Two-tier threat intel: signed bundle (data/), runtime feeds, local geolocation, CLI
   detection/sigma_rules/  Sigma rules: sigmahq/ (DRL 1.1, unmodified), lsadra/, filters/ (suppressions)
@@ -547,7 +550,8 @@ requirements.txt    Full install from the hash-locked files in requirements/: se
 fleet_simulator.py  Multi-device fleet traffic simulator
 windows_agent_simulator.py  All-in-one Windows test agent
 windows_live_agent.py       Live Windows event agent
-server.py           FastAPI entry point
+pyproject.toml      Package metadata: `pip install .` gives the lsadra-server and lsadra-admin commands
+server.py           Alias for lsadra/app.py, so `uvicorn server:app` and `python server.py` keep working
 CLAUDE.md           Rules for AI coding agents working in this repo
 ```
 

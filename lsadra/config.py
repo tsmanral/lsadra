@@ -29,9 +29,20 @@ if _legacy_env:
 # Paths
 # ---------------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
-DATA_DIR = PROJECT_ROOT / "data"
+
+
+def _dir_from_env(name: str, default: Path) -> Path:
+    """An absolute folder from *name*, or *default* when unset or blank."""
+    value = os.getenv(name, "").strip()
+    return Path(value).expanduser().resolve() if value else default
+
+
+# Where the database, models, TLS material and runtime intel live. Defaults to
+# data/ in the checkout; an installed package or the desktop app points it at a
+# per-user folder with LSADRA_DATA_DIR.
+DATA_DIR = _dir_from_env("LSADRA_DATA_DIR", PROJECT_ROOT / "data")
 DB_PATH = DATA_DIR / "sentinel_v3.db"
-LOG_DIR = PROJECT_ROOT / "logs"
+LOG_DIR = _dir_from_env("LSADRA_LOG_DIR", PROJECT_ROOT / "logs")
 MODEL_DIR = DATA_DIR / "models"
 
 # ---------------------------------------------------------------------------

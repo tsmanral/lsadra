@@ -1,0 +1,43 @@
+# Installable package for the LSADRA core (server, detection, CLI tools).
+#
+#   pip install -r requirements/base.txt && pip install --no-deps .
+#
+# The hash-locked files in requirements/ stay the source of truth for what gets
+# installed; this file declares the same direct dependencies (read from
+# requirements/base.in) so `pip install .` also works on its own.
+# The version lives only in lsadra/__init__.py.
+
+[build-system]
+requires = ["setuptools>=77"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lsadra"
+description = "Local Security Anomaly Detection & Risk Assessment: a self-hosted, explainable SIEM"
+readme = "README.md"
+license = "AGPL-3.0-only"
+license-files = ["LICENSE"]
+requires-python = ">=3.12"
+dynamic = ["version", "dependencies"]
+
+[project.optional-dependencies]
+ml = ["shap>=0.52.0"]
+
+[project.scripts]
+lsadra-server = "lsadra.serve:main"
+lsadra-admin = "lsadra.admin_cli:main"
+
+[project.urls]
+Homepage = "https://github.com/tsmanral/lsadra"
+Documentation = "https://github.com/tsmanral/lsadra#readme"
+Issues = "https://github.com/tsmanral/lsadra/issues"
+
+[tool.setuptools.dynamic]
+version = { attr = "lsadra.__version__" }
+dependencies = { file = ["requirements/base.in"] }
+
+[tool.setuptools.packages.find]
+include = ["lsadra*"]
+
+[tool.setuptools.package-data]
+"*" = ["*.json", "*.md", "*.sh", "*.sig", "*.sql", "*.sqlite", "*.txt", "*.yml"]
