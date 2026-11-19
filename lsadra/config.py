@@ -306,6 +306,9 @@ RETRAIN_COOLDOWN_SECONDS: float = float(os.getenv("LSADRA_RETRAIN_COOLDOWN_SECON
 # A candidate model is promoted only if its ML layers still flag at least this
 # share of the attack events in each canary scenario of the demo corpus.
 CANARY_MIN_RECALL: float = float(os.getenv("LSADRA_CANARY_MIN_RECALL", "0.5"))
+# Phase 1 shadow scorer (ADR 0007): share of training events the ECOD shadow
+# verdict may flag. Shadow verdicts are logged and returned, never alerted on.
+SHADOW_ECOD_TARGET_FPR: float = float(os.getenv("LSADRA_SHADOW_ECOD_TARGET_FPR", "0.001"))
 CANARY_SCENARIOS: List[str] = [
     s.strip()
     for s in os.getenv("LSADRA_CANARY_SCENARIOS", "ssh_bruteforce,injection_attempts").split(",")
