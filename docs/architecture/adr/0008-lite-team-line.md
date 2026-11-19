@@ -19,7 +19,7 @@ mode and the first admin is created from the command line.
 Two things make the line urgent rather than cosmetic:
 
 1. **Contributions are one-way.** Contributors sign off under the
-   [DCO](../../../CONTRIBUTING.md#sign-off-dco); there is no CLA. Their code is
+   [DCO](https://github.com/tsmanral/lsadra/blob/main/CONTRIBUTING.md#sign-off-dco); there is no CLA. Their code is
    licensed to the project under AGPL-3.0 only, so it can never be relicensed
    into a closed Team edition. Anything that should be Team must be written
    there from the start, not moved later.
@@ -63,12 +63,12 @@ Two things make the line urgent rather than cosmetic:
 
 ### Enforcement
 
-- [`scripts/check_tier_boundary.py`](../../../scripts/check_tier_boundary.py)
+- [`scripts/check_tier_boundary.py`](https://github.com/tsmanral/lsadra/blob/main/scripts/check_tier_boundary.py)
   scans every Python and frontend source file. It fails on a static import of
   `lsadra_team` or `lsadra.team`, on the same names passed to
   `importlib.import_module` or `__import__`, on an import of `@lsadra/team`, and
   on either reserved package path existing in this repository.
-  [`tests/test_tier_boundary.py`](../../../tests/test_tier_boundary.py) runs it
+  [`tests/test_tier_boundary.py`](https://github.com/tsmanral/lsadra/blob/main/tests/test_tier_boundary.py) runs it
   in CI on every pull request and proves it catches each of those forms.
 - `ruff.toml` bans the same Python modules (rule `TID251`), so editors and the
   lint job flag a violation as it is written.

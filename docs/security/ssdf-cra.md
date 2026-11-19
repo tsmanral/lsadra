@@ -11,8 +11,8 @@ position on the EU Cyber Resilience Act (Regulation (EU) 2024/2847, "CRA").
 
 | SSDF practice | What LSADRA does today | Where |
 |---|---|---|
-| **PO.1** Define security requirements | Security policy, supported versions and disclosure targets; threat model with trust boundaries | [SECURITY.md](../../SECURITY.md), [threat model](../threat-models/product-stride.md) |
-| **PO.2** Roles and responsibilities | Single project lead approves merges and releases; rules for AI coding agents | `CLAUDE.md`, [CONTRIBUTING.md](../../CONTRIBUTING.md) |
+| **PO.1** Define security requirements | Security policy, supported versions and disclosure targets; threat model with trust boundaries | [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md), [threat model](../threat-models/product-stride.md) |
+| **PO.2** Roles and responsibilities | Single project lead approves merges and releases; rules for AI coding agents | `CLAUDE.md`, [CONTRIBUTING.md](https://github.com/tsmanral/lsadra/blob/main/CONTRIBUTING.md) |
 | **PO.3** Supporting toolchains | CI on Ubuntu, Windows and macOS; ruff lint; GitHub Actions pinned to commit SHAs; Dependabot | `.github/workflows/`, `.github/dependabot.yml` |
 | **PO.4** Security checks | Required checks (`dco`, `lint`, `test` on three OSes) gate every merge to `main` | Branch protection on `main` |
 | **PO.5** Secure environments | `main` protected with no admin bypass; contributions only through pull requests | Branch protection |

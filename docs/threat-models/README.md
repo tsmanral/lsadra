@@ -4,9 +4,9 @@ STRIDE-style models with Mermaid data-flow diagrams.
 
 - **[Product threat model](product-stride.md)** — trust boundaries across
   collectors, the ingestion API, the detection core, storage, and the UI.
-- **Agent-key custody** — how endpoint agents obtain, store, and rotate
-  credentials (OS-keychain storage on the agent side lands with the Rust agents
-  at M2).
+- **[Agent-key custody](agent-keys.md)** — how endpoint agents obtain, store,
+  present and lose their credentials, the trust boundaries on that path, and
+  the controls planned for M2 (OS-keychain storage, rotation).
 - **R8 — prompt-injection defense** — logs are attacker-controlled input to
   parsers, the narrative engine, and (from M4) the LLM and the RAG index.
   - **Boundary rule:** log-derived strings never enter instruction positions. A
