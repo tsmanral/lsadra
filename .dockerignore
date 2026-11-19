@@ -12,6 +12,8 @@ fable_handover.md
 .claude/
 *.db
 *.sqlite*
+# The signed intel bundle ships in the image (ADR 0004 bundled tier).
+!lsadra/intel/data/intel-*.sqlite
 data/
 logs/
 frontend/node_modules

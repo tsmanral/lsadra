@@ -202,12 +202,6 @@ def _new_orchestrator(seed: int):
 
     random.seed(seed)
     np.random.seed(seed)
-    try:
-        import torch
-
-        torch.manual_seed(seed)
-    except ImportError:
-        pass
     orch = DetectionOrchestrator.__new__(DetectionOrchestrator)
     orch.baseline = StatisticalBaselineModel()
     orch.ensemble = EnsembleModel()
@@ -504,7 +498,7 @@ def to_records(stream: List[bench_events.BenchEvent], rows: List[Dict[str, Any]]
 
 def _versions() -> Dict[str, str]:
     out = {"python": platform.python_version()}
-    for mod in ("numpy", "pandas", "sklearn", "torch"):
+    for mod in ("numpy", "pandas", "sklearn"):
         try:
             out[mod] = __import__(mod).__version__
         except Exception:
