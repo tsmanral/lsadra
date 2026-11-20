@@ -219,6 +219,41 @@ pub fn server_env(
     env
 }
 
+/// Hand the server a first-run setup token (`LSADRA_SETUP_TOKEN`), so the
+/// dashboard can create the first admin account without a shell. The token is
+/// new at every app start and only goes to the server this app launches and
+/// to its own window. A token already in the environment is kept.
+pub fn setup_env(token: &str, inherited: impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+    match inherited("LSADRA_SETUP_TOKEN").filter(|v| !v.trim().is_empty()) {
+        Some(_) => Vec::new(),
+        None => vec![("LSADRA_SETUP_TOKEN".to_string(), token.to_string())],
+    }
+}
+
+/// The dashboard address the window opens: the start page, carrying the setup
+/// token the frontend keeps for first-run setup (frontend/src/services/setupToken.ts).
+pub fn dashboard_path(
+    env: &[(String, String)],
+    inherited: impl Fn(&str) -> Option<String>,
+) -> String {
+    let token = env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "LSADRA_SETUP_TOKEN")
+        .map(|(_, v)| v.clone())
+        .or_else(|| inherited("LSADRA_SETUP_TOKEN"))
+        .filter(|t| {
+            !t.is_empty()
+                && t.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        });
+    match token {
+        // "/" (not "index.html"): the dashboard router has no /index.html route.
+        Some(t) => format!("/?setup_token={t}"),
+        None => "index.html".to_string(),
+    }
+}
+
 /// Where a packaged server keeps its data: `LSADRA_DATA_DIR` and
 /// `LSADRA_LOG_DIR` in this user's app folders, unless the user already set
 /// them. Empty for a checkout, which keeps its own `data/` and `logs/`.
@@ -926,6 +961,29 @@ mod tests {
             Some(PathBuf::from("/srv/lsadra"))
         );
         assert_eq!(data_dir_of(&[], env_of(&[])), None);
+    }
+
+    #[test]
+    fn setup_token_reaches_server_and_window_only_when_safe() {
+        let token = "ab".repeat(32);
+        let env = setup_env(&token, env_of(&[]));
+        assert_eq!(env, vec![("LSADRA_SETUP_TOKEN".to_string(), token.clone())]);
+        assert_eq!(
+            dashboard_path(&env, env_of(&[])),
+            format!("/?setup_token={token}")
+        );
+        // A token the user set is kept, and the window gets that one.
+        let mine = "cd".repeat(32);
+        let inherited = [("LSADRA_SETUP_TOKEN", mine.as_str())];
+        assert!(setup_env(&token, env_of(&inherited)).is_empty());
+        assert_eq!(
+            dashboard_path(&[], env_of(&inherited)),
+            format!("/?setup_token={mine}")
+        );
+        // Anything that could change the URL is never put in it.
+        let odd = [("LSADRA_SETUP_TOKEN", "x&y=1#z")];
+        assert_eq!(dashboard_path(&[], env_of(&odd)), "index.html");
+        assert_eq!(dashboard_path(&[], env_of(&[])), "index.html");
     }
 
     #[test]

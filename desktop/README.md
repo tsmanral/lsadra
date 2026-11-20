@@ -25,7 +25,10 @@ What it does:
 
 The dashboard window gets no Tauri commands (`capabilities` is empty), and its
 Content-Security-Policy only allows connections to the local API, so a page
-in the window cannot reach the filesystem, the shell or other hosts.
+in the window cannot reach the filesystem, the shell or other hosts. The
+window opens at `/?setup_token=…` (see "First account"); the dashboard moves
+the token into this window's session storage and out of the address bar
+before anything renders.
 
 ## The server it runs
 
@@ -102,9 +105,19 @@ Windows and macOS need nothing extra beyond Rust and Node.
 
 ## First account
 
-Self sign-up is off outside dev mode, so create the first admin before logging
-in. Point `lsadra-admin` at the same data folder the app uses (dev mode is fine
-for this one command; it only writes the account to that database):
+On a new install the app opens on **First-run setup**: choose a username and
+passphrase (12 characters or more) and that account becomes the admin, then
+you are signed in. After that the window shows the normal sign-in.
+
+How it stays safe: at each start the app makes a random setup token and gives
+it only to the server it launches (`LSADRA_SETUP_TOKEN`) and to its own window.
+The server's `/api/setup` endpoints answer only a client on this computer
+(loopback) that presents that token, and only while no admin exists; the check
+and the account creation run under one lock, and each attempt is in the audit
+trail. A server started without the token (Docker, by hand) keeps the endpoint
+switched off. If the server was started outside the app, or you prefer a
+shell, create the admin with `lsadra-admin` against the same data folder (dev
+mode is fine for this one command; it only writes to that database):
 
 ```bash
 # Installed server (Linux path shown; see the table above for yours)
@@ -114,8 +127,6 @@ LSADRA_DEV_MODE=true LSADRA_DATA_DIR=~/.local/share/io.github.tsmanral.lsadra/se
 # Source checkout
 LSADRA_DEV_MODE=true python -m lsadra.admin_cli create-admin --username you
 ```
-
-A first-run setup screen inside the app is planned.
 
 ## How it finds the server
 
