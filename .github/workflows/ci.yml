@@ -30,8 +30,8 @@ jobs:
         run: ruff check .
       - name: Ruff security rules ratchet (no new S findings)
         run: python scripts/ruff_security_ratchet.py
-      - name: Ruff format check (advisory)
-        run: ruff format --check . || echo "::warning::formatting deferred to a dedicated PR (see ruff.toml)"
+      - name: Ruff format check
+        run: ruff format --check .
 
   test:
     strategy:
