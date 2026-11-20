@@ -553,11 +553,11 @@ async def ingest_raw_batch(
     detect = _reserve_detection(device_id)
     if db_rows:
         await _store_reserved(device_id, db_rows, detect)
-        # Source names come out of parsed device lines: flatten, then escape.
-        sources = log_safe(", ".join(f"{k}={v}" for k, v in sorted(source_counts.items())))
+        # The per-source breakdown is derived from device-sent lines, so it
+        # stays in the response and /stats rather than the server log.
         logger.info(
-            "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
-            accepted, device_id, parse_errors, sources,
+            "[V4] Ingested %d events from device %s (errors: %d, source types: %d)",
+            accepted, device_id, parse_errors, len(source_counts),
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
