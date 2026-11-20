@@ -98,12 +98,18 @@ def tenants():
 
 
 def _config_value(env_overrides, expr):
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("LSADRA_DEV_MODE", "LSADRA_JWT_SECRET", "LSADRA_ALLOW_SIGNUP")}
+    env = {
+        k: v
+        for k, v in os.environ.items()
+        if k not in ("LSADRA_DEV_MODE", "LSADRA_JWT_SECRET", "LSADRA_ALLOW_SIGNUP")
+    }
     env.update(env_overrides)
     r = subprocess.run(
         [sys.executable, "-c", f"import lsadra.config as c; print({expr})"],
-        capture_output=True, text=True, env=env, cwd=str(_REPO_ROOT),
+        capture_output=True,
+        text=True,
+        env=env,
+        cwd=str(_REPO_ROOT),
     )
     return r
 
@@ -128,8 +134,9 @@ def test_register_refused_when_signup_closed(client, monkeypatch):
     from lsadra import config
 
     monkeypatch.setattr(config, "ALLOW_SIGNUP", False)
-    r = client.post("/api/auth/register",
-                    json={"username": "mallory.demo", "password": TEST_PASSWORD})
+    r = client.post(
+        "/api/auth/register", json={"username": "mallory.demo", "password": TEST_PASSWORD}
+    )
     assert r.status_code == 403
     from lsadra.storage.database import get_user_by_username
 
@@ -143,12 +150,18 @@ def test_admin_can_create_accounts_and_others_cannot(client, tenants):
     assert r.status_code == 200, r.text
     assert r.json()["role"] == "VIEWER"
     bad_role = {**body, "username": "dave.demo", "role": "ROOT"}
-    assert client.post("/api/dashboard/users", json=bad_role, headers=tenants["admin"]).status_code == 422
+    assert (
+        client.post("/api/dashboard/users", json=bad_role, headers=tenants["admin"]).status_code
+        == 422
+    )
 
 
 def test_role_update_rejects_unknown_roles(client, tenants):
-    r = client.post("/api/dashboard/users/role",
-                    json={"user_id": "u-bob", "role": "SUPERUSER"}, headers=tenants["admin"])
+    r = client.post(
+        "/api/dashboard/users/role",
+        json={"user_id": "u-bob", "role": "SUPERUSER"},
+        headers=tenants["admin"],
+    )
     assert r.status_code == 422
 
 
@@ -180,24 +193,28 @@ def test_analyst_cannot_change_another_users_incident(client, tenants):
     from lsadra.storage.database import get_incident
 
     inc = tenants["alice_incident"]
-    r = client.post(f"/api/incidents/{inc}/status",
-                    json={"status": "RESOLVED"}, headers=tenants["bob"])
+    r = client.post(
+        f"/api/incidents/{inc}/status", json={"status": "RESOLVED"}, headers=tenants["bob"]
+    )
     assert r.status_code == 404
     assert get_incident(inc)["status"] == "OPEN"
 
-    r = client.post(f"/api/incidents/{inc}/assign",
-                    json={"user_id": "u-bob"}, headers=tenants["bob"])
+    r = client.post(
+        f"/api/incidents/{inc}/assign", json={"user_id": "u-bob"}, headers=tenants["bob"]
+    )
     assert r.status_code == 404
     assert get_incident(inc).get("assigned_to") in (None, "")
 
 
 def test_owner_and_admin_can_change_incident(client, tenants):
     inc = tenants["alice_incident"]
-    r = client.post(f"/api/incidents/{inc}/status",
-                    json={"status": "INVESTIGATING"}, headers=tenants["alice"])
+    r = client.post(
+        f"/api/incidents/{inc}/status", json={"status": "INVESTIGATING"}, headers=tenants["alice"]
+    )
     assert r.status_code == 200, r.text
-    r = client.post(f"/api/incidents/{inc}/status",
-                    json={"status": "RESOLVED"}, headers=tenants["admin"])
+    r = client.post(
+        f"/api/incidents/{inc}/status", json={"status": "RESOLVED"}, headers=tenants["admin"]
+    )
     assert r.status_code == 200, r.text
 
 
@@ -213,8 +230,11 @@ def test_metrics_scoped_to_callers_devices(client, tenants):
     conn.close()
     window = {"start": "2026-11-17T00:00:00", "end": "2026-11-19T00:00:00"}
 
-    r = client.get("/api/dashboard/metrics", params={**window, "device_id": "dev-alice"},
-                   headers=tenants["bob"])
+    r = client.get(
+        "/api/dashboard/metrics",
+        params={**window, "device_id": "dev-alice"},
+        headers=tenants["bob"],
+    )
     assert r.status_code == 404
 
     r = client.get("/api/dashboard/metrics", params=window, headers=tenants["bob"])
@@ -226,7 +246,9 @@ def test_metrics_scoped_to_callers_devices(client, tenants):
 
 
 def test_viewer_cannot_mint_registration_tokens(client, tenants):
-    assert client.post("/api/dashboard/generate-token", headers=tenants["viewer"]).status_code == 403
+    assert (
+        client.post("/api/dashboard/generate-token", headers=tenants["viewer"]).status_code == 403
+    )
     r = client.post("/api/dashboard/generate-token", headers=tenants["alice"])
     assert r.status_code == 200
     assert len(r.json()["agent_sha256"]) == 64
@@ -242,39 +264,59 @@ def test_heartbeat_requires_the_device_key(client, tenants):
 
     r = client.post("/heartbeat", json={"device_id": "dev-alice"})
     assert r.status_code in (401, 422)
-    r = client.post("/heartbeat", json={"device_id": "dev-alice"},
-                    headers={"X-Device-Id": "dev-alice", "X-Api-Key": "wrong-key"})
+    r = client.post(
+        "/heartbeat",
+        json={"device_id": "dev-alice"},
+        headers={"X-Device-Id": "dev-alice", "X-Api-Key": "wrong-key"},
+    )
     assert r.status_code == 401
     assert get_latest_heartbeat("dev-alice") is None
 
     # Bob's own key cannot speak for Alice's device.
-    r = client.post("/heartbeat", json={"device_id": "dev-alice"},
-                    headers={"X-Device-Id": "dev-bob", "X-Api-Key": BOB_KEY})
+    r = client.post(
+        "/heartbeat",
+        json={"device_id": "dev-alice"},
+        headers={"X-Device-Id": "dev-bob", "X-Api-Key": BOB_KEY},
+    )
     assert r.status_code == 403
     assert get_latest_heartbeat("dev-alice") is None
 
-    r = client.post("/heartbeat", json={"cpu_pct": 12.5},
-                    headers={"X-Device-Id": "dev-alice", "X-Api-Key": ALICE_KEY})
+    r = client.post(
+        "/heartbeat",
+        json={"cpu_pct": 12.5},
+        headers={"X-Device-Id": "dev-alice", "X-Api-Key": ALICE_KEY},
+    )
     assert r.status_code == 200, r.text
     assert get_latest_heartbeat("dev-alice") is not None
 
 
 def test_device_config_requires_the_device_key(client, tenants):
     assert client.get("/api/devices/config/dev-alice").status_code in (401, 422)
-    r = client.get("/api/devices/config/dev-alice",
-                   headers={"X-Device-Id": "dev-bob", "X-Api-Key": BOB_KEY})
+    r = client.get(
+        "/api/devices/config/dev-alice", headers={"X-Device-Id": "dev-bob", "X-Api-Key": BOB_KEY}
+    )
     assert r.status_code == 404
-    r = client.get("/api/devices/config/dev-alice",
-                   headers={"X-Device-Id": "dev-alice", "X-Api-Key": ALICE_KEY})
+    r = client.get(
+        "/api/devices/config/dev-alice",
+        headers={"X-Device-Id": "dev-alice", "X-Api-Key": ALICE_KEY},
+    )
     assert r.status_code == 200
 
 
 # Routes that must answer without credentials. Everything else must refuse.
 PUBLIC_ROUTES = {
-    "/", "/api/health", "/api/auth/login", "/api/auth/register",
-    "/api/devices/register", "/static/installer_linux.sh", "/agent/linux_agent.py",
+    "/",
+    "/api/health",
+    "/api/auth/login",
+    "/api/auth/register",
+    "/api/devices/register",
+    "/static/installer_linux.sh",
+    "/agent/linux_agent.py",
     "/agent/{name}",  # serves only the allow-listed extra agent files, tested below
-    "/docs", "/docs/oauth2-redirect", "/redoc", "/openapi.json",
+    "/docs",
+    "/docs/oauth2-redirect",
+    "/redoc",
+    "/openapi.json",
 }
 
 
@@ -316,10 +358,16 @@ def test_every_non_public_route_refuses_anonymous_requests(client):
 # ── G-4: install files and command ──────────────────────────────────────
 
 
-@pytest.mark.parametrize("path", [
-    "/static/device_registration.py", "/static/token_manager.py", "/static/__init__.py",
-    "/agent/__init__.py", "/agent/windows_agent_design.md",
-])
+@pytest.mark.parametrize(
+    "path",
+    [
+        "/static/device_registration.py",
+        "/static/token_manager.py",
+        "/static/__init__.py",
+        "/agent/__init__.py",
+        "/agent/windows_agent_design.md",
+    ],
+)
 def test_source_folders_are_not_served(client, path):
     assert client.get(path).status_code == 404
 
@@ -353,18 +401,22 @@ def test_install_command_verifies_before_running_as_root():
 def _run_installer(*args):
     return subprocess.run(
         ["bash", str(_REPO_ROOT / "lsadra" / "onboarding" / "installer_linux.sh"), *args],
-        capture_output=True, text=True,
+        capture_output=True,
+        text=True,
     )
 
 
-@pytest.mark.skipif(sys.platform == "win32" or shutil.which("bash") is None,
-                    reason="installer is a Linux shell script")
+@pytest.mark.skipif(
+    sys.platform == "win32" or shutil.which("bash") is None,
+    reason="installer is a Linux shell script",
+)
 def test_installer_refuses_without_agent_hash_or_over_plain_http():
     r = _run_installer("--token", "tok123", "--server", "https://203.0.113.5:8000")
     assert r.returncode != 0 and "--agent-sha256" in r.stdout
 
-    r = _run_installer("--token", "tok123", "--server", "http://192.0.2.5:8000",
-                       "--agent-sha256", "0" * 64)
+    r = _run_installer(
+        "--token", "tok123", "--server", "http://192.0.2.5:8000", "--agent-sha256", "0" * 64
+    )
     assert r.returncode != 0 and "plain HTTP" in r.stdout
 
 
@@ -389,4 +441,3 @@ def test_extra_agent_files_are_served_only_from_the_allow_list(client, tmp_path,
 
     for name in ("config.py", "..%2Fconfig.py", "%2e%2e%2fserver.py", "__init__.py"):
         assert client.get(f"/agent/{name}").status_code == 404, name
-

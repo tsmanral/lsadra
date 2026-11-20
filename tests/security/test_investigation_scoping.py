@@ -53,17 +53,35 @@ def world():
     create_device(DEVICE, OWNER, "secret-host.demo", "linux", "x")
     create_device(INTRUDER_DEVICE, INTRUDER, "intruder-host.demo", "linux", "x")
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
-    inc = create_incident(DEVICE, SRC, "Unauthorized Privilege Escalation", "CRITICAL", now, "AD_ELEVATION_RESPONSE")
-    ev = insert_event({
-        "timestamp": now, "device_id": DEVICE, "user_id": OWNER, "host": "secret-host.demo",
-        "effective_username": EVIL_USER, "source_ip": SRC, "event_type": "priv_esc",
-        "raw_message": "synthetic secret line", "attributes": {},
-    })
-    alert = insert_anomaly({
-        "event_id": ev, "device_id": DEVICE, "user_id": OWNER, "source_ip": SRC,
-        "severity_score": 0.95, "severity_label": "CRITICAL", "is_anomaly": True,
-        "threat_type": "Privilege Escalation", "incident_id": inc,
-    })
+    inc = create_incident(
+        DEVICE, SRC, "Unauthorized Privilege Escalation", "CRITICAL", now, "AD_ELEVATION_RESPONSE"
+    )
+    ev = insert_event(
+        {
+            "timestamp": now,
+            "device_id": DEVICE,
+            "user_id": OWNER,
+            "host": "secret-host.demo",
+            "effective_username": EVIL_USER,
+            "source_ip": SRC,
+            "event_type": "priv_esc",
+            "raw_message": "synthetic secret line",
+            "attributes": {},
+        }
+    )
+    alert = insert_anomaly(
+        {
+            "event_id": ev,
+            "device_id": DEVICE,
+            "user_id": OWNER,
+            "source_ip": SRC,
+            "severity_score": 0.95,
+            "severity_label": "CRITICAL",
+            "is_anomaly": True,
+            "threat_type": "Privilege Escalation",
+            "incident_id": inc,
+        }
+    )
     return {"owner": owner, "intruder": intruder, "inc": inc, "alert": alert}
 
 
@@ -83,12 +101,18 @@ def test_entity_lookup_does_not_leak_other_users_data(client, world, q):
 
 
 def test_feedback_cannot_label_or_read_other_users_alerts(client, world):
-    r = client.post("/api/feedback", json={"alert_id": world["alert"], "label": "false_positive"},
-                    headers=world["intruder"])
+    r = client.post(
+        "/api/feedback",
+        json={"alert_id": world["alert"], "label": "false_positive"},
+        headers=world["intruder"],
+    )
     assert r.status_code == 404
 
-    ok = client.post("/api/feedback", json={"alert_id": world["alert"], "label": "true_positive", "note": "mine"},
-                     headers=world["owner"])
+    ok = client.post(
+        "/api/feedback",
+        json={"alert_id": world["alert"], "label": "true_positive", "note": "mine"},
+        headers=world["owner"],
+    )
     assert ok.status_code == 201
     assert client.get("/api/feedback", headers=world["intruder"]).json()["total"] == 0
     assert client.get("/api/feedback", headers=world["owner"]).json()["total"] == 1

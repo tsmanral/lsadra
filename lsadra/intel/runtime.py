@@ -116,8 +116,9 @@ def all_feed_states() -> List[Dict[str, Any]]:
         return [dict(r) for r in conn.execute("SELECT * FROM feed_state ORDER BY feed_id")]
 
 
-def record_feed_result(feed_id: str, url: str, status: str, error: str = "",
-                       etag: str = "", last_modified: str = "") -> None:
+def record_feed_result(
+    feed_id: str, url: str, status: str, error: str = "", etag: str = "", last_modified: str = ""
+) -> None:
     with connect() as conn:
         conn.execute(
             """INSERT INTO feed_state (feed_id, url, etag, last_modified, fetched_at, status, error)
@@ -135,8 +136,13 @@ def record_feed_result(feed_id: str, url: str, status: str, error: str = "",
         conn.commit()
 
 
-def replace_feed(feed_id: str, url: str, entries: Iterable[Tuple[str, str]],
-                 etag: str = "", last_modified: str = "") -> int:
+def replace_feed(
+    feed_id: str,
+    url: str,
+    entries: Iterable[Tuple[str, str]],
+    etag: str = "",
+    last_modified: str = "",
+) -> int:
     """Atomically replace a feed's indicators with ``(value, label)`` entries."""
     now = _now()
     rows = []
@@ -146,14 +152,14 @@ def replace_feed(feed_id: str, url: str, entries: Iterable[Tuple[str, str]],
             continue
         rows.append((feed_id, value.strip(), rng[0], rng[1], label or "", now, now))
     with connect() as conn:
-        old_first_seen = dict(conn.execute(
-            "SELECT value, first_seen FROM indicator WHERE feed_id = ?", (feed_id,)
-        ).fetchall())
+        old_first_seen = dict(
+            conn.execute(
+                "SELECT value, first_seen FROM indicator WHERE feed_id = ?", (feed_id,)
+            ).fetchall()
+        )
         rows = [r[:5] + (old_first_seen.get(r[1], now), now) for r in rows]
         conn.execute("DELETE FROM indicator WHERE feed_id = ?", (feed_id,))
-        conn.executemany(
-            "INSERT OR REPLACE INTO indicator VALUES (?, ?, ?, ?, ?, ?, ?)", rows
-        )
+        conn.executemany("INSERT OR REPLACE INTO indicator VALUES (?, ?, ?, ?, ?, ?, ?)", rows)
         conn.execute(
             """INSERT INTO feed_state (feed_id, url, etag, last_modified, fetched_at,
                                        changed_at, records, status, error)
@@ -226,7 +232,11 @@ def put_abuse(ip: str, data: Dict[str, Any], cache_hours: int) -> None:
 def expiring_abuse(limit: int = 50) -> List[str]:
     cutoff = (datetime.now(timezone.utc) + timedelta(hours=1)).replace(microsecond=0).isoformat()
     with connect() as conn:
-        return [r[0] for r in conn.execute(
-            "SELECT ip_address FROM abuseipdb_cache WHERE expires_at <= ? "
-            "ORDER BY expires_at LIMIT ?", (cutoff, limit)
-        )]
+        return [
+            r[0]
+            for r in conn.execute(
+                "SELECT ip_address FROM abuseipdb_cache WHERE expires_at <= ? "
+                "ORDER BY expires_at LIMIT ?",
+                (cutoff, limit),
+            )
+        ]

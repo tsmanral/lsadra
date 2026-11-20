@@ -137,7 +137,7 @@ These are the same checks CI runs. Run the ones that match what you changed:
 |---|---|---|
 | Anything in Python | `venv/Scripts/python tests/test_v4_smoke.py` (expect 27/27) | 5 s |
 | Anything in Python | `venv/Scripts/python -m pytest tests/security/ -q` (0 failures) | 15 s |
-| Anything in Python | `venv/Scripts/ruff check .` | 1 s |
+| Anything in Python | `venv/Scripts/ruff check .` and `venv/Scripts/ruff format .` | 1 s |
 | Parsers, detection, storage, API | `venv/Scripts/python -m pytest tests/ -q` (full suite) | 1-2 min |
 | One area only | `venv/Scripts/python -m pytest tests/storage -q`, `tests/test_detection_pipeline.py`, ... | seconds |
 | `frontend/` | `cd frontend && npx tsc -b --noEmit && npm run build && npm test && npx eslint .` | 30 s |
@@ -145,6 +145,10 @@ These are the same checks CI runs. Run the ones that match what you changed:
 The frontend ESLint check in CI fails when the error count goes **above** a recorded baseline
 (lint debt is being paid down file by file). If your PR lowers the count, lower the baseline in
 `.github/workflows/ci.yml` too.
+
+CI fails if any Python file is not `ruff format`-clean, so run `ruff format .` before you commit.
+The one-time reformat is listed in `.git-blame-ignore-revs`; run
+`git config blame.ignoreRevsFile .git-blame-ignore-revs` once so `git blame` skips it.
 
 Optional but handy: `pre-commit install && pre-commit install --hook-type commit-msg` runs lint,
 secret scanning and the Conventional Commit check before each commit.
@@ -155,7 +159,7 @@ secret scanning and the Conventional Commit check before each commit.
 git checkout -b fix/short-description
 # ... make the change, add or update a test ...
 venv/Scripts/python tests/test_v4_smoke.py && venv/Scripts/python -m pytest tests/security/ -q
-venv/Scripts/ruff check .
+venv/Scripts/ruff check . && venv/Scripts/ruff format .
 git commit -s -m "fix(parsers): handle empty syslog lines"
 git push -u origin fix/short-description
 ```

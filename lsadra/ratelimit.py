@@ -30,9 +30,9 @@ class SlidingWindowRateLimiter:
         window = self._hits.get(key)
         if window is None:
             window = deque()
-            self._hits[key] = window          # inserted as most-recently-used
+            self._hits[key] = window  # inserted as most-recently-used
         else:
-            self._hits.move_to_end(key)        # mark most-recently-used
+            self._hits.move_to_end(key)  # mark most-recently-used
 
         cutoff = now - self._window
         while window and window[0] <= cutoff:
@@ -60,7 +60,7 @@ class SlidingWindowRateLimiter:
         """Evict one idle (empty or fully aged-out) key, oldest-first. True if evicted."""
         cutoff = now - self._window
         victim = None
-        for k, w in self._hits.items():          # OrderedDict iterates LRU-first
+        for k, w in self._hits.items():  # OrderedDict iterates LRU-first
             if not w or w[-1] <= cutoff:
                 victim = k
                 break

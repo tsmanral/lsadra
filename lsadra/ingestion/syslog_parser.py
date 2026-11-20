@@ -38,11 +38,11 @@ _RFC5424_RE = re.compile(
 # attacker-shaped lines, so sudo, cron and failed-su lines are matched with
 # string searches plus single-gap patterns instead (see _match_* below).
 _CRON_PREFIX_RE = re.compile(r"(?:crond?|CRON)\s*\[")
-_CRON_CMD_RE  = re.compile(r"CMD\s+\(")
-_SERVICE_RE   = re.compile(r"(systemd|service)\[.*\]:\s+(Starting|Started|Stopping|Stopped)\s+(.*)")
-_KERNEL_RE    = re.compile(r"kernel\s*:.*(\bmodule\b|\binsmod\b|\brmmod\b|\bModuleCore\b)")
-_NETIF_RE     = re.compile(r"kernel\s*:.*\b(eth\d+|ens\d+|wlan\d+|tun\d+)\s+(up|down|SLAVE|MASTER)")
-_FOR_USER_RE  = re.compile(r"for\s+(\S+)")
+_CRON_CMD_RE = re.compile(r"CMD\s+\(")
+_SERVICE_RE = re.compile(r"(systemd|service)\[.*\]:\s+(Starting|Started|Stopping|Stopped)\s+(.*)")
+_KERNEL_RE = re.compile(r"kernel\s*:.*(\bmodule\b|\binsmod\b|\brmmod\b|\bModuleCore\b)")
+_NETIF_RE = re.compile(r"kernel\s*:.*\b(eth\d+|ens\d+|wlan\d+|tun\d+)\s+(up|down|SLAVE|MASTER)")
+_FOR_USER_RE = re.compile(r"for\s+(\S+)")
 
 
 def _match_sudo(message: str) -> Optional[str]:
@@ -53,7 +53,7 @@ def _match_sudo(message: str) -> Optional[str]:
     at = message.rfind("COMMAND=")
     if at < start + len("sudo"):
         return None
-    return message[at + len("COMMAND="):]
+    return message[at + len("COMMAND=") :]
 
 
 def _match_cron(message: str) -> Optional[str]:
@@ -72,7 +72,7 @@ def _match_cron(message: str) -> Optional[str]:
         cmd = found  # the last "CMD (" that still has a ")" after it wins
     if cmd is None:
         return None
-    return message[cmd.end():end]
+    return message[cmd.end() : end]
 
 
 def _match_failed_su(message: str) -> Optional[str]:
@@ -156,34 +156,34 @@ class SyslogParser(BaseParser):
         ts, host, process, pid, message = parsed
         event_type, success, extra = self._classify_message(process, message)
 
-        extra.update({
-            "facility":       self._extract_facility(raw_line),
-            "severity_level": self._extract_severity_level(raw_line),
-            "process_name":   process,
-            "pid":            pid,
-            "host":           host,
-        })
+        extra.update(
+            {
+                "facility": self._extract_facility(raw_line),
+                "severity_level": self._extract_severity_level(raw_line),
+                "process_name": process,
+                "pid": pid,
+                "host": host,
+            }
+        )
 
         return {
-            "timestamp":   ts,
+            "timestamp": ts,
             "source_type": self.source_type,
-            "source_ip":   None,
-            "dest_ip":     None,
-            "username":    extra.pop("username", None),
-            "event_type":  event_type,
-            "success":     success,
-            "raw":         raw_line[:2048],
-            "device_id":   device_id,
-            "extra":       extra,
+            "source_ip": None,
+            "dest_ip": None,
+            "username": extra.pop("username", None),
+            "event_type": event_type,
+            "success": success,
+            "raw": raw_line[:2048],
+            "device_id": device_id,
+            "extra": extra,
         }
 
     # ------------------------------------------------------------------
     # Helpers
     # ------------------------------------------------------------------
 
-    def _parse_header(
-        self, line: str
-    ) -> Optional[tuple]:
+    def _parse_header(self, line: str) -> Optional[tuple]:
         """Parse syslog header fields from the raw line."""
         m3164 = _RFC3164_RE.match(line)
         if m3164:
@@ -208,9 +208,7 @@ class SyslogParser(BaseParser):
 
         return None
 
-    def _classify_message(
-        self, process: str, message: str
-    ) -> tuple:
+    def _classify_message(self, process: str, message: str) -> tuple:
         """Classify syslog message into event_type, success, extra dict."""
         extra: Dict[str, Any] = {}
 

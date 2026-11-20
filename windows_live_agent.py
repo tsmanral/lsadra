@@ -12,7 +12,9 @@ SERVER_URL = os.environ.get("LSADRA_SERVER_URL", "http://127.0.0.1:8000")
 # SHA-256 fingerprint of the server's TLS certificate (shown in the dashboard
 # beside the registration token). When set, only that exact certificate is
 # accepted, self-signed or not (G-8).
-SERVER_CERT_SHA256 = re.sub(r"[^0-9a-f]", "", os.environ.get("LSADRA_SERVER_CERT_SHA256", "").lower())
+SERVER_CERT_SHA256 = re.sub(
+    r"[^0-9a-f]", "", os.environ.get("LSADRA_SERVER_CERT_SHA256", "").lower()
+)
 
 
 def _make_session(pin):
@@ -41,6 +43,7 @@ _http = _make_session(SERVER_CERT_SHA256)
 LOG_CHANNELS = ["Security", "System"]
 POLL_INTERVAL_SEC = 5
 
+
 def get_record_id(xml_text):
     """Extract EventRecordID from a Windows Event XML string."""
     try:
@@ -50,30 +53,40 @@ def get_record_id(xml_text):
         if m:
             ns = m.group(1)
         sys_path = ".//ns:System" if ns else ".//System"
-        el = root.find(f"{sys_path}/ns:EventRecordID", {"ns": ns}) if ns else root.find(".//System/EventRecordID")
+        el = (
+            root.find(f"{sys_path}/ns:EventRecordID", {"ns": ns})
+            if ns
+            else root.find(".//System/EventRecordID")
+        )
         if el is not None and el.text:
             return int(el.text)
     except Exception:
         pass
     return 0
 
+
 def get_latest_record_id(channel):
     """Query wevtutil for the most recent EventRecordID in a channel."""
     try:
         res = subprocess.run(
             ["wevtutil", "qe", channel, "/c:1", "/rd:true", "/f:xml"],
-            capture_output=True, text=True, check=True
+            capture_output=True,
+            text=True,
+            check=True,
         )
         if res.stdout.strip():
             return get_record_id(res.stdout.strip())
     except subprocess.CalledProcessError as e:
         if "Access is denied" in e.stderr:
-            print(f"   \u26a0\ufe0f  Access Denied for '{channel}'. Run as Administrator to read this log.")
+            print(
+                f"   \u26a0\ufe0f  Access Denied for '{channel}'. Run as Administrator to read this log."
+            )
         else:
             print(f"   \u26a0\ufe0f  Failed to query '{channel}': {e.stderr.strip()}")
     except Exception as e:
         print(f"   \u26a0\ufe0f  Error getting latest record ID for {channel}: {e}")
     return 0
+
 
 def fetch_new_events(channel, last_id):
     """Fetch all events with EventRecordID > last_id from a channel."""
@@ -81,11 +94,13 @@ def fetch_new_events(channel, last_id):
         query = f"*[System[(EventRecordID > {last_id})]]"
         res = subprocess.run(
             ["wevtutil", "qe", channel, f"/q:{query}", "/f:xml", "/e:Events"],
-            capture_output=True, text=True, check=True
+            capture_output=True,
+            text=True,
+            check=True,
         )
         if not res.stdout.strip():
             return []
-        
+
         root = ET.fromstring(res.stdout.strip())
         events = []
         for child in root:
@@ -94,6 +109,7 @@ def fetch_new_events(channel, last_id):
         return events
     except Exception:
         return []
+
 
 def main():
     print("=" * 70)
@@ -110,7 +126,9 @@ def main():
         print(f"   \u2705 Server is running (version: {resp.json().get('version', '?')})")
     except Exception as e:
         print("   \u274c Could not connect to API. Start the server first:")
-        print("      $env:PYTHONPATH = (Get-Location).Path; .\\venv\\Scripts\\python -m uvicorn server:app")
+        print(
+            "      $env:PYTHONPATH = (Get-Location).Path; .\\venv\\Scripts\\python -m uvicorn server:app"
+        )
         return
 
     # 2. Get DB Token
@@ -118,6 +136,7 @@ def main():
     try:
         from lsadra.storage.database import init_db, get_connection
         from lsadra.onboarding.token_manager import generate_token
+
         init_db()
         conn = get_connection()
         cur = conn.cursor()
@@ -130,13 +149,14 @@ def main():
             from lsadra.auth import hash_password
             from lsadra.storage.database import create_user
             import uuid
+
             user_id = str(uuid.uuid4())
             create_user(user_id, "admin", hash_password("admin"), "ADMIN")
             print("   \u2705 Created default 'admin' user.")
         else:
             user_id = row[0]
             print(f"   \u2705 Found admin user.")
-            
+
         token = generate_token(user_id)
     except Exception as e:
         print(f"Failed to extract token: {e}")
@@ -145,20 +165,19 @@ def main():
     # 3. Register device
     print("\n3. Registering Live Windows Machine...")
     try:
-        hostname = os.environ.get('COMPUTERNAME', 'Windows-Live-Device')
-        resp = _http.post(f"{SERVER_URL}/api/devices/register", json={
-            "token": token,
-            "hostname": hostname,
-            "os_type": "windows"
-        })
-        
+        hostname = os.environ.get("COMPUTERNAME", "Windows-Live-Device")
+        resp = _http.post(
+            f"{SERVER_URL}/api/devices/register",
+            json={"token": token, "hostname": hostname, "os_type": "windows"},
+        )
+
         if resp.status_code != 200:
             print(f"   \u274c API Error: {resp.text}")
             return
-            
+
         data = resp.json()
-        device_id = data['device_id']
-        api_key = data['api_key']
+        device_id = data["device_id"]
+        api_key = data["api_key"]
         print(f"   \u2705 Registered successfully! Device ID: {device_id[:8]}...")
     except Exception as e:
         print(f"Failed to register device: {e}")
@@ -168,12 +187,17 @@ def main():
     def send_heartbeats():
         while True:
             try:
-                _http.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": device_id, "X-Api-Key": api_key}, json={
-                    "device_id": device_id,
-                    "cpu_pct": 10.0,
-                    "mem_pct": 50.0,
-                    "agent_version": "4.0.0",
-                }, timeout=5)
+                _http.post(
+                    f"{SERVER_URL}/heartbeat",
+                    headers={"X-Device-Id": device_id, "X-Api-Key": api_key},
+                    json={
+                        "device_id": device_id,
+                        "cpu_pct": 10.0,
+                        "mem_pct": 50.0,
+                        "agent_version": "4.0.0",
+                    },
+                    timeout=5,
+                )
             except Exception:
                 pass
             time.sleep(30)
@@ -197,18 +221,14 @@ def main():
 
     print(f"\n5. Harvesting LIVE events... (Press Ctrl+C to stop)")
     print("=" * 70)
-    
-    headers = {
-        "X-Device-Id": device_id,
-        "X-Api-Key": api_key,
-        "Content-Type": "application/json"
-    }
+
+    headers = {"X-Device-Id": device_id, "X-Api-Key": api_key, "Content-Type": "application/json"}
 
     try:
         while True:
             for ch in LOG_CHANNELS:
                 if record_ids[ch] == 0 and ch == "Security":
-                    continue # Skip if no access
+                    continue  # Skip if no access
 
                 events = fetch_new_events(ch, record_ids[ch])
                 if events:
@@ -217,26 +237,31 @@ def main():
                         rid = get_record_id(ev)
                         if rid > record_ids[ch]:
                             record_ids[ch] = rid
-                    
+
                     # Push to V4 raw log API
                     # source_hint must be one of ssh|syslog|windows|network|endpoint.
                     lines = [{"raw_line": ev, "source_hint": "windows"} for ev in events]
-                    
+
                     batch_size = 50
                     for i in range(0, len(lines), batch_size):
-                        batch = {"lines": lines[i:i+batch_size]}
+                        batch = {"lines": lines[i : i + batch_size]}
                         try:
-                            res = _http.post(f"{SERVER_URL}/api/events/raw", json=batch, headers=headers)
+                            res = _http.post(
+                                f"{SERVER_URL}/api/events/raw", json=batch, headers=headers
+                            )
                             if res.status_code == 200:
-                                accepted = res.json().get('accepted', 0)
+                                accepted = res.json().get("accepted", 0)
                                 if accepted > 0:
-                                    print(f"[{time.strftime('%X')}] Sent {accepted} parsed events from {ch}.")
+                                    print(
+                                        f"[{time.strftime('%X')}] Sent {accepted} parsed events from {ch}."
+                                    )
                         except Exception as e:
                             print(f"Error sending batch: {e}")
 
             time.sleep(POLL_INTERVAL_SEC)
     except KeyboardInterrupt:
         print("\nShutting down LIVE Windows Agent.")
+
 
 if __name__ == "__main__":
     main()

@@ -101,8 +101,12 @@ def build_notes(tag: str, owner: str, digest: str) -> str:
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.splitlines()[0])
-    parser.add_argument("--check", action="store_true", help="only check that version sources agree")
-    parser.add_argument("--next-version", action="store_true", help="print the next release's version")
+    parser.add_argument(
+        "--check", action="store_true", help="only check that version sources agree"
+    )
+    parser.add_argument(
+        "--next-version", action="store_true", help="print the next release's version"
+    )
     parser.add_argument("--tag")
     parser.add_argument("--owner")
     parser.add_argument("--digest")

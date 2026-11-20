@@ -26,9 +26,14 @@ def _fresh(tmp_path, monkeypatch):
     monkeypatch.setattr(config, "ABUSEIPDB_API_KEY", "")
     monkeypatch.setattr(config, "GEOIP_DB", str(tmp_path / "missing.mmdb"))
     # Synthetic data uses documentation ranges; let them count as public here.
-    monkeypatch.setattr(intel, "TREAT_AS_PUBLIC", tuple(
-        ipaddress.ip_network(n) for n in
-        ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")))
+    monkeypatch.setattr(
+        intel,
+        "TREAT_AS_PUBLIC",
+        tuple(
+            ipaddress.ip_network(n)
+            for n in ("192.0.2.0/24", "198.51.100.0/24", "203.0.113.0/24", "2001:db8::/32")
+        ),
+    )
 
 
 # ── Bundled tier ─────────────────────────────────────────────────────────
@@ -106,9 +111,19 @@ def test_abuseipdb_with_key_is_cached_in_runtime_db(monkeypatch):
 
     def handler(req):
         calls.append(req)
-        return httpx.Response(200, json={"data": {
-            "abuseConfidenceScore": 88, "countryCode": "ZZ", "totalReports": 3,
-            "isTor": False, "isp": "Example ISP", "domain": "example.net"}})
+        return httpx.Response(
+            200,
+            json={
+                "data": {
+                    "abuseConfidenceScore": 88,
+                    "countryCode": "ZZ",
+                    "totalReports": 3,
+                    "isTor": False,
+                    "isp": "Example ISP",
+                    "domain": "example.net",
+                }
+            },
+        )
 
     async def go():
         async with httpx.AsyncClient(transport=httpx.MockTransport(handler)) as c:
@@ -126,8 +141,10 @@ def test_abuseipdb_with_key_is_cached_in_runtime_db(monkeypatch):
 # ── Runtime feeds ────────────────────────────────────────────────────────
 
 FEODO = json.dumps([{"ip_address": "192.0.2.10", "malware": "ExampleBot"}]).encode()
-DROP4 = b'{"cidr":"198.51.100.0/24","sblid":"SBL000001","rir":"demo"}\n' \
-        b'{"type":"metadata","records":1}\n'
+DROP4 = (
+    b'{"cidr":"198.51.100.0/24","sblid":"SBL000001","rir":"demo"}\n'
+    b'{"type":"metadata","records":1}\n'
+)
 DROP6 = b'{"cidr":"2001:db8::/32","sblid":"SBL000002","rir":"demo"}\n'
 TOR = b"# synthetic\n203.0.113.9\n"
 
@@ -210,9 +227,11 @@ class _FakeReader:
 
     def get(self, ip):
         if ip == "192.0.2.1":
-            return {"country": {"iso_code": "ZZ", "names": {"en": "Testland"}},
-                    "city": {"names": {"en": "Demo City"}},
-                    "location": {"latitude": 1.5, "longitude": 2.5}}
+            return {
+                "country": {"iso_code": "ZZ", "names": {"en": "Testland"}},
+                "city": {"names": {"en": "Demo City"}},
+                "location": {"latitude": 1.5, "longitude": 2.5},
+            }
         return None
 
 
@@ -246,7 +265,9 @@ def test_narrative_does_not_print_a_score_it_does_not_have():
     from lsadra.explainability.narrative_builder import _para_executive_summary
 
     text = _para_executive_summary(
-        "203.0.113.9", {"attack_type": "brute_force"}, [],
+        "203.0.113.9",
+        {"attack_type": "brute_force"},
+        [],
         {"country_code": "ZZ", "is_tor": True, "feed_matches": ["Tor exit nodes: tor-exit"]},
     )
     assert "AbuseIPDB" not in text and "Tor exit node" in text
@@ -318,8 +339,16 @@ def test_flagged_ips_are_public_only_and_scoped(client):
     from lsadra.storage.database import insert_anomaly
 
     def anomaly(ip, uid):
-        insert_anomaly({"device_id": "dev-1", "user_id": uid, "source_ip": ip,
-                        "severity_score": 0.8, "severity_label": "HIGH", "is_anomaly": True})
+        insert_anomaly(
+            {
+                "device_id": "dev-1",
+                "user_id": uid,
+                "source_ip": ip,
+                "severity_score": 0.8,
+                "severity_label": "HIGH",
+                "is_anomaly": True,
+            }
+        )
 
     analyst = _auth("ANALYST", uid="u-analyst")
     admin = _auth("ADMIN", uid="u-admin")

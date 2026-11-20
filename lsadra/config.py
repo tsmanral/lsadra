@@ -57,9 +57,7 @@ DEV_MODE: bool = os.getenv("LSADRA_DEV_MODE", "false").lower() == "true"
 # Dev mode only — a production core that silently stops detecting is a security
 # failure, so setting it outside dev mode refuses to boot rather than being
 # ignored or honoured.
-BENCH_SKIP_DETECTION: bool = (
-    os.getenv("LSADRA_BENCH_SKIP_DETECTION", "false").lower() == "true"
-)
+BENCH_SKIP_DETECTION: bool = os.getenv("LSADRA_BENCH_SKIP_DETECTION", "false").lower() == "true"
 if BENCH_SKIP_DETECTION and not DEV_MODE:
     raise RuntimeError(
         "LSADRA_BENCH_SKIP_DETECTION=true is a benchmark switch and requires "
@@ -112,16 +110,18 @@ _jwt_secret_env = os.getenv("LSADRA_JWT_SECRET")
 # mode such a value is refused like a missing one. (Placeholders are compared
 # case-insensitively; length is counted in bytes.)
 JWT_SECRET_MIN_BYTES: int = 32
-_KNOWN_PLACEHOLDER_SECRETS = frozenset({
-    "changeme-in-production",
-    "changeme",
-    "change-me",
-    "changeit",
-    "secret",
-    "your-secret-key",
-    "your-jwt-secret",
-    "replace-me",
-})
+_KNOWN_PLACEHOLDER_SECRETS = frozenset(
+    {
+        "changeme-in-production",
+        "changeme",
+        "change-me",
+        "changeit",
+        "secret",
+        "your-secret-key",
+        "your-jwt-secret",
+        "replace-me",
+    }
+)
 
 
 def _jwt_secret_problem(value: str) -> Optional[str]:
@@ -166,9 +166,9 @@ TOKEN_ALGORITHM: str = "HS256"
 # otherwise anyone who can reach the port can create an account. Admins are
 # created with `python -m lsadra.admin_cli create-admin`, and an admin can add
 # users through POST /api/dashboard/users. Set true to open sign-up on purpose.
-ALLOW_SIGNUP: bool = os.getenv(
-    "LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false"
-).lower() == "true"
+ALLOW_SIGNUP: bool = (
+    os.getenv("LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false").lower() == "true"
+)
 # First-run admin setup (desktop app). When set, POST /api/setup/admin creates
 # the first ADMIN account from a loopback client that presents this token, and
 # only while no admin exists. The desktop app generates a fresh random token at
@@ -185,8 +185,8 @@ REGISTRATION_TOKEN_LIFETIME_MINUTES: int = 15  # single-use, short-lived
 # ---------------------------------------------------------------------------
 # Rate Limiting (per-window)
 # ---------------------------------------------------------------------------
-RATE_LIMIT_REGISTER_PER_MIN: int = 5   # POST /api/devices/register per IP
-RATE_LIMIT_EVENTS_PER_MIN: int = 60    # POST /api/events/batch per device
+RATE_LIMIT_REGISTER_PER_MIN: int = 5  # POST /api/devices/register per IP
+RATE_LIMIT_EVENTS_PER_MIN: int = 60  # POST /api/events/batch per device
 # Max distinct rate-limit keys (devices / IPs) tracked before LRU eviction —
 # bounds memory against dead or spoofed identifiers. (§6 #5)
 RATE_LIMIT_MAX_KEYS: int = int(os.getenv("LSADRA_RATE_LIMIT_MAX_KEYS", "10000"))
@@ -199,7 +199,9 @@ RATE_LIMIT_MAX_KEYS: int = int(os.getenv("LSADRA_RATE_LIMIT_MAX_KEYS", "10000"))
 # was verified against. The device row is still read on every request; only
 # the repeat bcrypt verify is skipped. 0 disables the cache.
 # (lsadra/ingestion/credential_cache.py)
-DEVICE_AUTH_CACHE_TTL_SECONDS: float = float(os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60"))
+DEVICE_AUTH_CACHE_TTL_SECONDS: float = float(
+    os.getenv("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS", "60")
+)
 DEVICE_AUTH_CACHE_MAX_ENTRIES: int = int(os.getenv("LSADRA_DEVICE_AUTH_CACHE_MAX_ENTRIES", "10000"))
 if not 0 <= DEVICE_AUTH_CACHE_TTL_SECONDS <= 3600:
     raise RuntimeError("LSADRA_DEVICE_AUTH_CACHE_TTL_SECONDS must be between 0 and 3600.")
@@ -310,9 +312,7 @@ INCIDENT_WINDOW_MINUTES: int = int(os.getenv("LSADRA_INCIDENT_WINDOW_MINUTES", "
 # ---------------------------------------------------------------------------
 # Device Monitoring
 # ---------------------------------------------------------------------------
-DEVICE_ONLINE_THRESHOLD_MINUTES: int = int(
-    os.getenv("LSADRA_DEVICE_ONLINE_THRESHOLD_MINUTES", "5")
-)
+DEVICE_ONLINE_THRESHOLD_MINUTES: int = int(os.getenv("LSADRA_DEVICE_ONLINE_THRESHOLD_MINUTES", "5"))
 
 # ---------------------------------------------------------------------------
 # Model Defaults
@@ -384,9 +384,7 @@ INTEL_RUNTIME_DB: Path = Path(
 )
 # Keyless runtime feeds to download (comma-separated): feodo, spamhaus_drop,
 # tor_exits. Empty by default so a fresh install makes no outbound requests.
-INTEL_FEEDS: list = [
-    f.strip() for f in os.getenv("LSADRA_INTEL_FEEDS", "").split(",") if f.strip()
-]
+INTEL_FEEDS: list = [f.strip() for f in os.getenv("LSADRA_INTEL_FEEDS", "").split(",") if f.strip()]
 INTEL_FEED_REFRESH_HOURS: int = int(os.getenv("LSADRA_INTEL_FEED_REFRESH_HOURS", "12"))
 # Optional keyed source. Lookups send the IP to AbuseIPDB, so they only happen
 # when the operator sets a key.
@@ -405,9 +403,7 @@ MAXMIND_LICENSE_KEY: str = os.getenv("LSADRA_MAXMIND_LICENSE_KEY", "")
 # ---------------------------------------------------------------------------
 # Metrics Aggregation
 # ---------------------------------------------------------------------------
-METRICS_AGGREGATION_INTERVAL_MINUTES: int = int(
-    os.getenv("LSADRA_METRICS_INTERVAL_MINUTES", "5")
-)
+METRICS_AGGREGATION_INTERVAL_MINUTES: int = int(os.getenv("LSADRA_METRICS_INTERVAL_MINUTES", "5"))
 
 # ---------------------------------------------------------------------------
 # Data Retention
@@ -451,30 +447,26 @@ INGESTION_SILENCE_THRESHOLD_MINUTES: int = int(
 )
 
 # Lateral movement detection: look-back window
-LATERAL_MOVEMENT_WINDOW_MINUTES: int = int(
-    os.getenv("LSADRA_V4_LAT_MOV_WINDOW_MINUTES", "30")
-)
+LATERAL_MOVEMENT_WINDOW_MINUTES: int = int(os.getenv("LSADRA_V4_LAT_MOV_WINDOW_MINUTES", "30"))
 
 # Cross-source correlation: number of source types before elevation
-CROSS_SOURCE_ELEVATION_THRESHOLD: int = int(
-    os.getenv("LSADRA_V4_CROSS_SOURCE_ELEVATION", "2")
-)
+CROSS_SOURCE_ELEVATION_THRESHOLD: int = int(os.getenv("LSADRA_V4_CROSS_SOURCE_ELEVATION", "2"))
 
 # V4 dynamic severity score thresholds (override SEVERITY_THRESHOLDS for V4 rules)
 V4_SEVERITY_THRESHOLDS: dict = {
     "CRITICAL": float(os.getenv("LSADRA_V4_SEV_CRITICAL", "0.75")),
-    "HIGH":     float(os.getenv("LSADRA_V4_SEV_HIGH",     "0.50")),
-    "MEDIUM":   float(os.getenv("LSADRA_V4_SEV_MEDIUM",   "0.25")),
+    "HIGH": float(os.getenv("LSADRA_V4_SEV_HIGH", "0.50")),
+    "MEDIUM": float(os.getenv("LSADRA_V4_SEV_MEDIUM", "0.25")),
 }
 
 # Brute force rule thresholds (tunable by analyst feedback)
 BRUTE_FORCE_5MIN_CRITICAL: int = int(os.getenv("LSADRA_V4_BF_5MIN_CRITICAL", "15"))
-BRUTE_FORCE_5MIN_HIGH:     int = int(os.getenv("LSADRA_V4_BF_5MIN_HIGH",     "5"))
-BRUTE_FORCE_15MIN_MEDIUM:  int = int(os.getenv("LSADRA_V4_BF_15MIN_MED",     "8"))
+BRUTE_FORCE_5MIN_HIGH: int = int(os.getenv("LSADRA_V4_BF_5MIN_HIGH", "5"))
+BRUTE_FORCE_15MIN_MEDIUM: int = int(os.getenv("LSADRA_V4_BF_15MIN_MED", "8"))
 
 # Port scan thresholds
 PORT_SCAN_CRITICAL_THRESHOLD: int = int(os.getenv("LSADRA_V4_PORT_SCAN_CRITICAL", "50"))
-PORT_SCAN_HIGH_THRESHOLD:     int = int(os.getenv("LSADRA_V4_PORT_SCAN_HIGH",     "15"))
+PORT_SCAN_HIGH_THRESHOLD: int = int(os.getenv("LSADRA_V4_PORT_SCAN_HIGH", "15"))
 
 # Large data transfer threshold (bytes)
 LARGE_TRANSFER_BYTES: int = int(os.getenv("LSADRA_V4_LARGE_TRANSFER_BYTES", "10000000"))

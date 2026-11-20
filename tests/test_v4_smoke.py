@@ -47,7 +47,7 @@ def fail(name, exc=None):
 
 
 def section(title):
-    print(f"\n{'─'*60}\n  {title}\n{'─'*60}")
+    print(f"\n{'─' * 60}\n  {title}\n{'─' * 60}")
 
 
 # ──────────────────────────────────────────────────────────────
@@ -57,12 +57,14 @@ section("1. V4 Parser imports & basic parsing")
 
 try:
     from lsadra.ingestion.base_parser import BaseParser, REQUIRED_SCHEMA_FIELDS
+
     ok("base_parser import")
 except Exception as e:
     fail("base_parser import", e)
 
 try:
     from lsadra.ingestion.syslog_parser import SyslogParser
+
     p = SyslogParser()
     line = "Jan  5 12:34:56 hostname sudo[1234]: root : COMMAND=/bin/bash"
     assert p.can_parse(line), "can_parse should return True"
@@ -76,6 +78,7 @@ except Exception as e:
 
 try:
     from lsadra.ingestion.windows_event_parser import WindowsEventParser
+
     p = WindowsEventParser()
     line = "4625|2024-01-01T12:00:00|jsmith|192.168.1.1||"
     assert p.can_parse(line), "can_parse should return True"
@@ -89,6 +92,7 @@ except Exception as e:
 
 try:
     from lsadra.ingestion.network_flow_parser import NetworkFlowParser
+
     p = NetworkFlowParser()
     line = "2024-01-01T12:00:00,192.168.1.100,10.0.0.5,54321,22,TCP,512,4"
     assert p.can_parse(line), "can_parse should return True"
@@ -101,6 +105,7 @@ except Exception as e:
 
 try:
     from lsadra.ingestion.network_flow_parser import NetworkFlowParser
+
     p = NetworkFlowParser()
     line = "Jan  5 12:00:00 IN=eth0 OUT= SRC=1.2.3.4 DST=5.6.7.8 PROTO=TCP SPT=12345 DPT=22"
     assert p.can_parse(line), "firewall line should be parseable"
@@ -113,6 +118,7 @@ except Exception as e:
 
 try:
     from lsadra.ingestion.endpoint_parser import EndpointParser
+
     p = EndpointParser()
     line = "2024-01-01T12:00:00|dev-001|jsmith|powershell.exe|winword.exe|powershell -enc dQBuAGkA|C:\\Windows\\Temp|process_create"
     assert p.can_parse(line), "endpoint line should be parseable"
@@ -132,6 +138,7 @@ section("2. IngestionManager auto-routing")
 
 try:
     from lsadra.ingestion.ingestion_manager import IngestionManager
+
     mgr = IngestionManager()
     assert len(mgr.parsers) >= 5
     ok("IngestionManager instantiation")
@@ -178,18 +185,20 @@ try:
     rows = []
     base = datetime(2024, 1, 1, 12, 0, 0)
     for i in range(20):
-        rows.append({
-            "timestamp":   (base + timedelta(seconds=i * 15)).isoformat(),
-            "source_ip":   "192.168.1.100",
-            "dest_ip":     "10.0.0.1",
-            "username":    "jsmith",
-            "event_type":  "login_attempt",
-            "source_type": "ssh_log",
-            "success":     (i % 6 != 0),
-            "device_id":   "dev-001",
-            "extra":       {},
-            "raw":         f"test line {i}",
-        })
+        rows.append(
+            {
+                "timestamp": (base + timedelta(seconds=i * 15)).isoformat(),
+                "source_ip": "192.168.1.100",
+                "dest_ip": "10.0.0.1",
+                "username": "jsmith",
+                "event_type": "login_attempt",
+                "source_type": "ssh_log",
+                "success": (i % 6 != 0),
+                "device_id": "dev-001",
+                "extra": {},
+                "raw": f"test line {i}",
+            }
+        )
     df = pd.DataFrame(rows)
     result = build_enhanced_feature_table(df)
     assert not result.empty, "result df is empty"
@@ -209,26 +218,33 @@ try:
     from lsadra.detection.rule_engine import evaluate_rules, evaluate_all_v4_rules
 
     # V3 preserved
-    name, mitre = evaluate_rules({
-        "failures_15m": 25, "unique_users_15m": 2, "successes_15m": 0,
-        "is_off_hours": 0, "failure_ratio_15m": 0.95,
-    })
+    name, mitre = evaluate_rules(
+        {
+            "failures_15m": 25,
+            "unique_users_15m": 2,
+            "successes_15m": 0,
+            "is_off_hours": 0,
+            "failure_ratio_15m": 0.95,
+        }
+    )
     assert name == "Brute Force Attack"
     ok(f"V3 evaluate_rules preserved — '{name}', {mitre}")
 except Exception as e:
     fail("V3 evaluate_rules", e)
 
 try:
-    alert = evaluate_all_v4_rules({
-        "source_ip":               "1.2.3.4",
-        "failed_logins_last_5min": 18,
-        "failed_logins_last_15min": 25,
-        "login_attempt_velocity":  3.5,
-        "unique_usernames_per_ip": 1,
-        "failure_ratio":           0.95,
-        "cross_source_activity":   False,
-        "source_type":             "ssh_log",
-    })
+    alert = evaluate_all_v4_rules(
+        {
+            "source_ip": "1.2.3.4",
+            "failed_logins_last_5min": 18,
+            "failed_logins_last_15min": 25,
+            "login_attempt_velocity": 3.5,
+            "unique_usernames_per_ip": 1,
+            "failure_ratio": 0.95,
+            "cross_source_activity": False,
+            "source_type": "ssh_log",
+        }
+    )
     assert alert is not None
     assert alert["type"] == "BRUTE_FORCE"
     assert alert["severity"] in ("HIGH", "CRITICAL")
@@ -239,11 +255,14 @@ except Exception as e:
 
 try:
     from lsadra.detection.rule_engine import check_port_scan
-    alert = check_port_scan({
-        "source_ip": "10.0.0.1",
-        "source_type": "network_flow",
-        "unique_dst_ports_per_ip": 60,
-    })
+
+    alert = check_port_scan(
+        {
+            "source_ip": "10.0.0.1",
+            "source_type": "network_flow",
+            "unique_dst_ports_per_ip": 60,
+        }
+    )
     assert alert is not None
     assert alert["type"] == "PORT_SCAN"
     ok(f"check_port_scan — {alert['severity']}")
@@ -258,7 +277,9 @@ section("5. Dynamic severity scoring")
 try:
     from lsadra.detection.severity import compute_severity_score, calculate_dynamic_severity
 
-    score, label = compute_severity_score(layer1_z=8.0, layer2_score=0.9, layer2_votes=3, total_models=3, layer3_error=0.4)
+    score, label = compute_severity_score(
+        layer1_z=8.0, layer2_score=0.9, layer2_votes=3, total_models=3, layer3_error=0.4
+    )
     assert 0.0 <= score <= 1.0
     ok(f"V3 compute_severity_score preserved — {score:.3f} / {label}")
 except Exception as e:
@@ -291,7 +312,12 @@ try:
     text = NarrativeBuilder.build(
         threat_type="Brute Force Attack",
         mitre_id="T1110.001",
-        row_data={"source_ip": "1.2.3.4", "effective_username": "root", "failures_15m": 30, "is_off_hours": 1},
+        row_data={
+            "source_ip": "1.2.3.4",
+            "effective_username": "root",
+            "failures_15m": 30,
+            "is_off_hours": 1,
+        },
         layer1_z=7.5,
         layer2_score=0.9,
     )
@@ -345,7 +371,9 @@ try:
     )
     assert "pattern" in result
     assert "suggested_threshold_change" in result
-    ok(f"analyze_false_positive — pattern='{result['pattern']}', confidence='{result['confidence']}'")
+    ok(
+        f"analyze_false_positive — pattern='{result['pattern']}', confidence='{result['confidence']}'"
+    )
 except Exception as e:
     fail("analyze_false_positive", e)
     traceback.print_exc()
@@ -357,14 +385,19 @@ section("7. Database: migration + V4 CRUD")
 
 _MIGRATION_002 = os.path.join(
     os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
-    "lsadra", "storage", "migrations", "002_v4_schema.sql",
+    "lsadra",
+    "storage",
+    "migrations",
+    "002_v4_schema.sql",
 )
 
 try:
     migration_sql = open(_MIGRATION_002, "r").read()
     conn = sqlite3.connect(":memory:")
     conn.executescript(migration_sql)
-    tables = [r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()]
+    tables = [
+        r[0] for r in conn.execute("SELECT name FROM sqlite_master WHERE type='table'").fetchall()
+    ]
     assert "alerts_feedback" in tables, f"alerts_feedback missing — got {tables}"
     assert "ingestion_stats" in tables, f"ingestion_stats missing"
     ok(f"002_v4_schema.sql applied — tables: {tables}")
@@ -376,8 +409,11 @@ except Exception as e:
 try:
     import json, pathlib
     from lsadra.storage.database import (
-        store_feedback, get_false_positive_patterns,
-        get_fp_rate_by_source_type, update_ingestion_stats, get_ingestion_stats,
+        store_feedback,
+        get_false_positive_patterns,
+        get_fp_rate_by_source_type,
+        update_ingestion_stats,
+        get_ingestion_stats,
     )
 
     tmp = tempfile.NamedTemporaryFile(suffix=".db", delete=False)
@@ -398,8 +434,15 @@ try:
     conn.commit()
 
     # Test store_feedback with explicit conn (no DB_PATH lookup)
-    store_feedback(conn, 1, "false_positive", "test note",
-                   "monitoring_automation", {"failed_logins_last_5min": 12}, "ssh_log")
+    store_feedback(
+        conn,
+        1,
+        "false_positive",
+        "test note",
+        "monitoring_automation",
+        {"failed_logins_last_5min": 12},
+        "ssh_log",
+    )
 
     fps = get_false_positive_patterns(conn)
     assert len(fps) >= 1, f"Expected feedback rows, got {fps}"
@@ -415,7 +458,9 @@ try:
 
     conn.close()
     os.unlink(tmp.name)
-    ok("store_feedback + get_false_positive_patterns + update_ingestion_stats + get_ingestion_stats + get_fp_rate_by_source_type")
+    ok(
+        "store_feedback + get_false_positive_patterns + update_ingestion_stats + get_ingestion_stats + get_fp_rate_by_source_type"
+    )
 except Exception as e:
     fail("DB V4 CRUD helpers", e)
     traceback.print_exc()
@@ -427,6 +472,7 @@ section("8. Scheduler V4 job registration")
 
 try:
     from lsadra.jobs import scheduler as sched_mod
+
     # Just import and verify V4 job functions exist, don't actually start scheduler
     assert callable(sched_mod._run_cross_source_correlation)
     assert callable(sched_mod._run_lateral_movement_scan)
@@ -442,14 +488,15 @@ except Exception as e:
 section("9. Dashboard API routers (lsadra.api)")
 
 for router_name, module_path in [
-    ("dashboard",    "lsadra.api.dashboard"),
-    ("identity",     "lsadra.api.identity"),
-    ("models",       "lsadra.api.models"),
+    ("dashboard", "lsadra.api.dashboard"),
+    ("identity", "lsadra.api.identity"),
+    ("models", "lsadra.api.models"),
     ("alert_stream", "lsadra.api.alert_stream"),
 ]:
     try:
         import importlib
         from fastapi import APIRouter
+
         mod = importlib.import_module(module_path)
         router = getattr(mod, "router", None)
         assert isinstance(router, APIRouter), "router missing"
@@ -465,27 +512,30 @@ section("10. Config V4 keys")
 
 try:
     from lsadra import config as cfg
+
     assert hasattr(cfg, "BRUTE_FORCE_5MIN_CRITICAL")
     assert hasattr(cfg, "PORT_SCAN_CRITICAL_THRESHOLD")
     assert hasattr(cfg, "LARGE_TRANSFER_BYTES")
     assert hasattr(cfg, "V4_SEVERITY_THRESHOLDS")
     assert hasattr(cfg, "INGESTION_SILENCE_THRESHOLD_MINUTES")
-    ok(f"All V4 config keys present — BF_5M_CRITICAL={cfg.BRUTE_FORCE_5MIN_CRITICAL}, "
-       f"PORT_SCAN_CRIT={cfg.PORT_SCAN_CRITICAL_THRESHOLD}, "
-       f"LARGE_XFER={cfg.LARGE_TRANSFER_BYTES:,} bytes")
+    ok(
+        f"All V4 config keys present — BF_5M_CRITICAL={cfg.BRUTE_FORCE_5MIN_CRITICAL}, "
+        f"PORT_SCAN_CRIT={cfg.PORT_SCAN_CRITICAL_THRESHOLD}, "
+        f"LARGE_XFER={cfg.LARGE_TRANSFER_BYTES:,} bytes"
+    )
 except Exception as e:
     fail("V4 config keys", e)
 
 # ──────────────────────────────────────────────────────────────
 # SUMMARY
 # ──────────────────────────────────────────────────────────────
-print(f"\n{'═'*60}")
+print(f"\n{'═' * 60}")
 total = PASS + FAIL
 print(f"  V4 SMOKE TEST RESULTS: {PASS}/{total} passed")
 if FAIL:
     print(f"  ⚠️  {FAIL} test(s) failed — review output above")
 else:
     print("  🎉  All V4 tests passed!")
-print(f"{'═'*60}\n")
+print(f"{'═' * 60}\n")
 
 sys.exit(0 if FAIL == 0 else 1)

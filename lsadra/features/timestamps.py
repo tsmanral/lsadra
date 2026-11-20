@@ -41,7 +41,11 @@ def parse_event_timestamps(values: pd.Series) -> pd.Series:
         return pd.to_datetime(values)
 
     if pd.api.types.is_datetime64_any_dtype(values):
-        parsed = values.dt.tz_convert("UTC") if values.dt.tz is not None else values.dt.tz_localize("UTC")
+        parsed = (
+            values.dt.tz_convert("UTC")
+            if values.dt.tz is not None
+            else values.dt.tz_localize("UTC")
+        )
     else:
         as_text = values.where(values.isna(), values.astype(str))
         parsed = _to_utc(as_text, format="ISO8601")

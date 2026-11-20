@@ -22,9 +22,7 @@ from lsadra.storage.database import (
 logger = logging.getLogger(__name__)
 
 
-def _calculate_psi(
-    reference: np.ndarray, current: np.ndarray, n_bins: int = 10
-) -> float:
+def _calculate_psi(reference: np.ndarray, current: np.ndarray, n_bins: int = 10) -> float:
     """
     Calculate Population Stability Index between two 1-D distributions.
 
@@ -97,7 +95,10 @@ def detect_drift(
             drifted[feat] = psi
             logger.warning(
                 "Feature drift detected: %s (PSI=%.4f > %.4f) for model '%s'",
-                feat, psi, threshold, model_name,
+                feat,
+                psi,
+                threshold,
+                model_name,
             )
 
     # If any feature has drifted, mark the model as stale
@@ -194,7 +195,8 @@ def run(
         return {}
     current = _recent_feature_window(config.DRIFT_WINDOW_HOURS)
     if current.empty:
-        logger.info("Drift detection skipped — no events in the last %d h.",
-                    config.DRIFT_WINDOW_HOURS)
+        logger.info(
+            "Drift detection skipped — no events in the last %d h.", config.DRIFT_WINDOW_HOURS
+        )
         return {}
     return detect_drift_from_reference(reference, current)

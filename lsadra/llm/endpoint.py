@@ -73,7 +73,9 @@ def pinned_models() -> Dict[str, str]:
 def verify_model_weights(path: Path, expected_sha256: Optional[str] = None) -> Path:
     """Refuse weights whose hash is not pinned (release pin or operator override)."""
     path = Path(path)
-    expected = expected_sha256 or os.getenv("LSADRA_LLM_MODEL_SHA256") or pinned_models().get(path.name)
+    expected = (
+        expected_sha256 or os.getenv("LSADRA_LLM_MODEL_SHA256") or pinned_models().get(path.name)
+    )
     if not expected:
         raise ModelIntegrityError(
             f"{path.name} has no pinned SHA-256; set LSADRA_LLM_MODEL_SHA256 for a model you chose"

@@ -110,7 +110,9 @@ def test_release_dry_run_never_publishes():
     for job in wf["jobs"].values():
         for key, value in job.get("permissions", {}).items():
             assert value in ("read", "none"), f"dry run asks for {key}: {value}"
-    build = next(s for s in wf["jobs"]["image"]["steps"] if "build-push-action" in s.get("uses", ""))
+    build = next(
+        s for s in wf["jobs"]["image"]["steps"] if "build-push-action" in s.get("uses", "")
+    )
     assert build["with"]["push"] is False
     assert "--dry-run" in text
     for forbidden in ("gh release", "git tag", "git push", "cosign sign"):
@@ -121,7 +123,18 @@ def test_notes_include_hand_written_notes_and_verification(tmp_path):
     out = tmp_path / "notes.md"
     digest = "sha256:" + "0" * 64
     subprocess.run(  # noqa: S603 - fixed argv, no shell
-        [sys.executable, str(SCRIPT), "--tag", "v6.0.0", "--owner", "example", "--digest", digest, "--out", str(out)],
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--tag",
+            "v6.0.0",
+            "--owner",
+            "example",
+            "--digest",
+            digest,
+            "--out",
+            str(out),
+        ],
         check=True,
     )
     notes = out.read_text(encoding="utf-8")
@@ -131,7 +144,18 @@ def test_notes_include_hand_written_notes_and_verification(tmp_path):
 
 def test_notes_refuse_a_non_release_tag(tmp_path):
     proc = subprocess.run(  # noqa: S603 - fixed argv, no shell
-        [sys.executable, str(SCRIPT), "--tag", "main", "--owner", "x", "--digest", "d", "--out", str(tmp_path / "n.md")],
+        [
+            sys.executable,
+            str(SCRIPT),
+            "--tag",
+            "main",
+            "--owner",
+            "x",
+            "--digest",
+            "d",
+            "--out",
+            str(tmp_path / "n.md"),
+        ],
         capture_output=True,
         text=True,
     )
@@ -141,4 +165,6 @@ def test_notes_refuse_a_non_release_tag(tmp_path):
 
 def test_next_release_has_notes():
     nxt = release_notes.next_version()
-    assert (ROOT / "docs" / "releases" / f"v{nxt}.md").exists() or nxt == release_notes.package_version()
+    assert (
+        ROOT / "docs" / "releases" / f"v{nxt}.md"
+    ).exists() or nxt == release_notes.package_version()

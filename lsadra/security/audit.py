@@ -30,12 +30,21 @@ SELF_DEVICE_ID = "lsadra-server"
 
 # action -> (threat_type, attack_type, MITRE technique, severity label, score)
 _SELF_ALERTS = {
-    "auth.login.lockout": (
-        "Repeated failed logins to LSADRA", "brute_force", "T1110", "HIGH", 0.8),
+    "auth.login.lockout": ("Repeated failed logins to LSADRA", "brute_force", "T1110", "HIGH", 0.8),
     "user.role.grant_admin": (
-        "ADMIN role granted on LSADRA", "privilege_change", "T1098", "MEDIUM", 0.5),
+        "ADMIN role granted on LSADRA",
+        "privilege_change",
+        "T1098",
+        "MEDIUM",
+        0.5,
+    ),
     "audit.chain.broken": (
-        "LSADRA audit log was altered", "log_tampering", "T1070", "CRITICAL", 0.95),
+        "LSADRA audit log was altered",
+        "log_tampering",
+        "T1070",
+        "CRITICAL",
+        0.95,
+    ),
 }
 
 
@@ -46,8 +55,14 @@ def _now() -> str:
 def _row_hash(prev_hash: str, row: Dict[str, Any]) -> str:
     canonical = json.dumps(
         [
-            row["ts"], row["actor_id"], row["actor_name"], row["action"],
-            row["target"], row["outcome"], row["source_ip"], row["details"],
+            row["ts"],
+            row["actor_id"],
+            row["actor_name"],
+            row["action"],
+            row["target"],
+            row["outcome"],
+            row["source_ip"],
+            row["details"],
         ],
         separators=(",", ":"),
         ensure_ascii=False,
@@ -88,9 +103,7 @@ def record(
             # IMMEDIATE takes the write lock before reading the chain head, so two
             # writers can never both link to the same previous row.
             conn.execute("BEGIN IMMEDIATE")
-            last = conn.execute(
-                "SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1"
-            ).fetchone()
+            last = conn.execute("SELECT hash FROM audit_events ORDER BY id DESC LIMIT 1").fetchone()
             prev_hash = last[0] if last else GENESIS_HASH
             digest = _row_hash(prev_hash, row)
             cur = conn.execute(
@@ -98,8 +111,18 @@ def record(
                    (ts, actor_id, actor_name, action, target, outcome, source_ip,
                     details, prev_hash, hash)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-                (row["ts"], row["actor_id"], row["actor_name"], action, target,
-                 outcome, source_ip, row["details"], prev_hash, digest),
+                (
+                    row["ts"],
+                    row["actor_id"],
+                    row["actor_name"],
+                    action,
+                    target,
+                    outcome,
+                    source_ip,
+                    row["details"],
+                    prev_hash,
+                    digest,
+                ),
             )
             conn.commit()
             row_id = cur.lastrowid
@@ -202,7 +225,7 @@ def raise_self_alert(
     narrative += ". Raised by LSADRA's audit trail."
     anomaly = {
         "device_id": SELF_DEVICE_ID,
-        "user_id": None,            # no owner: only admins receive it live
+        "user_id": None,  # no owner: only admins receive it live
         "source_ip": source_ip,
         "severity_score": score,
         "severity_label": label,

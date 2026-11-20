@@ -18,8 +18,10 @@ logger = logging.getLogger(__name__)
 def run(limit: int = 1000) -> int:
     """Resolve up to ``limit`` unresolved IPs. Returns how many were stored."""
     if geo.database_path() is None:
-        logger.info("Geo resolution skipped: no local geolocation database "
-                    "(run `python -m lsadra.intel geo-update`).")
+        logger.info(
+            "Geo resolution skipped: no local geolocation database "
+            "(run `python -m lsadra.intel geo-update`)."
+        )
         return 0
     unresolved = get_unresolved_ips(limit=limit)
     resolved = 0

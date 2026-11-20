@@ -33,15 +33,17 @@ def _key(secret: str) -> bytes:
 def code_at(secret: str, step: int) -> str:
     digest = hmac.new(_key(secret), struct.pack(">Q", step), hashlib.sha1).digest()
     offset = digest[-1] & 0x0F
-    value = struct.unpack(">I", digest[offset:offset + 4])[0] & 0x7FFFFFFF
-    return str(value % (10 ** DIGITS)).zfill(DIGITS)
+    value = struct.unpack(">I", digest[offset : offset + 4])[0] & 0x7FFFFFFF
+    return str(value % (10**DIGITS)).zfill(DIGITS)
 
 
 def current_step(now: Optional[float] = None) -> int:
     return int((time.time() if now is None else now) // STEP_SECONDS)
 
 
-def verify(secret: str, code: str, last_step: int = 0, now: Optional[float] = None) -> Optional[int]:
+def verify(
+    secret: str, code: str, last_step: int = 0, now: Optional[float] = None
+) -> Optional[int]:
     """The matched step if *code* is valid and newer than *last_step*, else None."""
     code = (code or "").strip().replace(" ", "")
     if len(code) != DIGITS or not code.isdigit():
@@ -58,6 +60,12 @@ def verify(secret: str, code: str, last_step: int = 0, now: Optional[float] = No
 def provisioning_uri(secret: str, username: str, issuer: str = "LSADRA") -> str:
     label = urllib.parse.quote(f"{issuer}:{username}")
     query = urllib.parse.urlencode(
-        {"secret": secret, "issuer": issuer, "algorithm": "SHA1", "digits": DIGITS, "period": STEP_SECONDS}
+        {
+            "secret": secret,
+            "issuer": issuer,
+            "algorithm": "SHA1",
+            "digits": DIGITS,
+            "period": STEP_SECONDS,
+        }
     )
     return f"otpauth://totp/{label}?{query}"

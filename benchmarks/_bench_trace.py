@@ -87,16 +87,25 @@ def install(path: str, server_module: Any) -> Any:
         if phase == "start":
             gc_started["t"] = time.time()
         elif "t" in gc_started:
-            sink.write({"kind": "gc", "gen": info.get("generation"),
-                        "t0": gc_started.pop("t"), "t1": time.time()})
+            sink.write(
+                {
+                    "kind": "gc",
+                    "gen": info.get("generation"),
+                    "t0": gc_started.pop("t"),
+                    "t1": time.time(),
+                }
+            )
 
     gc.callbacks.append(on_gc)
 
     app = server_module.app
 
     async def traced_app(scope, receive, send):
-        if not (scope["type"] == "http" and scope["method"] == "POST"
-                and scope["path"] == "/api/events/batch"):
+        if not (
+            scope["type"] == "http"
+            and scope["method"] == "POST"
+            and scope["path"] == "/api/events/batch"
+        ):
             await app(scope, receive, send)
             return
         req_id = None

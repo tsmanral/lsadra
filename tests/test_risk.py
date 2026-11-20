@@ -27,14 +27,22 @@ def db(tmp_path, monkeypatch):
     return database
 
 
-def _ev(hours=0.0, level="high", points=None, rule="r1", tactics=("Credential Access",),
-        source="rule"):
-    return {"event_time": (T0 + timedelta(hours=hours)).isoformat(), "source": source,
-            "rule_id": rule, "title": rule, "level": level, "tactics": list(tactics),
-            "base_score": points if points is not None else risk.LEVEL_POINTS[level]}
+def _ev(
+    hours=0.0, level="high", points=None, rule="r1", tactics=("Credential Access",), source="rule"
+):
+    return {
+        "event_time": (T0 + timedelta(hours=hours)).isoformat(),
+        "source": source,
+        "rule_id": rule,
+        "title": rule,
+        "level": level,
+        "tactics": list(tactics),
+        "base_score": points if points is not None else risk.LEVEL_POINTS[level],
+    }
 
 
 # ── scoring (pure) ──────────────────────────────────────────────────────────
+
 
 def test_one_high_signal_scores_about_a_third():
     card = score_entity([_ev()])
@@ -51,8 +59,10 @@ def test_the_same_rule_counts_once_per_hour():
 
 
 def test_one_event_matching_several_rules_counts_once():
-    same_event = [dict(_ev(rule=r, tactics=(t,)), event_id=5, device_id="d")
-                  for r, t in (("a", "Credential Access"), ("b", "Initial Access"))]
+    same_event = [
+        dict(_ev(rule=r, tactics=(t,)), event_id=5, device_id="d")
+        for r, t in (("a", "Credential Access"), ("b", "Initial Access"))
+    ]
     card = score_entity(same_event)
     assert card["points"] == pytest.approx(24.0)
     assert card["tactics"] == ["Credential Access", "Initial Access"]
@@ -71,10 +81,12 @@ def test_signals_outside_the_window_do_not_count():
 
 def test_distinct_tactics_raise_the_score_and_keep_their_order():
     one = score_entity([_ev(0, rule="a"), _ev(1, rule="b")])
-    chain = score_entity([
-        _ev(0, rule="a", tactics=("Credential Access",)),
-        _ev(1, rule="b", tactics=("Persistence",)),
-    ])
+    chain = score_entity(
+        [
+            _ev(0, rule="a", tactics=("Credential Access",)),
+            _ev(1, rule="b", tactics=("Persistence",)),
+        ]
+    )
     assert chain["score"] > one["score"]
     assert chain["tactic_multiplier"] == 1.25
     assert chain["tactics"] == ["Credential Access", "Persistence"]
@@ -83,11 +95,13 @@ def test_distinct_tactics_raise_the_score_and_keep_their_order():
 
 
 def test_a_three_tactic_chain_crosses_the_default_threshold():
-    card = score_entity([
-        _ev(0, rule="a", tactics=("Credential Access",)),
-        _ev(1, rule="b", tactics=("Persistence",)),
-        _ev(2, rule="c", level="medium", tactics=("Collection",)),
-    ])
+    card = score_entity(
+        [
+            _ev(0, rule="a", tactics=("Credential Access",)),
+            _ev(1, rule="b", tactics=("Persistence",)),
+            _ev(2, rule="c", level="medium", tactics=("Collection",)),
+        ]
+    )
     assert card["score"] >= 70
 
 
@@ -98,22 +112,41 @@ def test_asset_weight_multiplies_and_is_capped():
 
 
 def test_score_stays_below_100():
-    card = score_entity([_ev(i, rule=str(i), level="critical", tactics=(f"T{i}",))
-                         for i in range(50)], weight=5)
+    card = score_entity(
+        [_ev(i, rule=str(i), level="critical", tactics=(f"T{i}",)) for i in range(50)], weight=5
+    )
     assert 99 <= card["score"] <= 100
 
 
 # ── signals ─────────────────────────────────────────────────────────────────
 
+
 def test_signals_include_low_rules_and_skip_informational_sigma():
     res = {
-        "rule_hits": [{"rule_id": "lsadra-auth-off-hours-access", "title": "x", "level": "low",
-                       "technique": "T1078", "tactics": ["Persistence"]}],
+        "rule_hits": [
+            {
+                "rule_id": "lsadra-auth-off-hours-access",
+                "title": "x",
+                "level": "low",
+                "technique": "T1078",
+                "tactics": ["Persistence"],
+            }
+        ],
         "sigma_matches": [
-            {"rule_id": "s1", "title": "y", "level": "high", "techniques": ["T1053.003"],
-             "tactics": ["Execution"]},
-            {"rule_id": "s2", "title": "z", "level": "informational", "techniques": [],
-             "tactics": []},
+            {
+                "rule_id": "s1",
+                "title": "y",
+                "level": "high",
+                "techniques": ["T1053.003"],
+                "tactics": ["Execution"],
+            },
+            {
+                "rule_id": "s2",
+                "title": "z",
+                "level": "informational",
+                "techniques": [],
+                "tactics": [],
+            },
         ],
     }
     sigs = signals_of(res)
@@ -128,12 +161,14 @@ def test_an_unexplained_anomaly_is_a_small_signal():
 
 
 def test_entities_are_the_host_and_a_real_user():
-    assert entities_of({"host": "demo-host-01", "device_id": "d", "effective_username": "bob.demo"}) \
-        == [("host", "demo-host-01"), ("user", "bob.demo")]
+    assert entities_of(
+        {"host": "demo-host-01", "device_id": "d", "effective_username": "bob.demo"}
+    ) == [("host", "demo-host-01"), ("user", "bob.demo")]
     assert entities_of({"device_id": "d", "effective_username": "unknown"}) == [("host", "d")]
     # A failed login names the targeted account, not the attacker.
-    assert entities_of({"host": "h", "effective_username": "root.demo",
-                        "event_type": "auth_failure"}) == [("host", "h")]
+    assert entities_of(
+        {"host": "h", "effective_username": "root.demo", "event_type": "auth_failure"}
+    ) == [("host", "h")]
 
 
 def test_benign_corpus_stays_below_the_risk_threshold():
@@ -149,12 +184,26 @@ def test_benign_corpus_stays_below_the_risk_threshold():
 
 # ── recording and cases ─────────────────────────────────────────────────────
 
+
 def _result(hours, rule, tactic, level="high", host="demo-host-01", user="bob.demo"):
-    return {"event_id": int(hours * 10) + 1, "device_id": "dev-demo", "user_id": "user-demo",
-            "host": host, "effective_username": user, "is_anomaly": False,
-            "created_at": (T0 + timedelta(hours=hours)).isoformat(),
-            "rule_hits": [{"rule_id": rule, "title": rule, "level": level,
-                           "technique": "T1110.001", "tactics": [tactic]}]}
+    return {
+        "event_id": int(hours * 10) + 1,
+        "device_id": "dev-demo",
+        "user_id": "user-demo",
+        "host": host,
+        "effective_username": user,
+        "is_anomaly": False,
+        "created_at": (T0 + timedelta(hours=hours)).isoformat(),
+        "rule_hits": [
+            {
+                "rule_id": rule,
+                "title": rule,
+                "level": level,
+                "technique": "T1110.001",
+                "tactics": [tactic],
+            }
+        ],
+    }
 
 
 def test_record_opens_one_case_per_entity_and_chains_tactics_across_batches(db):
@@ -165,7 +214,9 @@ def test_record_opens_one_case_per_entity_and_chains_tactics_across_batches(db):
     second = [_result(1, "b", "Persistence"), _result(2, "c", "Collection", level="medium")]
     opened = risk.record(second, "shadow")
     assert {(c["entity_type"], c["entity"]) for c in opened} == {
-        ("host", "demo-host-01"), ("user", "bob.demo")}
+        ("host", "demo-host-01"),
+        ("user", "bob.demo"),
+    }
     assert all(c["result_index"] == 1 for c in opened)
     case = db.get_open_risk_notable("host", "demo-host-01")
     assert case["tactics"] == ["Credential Access", "Persistence", "Collection"]
@@ -182,9 +233,16 @@ def test_record_opens_one_case_per_entity_and_chains_tactics_across_batches(db):
 
 def test_alert_mode_turns_the_crossing_event_into_an_alert():
     results = [{"is_anomaly": False, "severity_score": 0.1, "severity_label": "LOW"}]
-    case = {"id": 7, "entity_type": "host", "entity": "demo-host-01‮<b>x</b>",
-            "result_index": 0, "score": 81.0, "signals": 3, "tactics": ["Persistence"],
-            "first_seen": T0.isoformat()}
+    case = {
+        "id": 7,
+        "entity_type": "host",
+        "entity": "demo-host-01‮<b>x</b>",
+        "result_index": 0,
+        "score": 81.0,
+        "signals": 3,
+        "tactics": ["Persistence"],
+        "first_seen": T0.isoformat(),
+    }
     risk.raise_case_alerts(results, [case])
     res = results[0]
     assert res["is_anomaly"] is True and res["threat_type"] == risk.RISK_THREAT_TYPE
@@ -195,14 +253,16 @@ def test_alert_mode_turns_the_crossing_event_into_an_alert():
 
 # ── live path ───────────────────────────────────────────────────────────────
 
+
 def _off_hours_logins(store, hours):
     for h in hours:
         store.add(h * 60, event_type="auth_success", ip="192.0.2.44")
 
 
 @pytest.mark.parametrize("mode,alerts", [("shadow", 0), ("alert", 1)])
-def test_low_signals_on_a_critical_host_open_a_case(store, orchestrator, monkeypatch, db,
-                                                    mode, alerts):
+def test_low_signals_on_a_critical_host_open_a_case(
+    store, orchestrator, monkeypatch, db, mode, alerts
+):
     """Three off-hours logins (low, alone never an alert) on a weight-5 host."""
     monkeypatch.setattr(orch_mod, "risk_mode", lambda: mode)
     db.set_asset_weight("host", "demo-host-01", 5.0)

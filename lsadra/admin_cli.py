@@ -77,13 +77,18 @@ def promote(username: str) -> str:
 
 
 def main(argv: Optional[List[str]] = None) -> int:
-    parser = argparse.ArgumentParser(prog="python -m lsadra.admin_cli", description=__doc__.split("\n\n")[0])
+    parser = argparse.ArgumentParser(
+        prog="python -m lsadra.admin_cli", description=__doc__.split("\n\n")[0]
+    )
     sub = parser.add_subparsers(dest="command", required=True)
 
     p_create = sub.add_parser("create-admin", help="create a new admin account")
     p_create.add_argument("--username", required=True)
-    p_create.add_argument("--password-stdin", action="store_true",
-                          help="read the password from the first line of stdin instead of prompting")
+    p_create.add_argument(
+        "--password-stdin",
+        action="store_true",
+        help="read the password from the first line of stdin instead of prompting",
+    )
 
     p_promote = sub.add_parser("promote", help="make an existing account an admin")
     p_promote.add_argument("--username", required=True)
@@ -104,7 +109,9 @@ def main(argv: Optional[List[str]] = None) -> int:
             print(f"Created admin '{args.username.strip()}'.")
         else:
             promote(args.username)
-            print(f"'{args.username.strip()}' is now an admin. Existing sessions keep their old role until they log in again.")
+            print(
+                f"'{args.username.strip()}' is now an admin. Existing sessions keep their old role until they log in again."
+            )
     except ValueError as exc:
         print(f"error: {exc}", file=sys.stderr)
         return 1

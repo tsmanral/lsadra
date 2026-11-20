@@ -11,6 +11,7 @@ logger = logging.getLogger(__name__)
 
 try:
     import shap
+
     _HAS_SHAP = True
 except ImportError:
     _HAS_SHAP = False
@@ -30,7 +31,11 @@ class ShapExplainer:
         if is_tree_based:
             self._explainer = shap.TreeExplainer(model)
         else:
-            bg = shap.kmeans(background_data, min(50, len(background_data))) if len(background_data) > 50 else background_data
+            bg = (
+                shap.kmeans(background_data, min(50, len(background_data)))
+                if len(background_data) > 50
+                else background_data
+            )
 
             def _scorer(X: Any) -> Any:
                 if hasattr(model, "score_samples"):
@@ -50,10 +55,13 @@ class ShapExplainer:
                 vals = vals[0]
             if len(vals.shape) > 1:
                 vals = vals[0]
-            return dict(sorted(
-                zip(df.columns, (float(v) for v in vals)),
-                key=lambda kv: abs(kv[1]), reverse=True,
-            ))
+            return dict(
+                sorted(
+                    zip(df.columns, (float(v) for v in vals)),
+                    key=lambda kv: abs(kv[1]),
+                    reverse=True,
+                )
+            )
         except Exception as exc:
             logger.error("SHAP failed: %s", exc)
             return {}

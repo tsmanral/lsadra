@@ -16,9 +16,11 @@ import pytest
 
 # ── Mock LogEvent ─────────────────────────────────────────────────────────
 
+
 @dataclass
 class MockLogEvent:
     """Mock normalized log event for testing."""
+
     id: int = 1
     timestamp: str = "2026-03-15T14:30:00"
     device_id: str = "test-device-001"
@@ -49,9 +51,11 @@ class MockLogEvent:
 
 # ── Mock AnomalyRecord ───────────────────────────────────────────────────
 
+
 @dataclass
 class MockAnomalyRecord:
     """Mock anomaly detection result for testing."""
+
     anomaly_id: int = 1
     event_id: int = 1
     device_id: str = "test-device-001"
@@ -94,6 +98,7 @@ class MockAnomalyRecord:
 
 # ── Pre-built feature matrix ─────────────────────────────────────────────
 
+
 def make_feature_matrix(n_rows: int = 10, n_features: int = 8) -> pd.DataFrame:
     """
     Create a pre-built feature matrix for testing.
@@ -132,6 +137,7 @@ def make_feature_matrix(n_rows: int = 10, n_features: int = 8) -> pd.DataFrame:
 
 # ── Mock IncidentManager ─────────────────────────────────────────────────
 
+
 def make_mock_incident_manager(pre_seeded_incidents: int = 3) -> MagicMock:
     """
     Create a mock IncidentManager with pre-seeded open incidents.
@@ -144,17 +150,19 @@ def make_mock_incident_manager(pre_seeded_incidents: int = 3) -> MagicMock:
     # Pre-seed some open incidents
     incidents = []
     for i in range(1, pre_seeded_incidents + 1):
-        incidents.append({
-            "id": i,
-            "device_id": "test-device-001",
-            "source_ip": f"192.168.1.{100 + i}",
-            "attack_type": "Brute Force Attack",
-            "status": "OPEN",
-            "severity_label": "HIGH",
-            "anomaly_count": 1,
-            "first_seen": "2026-03-15T14:00:00",
-            "last_seen": "2026-03-15T14:30:00",
-        })
+        incidents.append(
+            {
+                "id": i,
+                "device_id": "test-device-001",
+                "source_ip": f"192.168.1.{100 + i}",
+                "attack_type": "Brute Force Attack",
+                "status": "OPEN",
+                "severity_label": "HIGH",
+                "anomaly_count": 1,
+                "first_seen": "2026-03-15T14:00:00",
+                "last_seen": "2026-03-15T14:30:00",
+            }
+        )
 
     manager.get_open_incidents = MagicMock(return_value=incidents)
 
@@ -170,6 +178,7 @@ def make_mock_incident_manager(pre_seeded_incidents: int = 3) -> MagicMock:
 
 
 # ── Mock httpx response for AbuseIPDB ────────────────────────────────────
+
 
 def make_mock_abuseipdb_response(confidence_score: int = 85) -> MagicMock:
     """
@@ -195,6 +204,7 @@ def make_mock_abuseipdb_response(confidence_score: int = 85) -> MagicMock:
 
 # ── Test database setup helper ───────────────────────────────────────────
 
+
 def setup_test_db(tmp_path):
     """
     Configure LSADRA to use a temporary test database.
@@ -218,4 +228,5 @@ def setup_test_db(tmp_path):
     db_module.DB_PATH = test_db_path
 
     from lsadra.storage.database import init_db
+
     init_db()

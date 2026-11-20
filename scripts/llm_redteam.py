@@ -35,7 +35,10 @@ def main() -> int:
                 failed += 1
         for mode, res in results:
             status = "ok  " if res.passed else "FAIL"
-            print(f"{status} {mode:7} {res.case_id}" + ("" if res.passed else f": {'; '.join(res.failures)}"))
+            print(
+                f"{status} {mode:7} {res.case_id}"
+                + ("" if res.passed else f": {'; '.join(res.failures)}")
+            )
             failed += 0 if res.passed else 1
     print(f"\n{failed} failure(s)")
     return 1 if failed else 0

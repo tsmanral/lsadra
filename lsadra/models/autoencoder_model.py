@@ -131,7 +131,9 @@ class AutoencoderModel:
         self.is_fitted = True
         logger.info(
             "Autoencoder trained (%d epochs). Threshold (p%d): %.6f",
-            self.epochs, int(self.threshold_pct), self._threshold,
+            self.epochs,
+            int(self.threshold_pct),
+            self._threshold,
         )
 
     def _errors(self, X_norm: np.ndarray) -> np.ndarray:

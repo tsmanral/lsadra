@@ -84,16 +84,24 @@ def _record_risk(alert: Dict[str, Any], devices: List[Tuple[str, str]], users: L
     if mode == "off":
         return
     hit = {
-        "rule_id": alert["rule_id"], "title": alert["threat_type"],
-        "level": alert["level"], "technique": alert["mitre_technique"],
+        "rule_id": alert["rule_id"],
+        "title": alert["threat_type"],
+        "level": alert["level"],
+        "technique": alert["mitre_technique"],
         "tactics": list(alert["mitre_tactics"]),
     }
-    common = {"event_id": None, "created_at": alert["created_at"], "is_anomaly": True,
-              "event_type": "lateral_movement", "rule_hits": [hit]}
+    common = {
+        "event_id": None,
+        "created_at": alert["created_at"],
+        "is_anomaly": True,
+        "event_type": "lateral_movement",
+        "rule_hits": [hit],
+    }
     results: List[Dict[str, Any]] = []
     for device_id, host in devices:
-        results.append(dict(common, device_id=device_id, host=host or device_id,
-                            effective_username=""))
+        results.append(
+            dict(common, device_id=device_id, host=host or device_id, effective_username="")
+        )
     for user in users:
         # No host: the signal belongs to the account alone.
         results.append(dict(common, device_id="", host="", effective_username=user))
@@ -168,8 +176,12 @@ def raise_lateral_movement(
         _record_risk(alert, devices, users)
     except Exception:
         logger.exception("Entity risk scoring failed for the lateral movement alert for %s", ip)
-    logger.warning("Lateral movement alert %s raised for %s: %s",
-                   alert["anomaly_id"], ip, finding.get("reason", ""))
+    logger.warning(
+        "Lateral movement alert %s raised for %s: %s",
+        alert["anomaly_id"],
+        ip,
+        finding.get("reason", ""),
+    )
     return alert
 
 
@@ -181,6 +193,10 @@ def corroborate_cross_source(ip: str, source_count: int) -> List[Dict[str, Any]]
     for inc in changed:
         logger.warning(
             "Incident %s from %s raised %s -> %s: the address is active in %d log sources.",
-            inc["id"], ip, inc["old"], inc["new"], source_count,
+            inc["id"],
+            ip,
+            inc["old"],
+            inc["new"],
+            source_count,
         )
     return changed

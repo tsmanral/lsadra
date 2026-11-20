@@ -85,7 +85,7 @@ class DetectionOrchestrator:
         self._batch_failures: Dict[str, int] = {}  # device_id → consecutive failed runs
         self._trained = False
         self._generation = None
-        self._trained_on: Optional[int] = None   # usable events behind the live models
+        self._trained_on: Optional[int] = None  # usable events behind the live models
         self._growth_base: Optional[int] = None  # event clock at the last training run
 
         # Attempt to load persisted models
@@ -198,12 +198,26 @@ class DetectionOrchestrator:
                 "Candidate models rejected by the canary (%s); keeping the current models.",
                 json.dumps(canary.get("scenarios", {})),
             )
-            self._record_run(trigger, requested_by, "rejected", selection, canary,
-                             "candidate no longer flags the canary attack scenarios")
+            self._record_run(
+                trigger,
+                requested_by,
+                "rejected",
+                selection,
+                canary,
+                "candidate no longer flags the canary attack scenarios",
+            )
             return summary
 
-        self._promote(df, cand_baseline, cand_ensemble, cand_autoencoder,
-                      selection, canary, trigger, ecod=cand_ecod)
+        self._promote(
+            df,
+            cand_baseline,
+            cand_ensemble,
+            cand_autoencoder,
+            selection,
+            canary,
+            trigger,
+            ecod=cand_ecod,
+        )
         self._record_run(trigger, requested_by, "promoted", selection, canary, "")
         logger.info("DetectionOrchestrator: candidate promoted; all layers active.")
         return summary
@@ -273,7 +287,9 @@ class DetectionOrchestrator:
             version = None
             try:
                 register_model(
-                    name, name, str(self.model_dir / fname),
+                    name,
+                    name,
+                    str(self.model_dir / fname),
                     int(selection.get("event_count", 0)),
                     metrics={"sha256": sha, "canary_passed": bool(canary.get("passed"))},
                 )
@@ -297,11 +313,14 @@ class DetectionOrchestrator:
             return  # waiting for enough data is not worth an audit row every 30 s
         try:
             insert_training_run(
-                trigger, requested_by, status,
+                trigger,
+                requested_by,
+                status,
                 event_count=int(selection.get("event_count", 0) or 0),
                 device_count=int(selection.get("device_count", 0) or 0),
                 excluded_count=int(selection.get("excluded_count", 0) or 0),
-                canary=canary, detail=detail,
+                canary=canary,
+                detail=detail,
             )
         except Exception:
             logger.exception("Failed to record the training run.")
@@ -319,19 +338,23 @@ class DetectionOrchestrator:
                 events, selection = lifecycle.select_training_events()
                 if selection["event_count"] < config.MIN_TRAINING_EVENTS:
                     ticket.cooldown = lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
-                    detail = (f"{selection['event_count']} usable events; "
-                              f"{config.MIN_TRAINING_EVENTS} needed")
+                    detail = (
+                        f"{selection['event_count']} usable events; "
+                        f"{config.MIN_TRAINING_EVENTS} needed"
+                    )
                     self._record_run(trigger, requested_by, "skipped", selection, None, detail)
                     return {"status": "skipped", "detail": detail, "selection": selection}
                 df = build_features(events)
                 if df.empty:
                     ticket.cooldown = lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
-                    self._record_run(trigger, requested_by, "skipped", selection, None,
-                                     "no features")
+                    self._record_run(
+                        trigger, requested_by, "skipped", selection, None, "no features"
+                    )
                     return {"status": "skipped", "detail": "no features", "selection": selection}
                 selection["event_count"] = int(len(df))
-                return self.train(df, trigger=trigger, requested_by=requested_by,
-                                  selection=selection)
+                return self.train(
+                    df, trigger=trigger, requested_by=requested_by, selection=selection
+                )
         except lifecycle.TrainingRefused as exc:
             self._record_run(trigger, requested_by, "refused", {}, None, exc.reason)
             raise
@@ -345,8 +368,14 @@ class DetectionOrchestrator:
             store = lifecycle.current_store(self.model_dir)
             previous = lifecycle.previous_store(self.model_dir)
             if not previous.entries():
-                self._record_run("rollback", requested_by, "refused", {}, None,
-                                 "no previous model to roll back to")
+                self._record_run(
+                    "rollback",
+                    requested_by,
+                    "refused",
+                    {},
+                    None,
+                    "no previous model to roll back to",
+                )
                 raise lifecycle.TrainingRefused("There is no previous model to roll back to.", 404)
             staging = lifecycle.ModelStore(self.model_dir / "rollback_staging")
             store.copy_verified_to(staging)
@@ -355,8 +384,14 @@ class DetectionOrchestrator:
             staging.clear()
             lifecycle.bump_generation()
             self._load_models()
-            self._record_run("rollback", requested_by, "rolled_back", {}, None,
-                             "restored the previous model files")
+            self._record_run(
+                "rollback",
+                requested_by,
+                "rolled_back",
+                {},
+                None,
+                "restored the previous model files",
+            )
             return {"status": "rolled_back", "trained": self._trained}
 
     # ── online mode ───────────────────────────────────────────────────────
@@ -400,7 +435,9 @@ class DetectionOrchestrator:
             logger.error(
                 "Online detection failed %d times in a row for device %s; "
                 "skipping events up to id %s so detection can continue.",
-                failures, device_id, max_id,
+                failures,
+                device_id,
+                max_id,
             )
             raise
         batch_failures.pop(device_id, None)
@@ -426,7 +463,9 @@ class DetectionOrchestrator:
         if event_total < MIN_BASELINE_EVENTS:
             logger.info(
                 "Device %s is BASELINING (%d/%d events) — storing events only.",
-                device_id, event_total, MIN_BASELINE_EVENTS,
+                device_id,
+                event_total,
+                MIN_BASELINE_EVENTS,
             )
             # Update watermark but skip detection
             max_id = max(ev.get("id", 0) for ev in new_events)
@@ -537,8 +576,9 @@ class DetectionOrchestrator:
         canary rejects is retried only after the next doubling, not every
         cooldown.
         """
-        if not growth_retrain_due(event_clock, getattr(self, "_growth_base", None),
-                                  getattr(self, "_trained_on", None)):
+        if not growth_retrain_due(
+            event_clock, getattr(self, "_growth_base", None), getattr(self, "_trained_on", None)
+        ):
             return
         if lifecycle.is_training() or lifecycle.cooldown_remaining() > 0:
             return
@@ -585,8 +625,11 @@ class DetectionOrchestrator:
         sigma_hits: List[List[Any]] = [[] for _ in range(len(df))]
         if sigma is not None and len(df):
             try:
-                scored = (~df["_context_only"].astype(bool)).tolist() \
-                    if "_context_only" in df.columns else None
+                scored = (
+                    (~df["_context_only"].astype(bool)).tolist()
+                    if "_context_only" in df.columns
+                    else None
+                )
                 sigma_hits = sigma.evaluate_frame(df.to_dict("records"), scored=scored)
             except Exception:
                 logger.exception("Sigma layer failed on this frame; continuing without it")
@@ -677,10 +720,12 @@ class DetectionOrchestrator:
             )
             if labelled:
                 severity_score, severity_label = apply_rule_floor(
-                    severity_score, severity_label, best.severity)
+                    severity_score, severity_label, best.severity
+                )
             elif sigma_labelled:
                 severity_score, severity_label = apply_rule_floor(
-                    severity_score, severity_label, _LEVEL_TO_SEVERITY.get(top_sigma.level))
+                    severity_score, severity_label, _LEVEL_TO_SEVERITY.get(top_sigma.level)
+                )
 
             # Build narrative
             narrative = ""
@@ -697,50 +742,69 @@ class DetectionOrchestrator:
                     severity_context=sev_ctx,
                 )
 
-            merged.append({
-                "event_id": int(row.get("id", 0)),
-                "device_id": str(row.get("device_id", "")),
-                "user_id": str(row.get("user_id", "")),
-                "source_ip": str(row.get("source_ip", "")),
-                "layer1_score": layer1_z,
-                "layer2_score": layer2_score,
-                "layer2_votes": layer2_votes,
-                "layer3_score": layer3_error,
-                "severity_score": severity_score,
-                "severity_label": severity_label,
-                "is_anomaly": is_anomaly,
-                "threat_type": threat_type,
-                "attack_type": threat_type,  # normalized key for incident grouping
-                "mitre_technique": mitre_id,
-                # The matched rule's author-set confidence; 0 when no rule
-                # named the technique.
-                "mitre_confidence": best.rule.confidence if labelled else 0.0,
-                "mitre_tactics": (best.tactics if labelled
-                                  else list(top_sigma.tactics) if sigma_labelled else []),
-                "shadow_ecod_score": ls[i]["ecod_score"],
-                "shadow_ecod_anomaly": ls[i]["is_ecod_anomaly"],
-                "rule_id": (best.rule.id if labelled
-                            else f"sigma:{top_sigma.rule_id}" if sigma_labelled else None),
-                "rule_version": best.rule.version if labelled else None,
-                "rule_level": (best.level if labelled
-                               else top_sigma.level if sigma_labelled else None),
-                "rule_reason": best.reason if labelled else "",
-                "rule_matches": [m.rule.id for m in matches],
-                # Every match, low ones included: entity risk adds them up.
-                "rule_hits": [{
-                    "rule_id": m.rule.id, "title": m.rule.title, "level": m.level,
-                    "technique": m.technique.id, "tactics": m.tactics,
-                } for m in matches],
-                "host": str(row.get("host") or ""),
-                "event_type": str(row.get("canonical_event_type") or ""),
-                "effective_username": str(row.get("effective_username") or ""),
-                "sigma_mode": mode,
-                "sigma_matches": [h.as_dict() for h in hits],
-                "narrative": narrative,
-                "shap_values": shap_values,
-                "is_synthetic": bool(row.get("is_synthetic", False)),
-                "created_at": str(row.get("timestamp", "")),
-            })
+            merged.append(
+                {
+                    "event_id": int(row.get("id", 0)),
+                    "device_id": str(row.get("device_id", "")),
+                    "user_id": str(row.get("user_id", "")),
+                    "source_ip": str(row.get("source_ip", "")),
+                    "layer1_score": layer1_z,
+                    "layer2_score": layer2_score,
+                    "layer2_votes": layer2_votes,
+                    "layer3_score": layer3_error,
+                    "severity_score": severity_score,
+                    "severity_label": severity_label,
+                    "is_anomaly": is_anomaly,
+                    "threat_type": threat_type,
+                    "attack_type": threat_type,  # normalized key for incident grouping
+                    "mitre_technique": mitre_id,
+                    # The matched rule's author-set confidence; 0 when no rule
+                    # named the technique.
+                    "mitre_confidence": best.rule.confidence if labelled else 0.0,
+                    "mitre_tactics": (
+                        best.tactics
+                        if labelled
+                        else list(top_sigma.tactics)
+                        if sigma_labelled
+                        else []
+                    ),
+                    "shadow_ecod_score": ls[i]["ecod_score"],
+                    "shadow_ecod_anomaly": ls[i]["is_ecod_anomaly"],
+                    "rule_id": (
+                        best.rule.id
+                        if labelled
+                        else f"sigma:{top_sigma.rule_id}"
+                        if sigma_labelled
+                        else None
+                    ),
+                    "rule_version": best.rule.version if labelled else None,
+                    "rule_level": (
+                        best.level if labelled else top_sigma.level if sigma_labelled else None
+                    ),
+                    "rule_reason": best.reason if labelled else "",
+                    "rule_matches": [m.rule.id for m in matches],
+                    # Every match, low ones included: entity risk adds them up.
+                    "rule_hits": [
+                        {
+                            "rule_id": m.rule.id,
+                            "title": m.rule.title,
+                            "level": m.level,
+                            "technique": m.technique.id,
+                            "tactics": m.tactics,
+                        }
+                        for m in matches
+                    ],
+                    "host": str(row.get("host") or ""),
+                    "event_type": str(row.get("canonical_event_type") or ""),
+                    "effective_username": str(row.get("effective_username") or ""),
+                    "sigma_mode": mode,
+                    "sigma_matches": [h.as_dict() for h in hits],
+                    "narrative": narrative,
+                    "shap_values": shap_values,
+                    "is_synthetic": bool(row.get("is_synthetic", False)),
+                    "created_at": str(row.get("timestamp", "")),
+                }
+            )
 
         return merged
 
@@ -784,5 +848,9 @@ def _log_shadow(device_id: str, results: List[Dict[str, Any]]) -> None:
     if shadow_only or live_only:
         logger.info(
             "Shadow ECOD on device %s: %d events, both flagged %d, shadow only %d, live only %d.",
-            device_id, len(scored), both, shadow_only, live_only,
+            device_id,
+            len(scored),
+            both,
+            shadow_only,
+            live_only,
         )

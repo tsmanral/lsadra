@@ -198,6 +198,7 @@ def _run_metrics_aggregation() -> None:
     """Aggregate metrics into 5-minute windows."""
     try:
         from lsadra.storage.metrics_aggregator import run
+
         run()
     except Exception:
         logger.exception("Metrics aggregation job failed.")
@@ -223,7 +224,9 @@ def _run_device_offline_check() -> None:
                     last_dt = datetime.fromisoformat(last_seen)
                     if last_dt < threshold and device.get("status") != "OFFLINE":
                         update_device_status(device["id"], "OFFLINE")
-                        logger.info("Device %s marked OFFLINE (last seen: %s)", device["id"], last_seen)
+                        logger.info(
+                            "Device %s marked OFFLINE (last seen: %s)", device["id"], last_seen
+                        )
                 except (ValueError, TypeError):
                     pass
             elif device.get("status") == "ONLINE":
@@ -267,6 +270,7 @@ def _run_geo_resolution() -> None:
     """Fill ip_geolocation from the local .mmdb file (no network)."""
     try:
         from lsadra.jobs.geo_resolver import run
+
         run()
     except Exception:
         logger.exception("Geo resolution job failed.")
@@ -276,6 +280,7 @@ def _run_drift_detection() -> None:
     """Run feature drift detection across models."""
     try:
         from lsadra.detection.drift_detector import run
+
         run()
     except Exception:
         logger.exception("Feature drift detection job failed.")
@@ -285,6 +290,7 @@ def _run_data_cleanup() -> None:
     """Delete data past the retention period."""
     try:
         from lsadra.storage.database import cleanup_old_data
+
         deleted = cleanup_old_data()
         logger.info("Data cleanup: removed %d expired rows.", deleted)
     except Exception:
@@ -319,6 +325,7 @@ def _run_audit_chain_check() -> None:
 
 # [V4 ENHANCEMENT — gap: cross-source correlation]
 # [Capability: lateral movement detection]
+
 
 def _run_cross_source_correlation() -> None:
     """
@@ -365,7 +372,9 @@ def _run_cross_source_correlation() -> None:
             ip = d["source_ip"]
             logger.info(
                 "[V4 ENHANCEMENT] Cross-source correlation: %s active in %d source types (%s)",
-                ip, d["source_count"], d.get("event_types", ""),
+                ip,
+                d["source_count"],
+                d.get("event_types", ""),
             )
             corroborate_cross_source(ip, int(d["source_count"]))
     except Exception:
@@ -432,7 +441,7 @@ def _run_ingestion_health_check() -> None:
         cutoff = datetime.utcnow() - timedelta(minutes=30)
 
         for row in stats:
-            src  = row.get("source_type", "unknown")
+            src = row.get("source_type", "unknown")
             last = row.get("last_event")
             if last:
                 try:

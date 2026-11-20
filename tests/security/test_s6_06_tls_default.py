@@ -54,6 +54,4 @@ def test_explicit_env_overrides_prod_default():
 
 def test_explicit_env_overrides_dev_default():
     """An explicit LSADRA_REQUIRE_TLS=true is honored in dev mode."""
-    assert _require_tls(
-        {"LSADRA_DEV_MODE": "true", "LSADRA_REQUIRE_TLS": "true"}
-    ) == "True"
+    assert _require_tls({"LSADRA_DEV_MODE": "true", "LSADRA_REQUIRE_TLS": "true"}) == "True"

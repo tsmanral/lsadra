@@ -26,34 +26,50 @@ router = APIRouter(tags=["dashboard"])
 # report rendering, model training) through ONE run_in_threadpool call, so the
 # event loop is released once per request and never blocks on it.
 
+
 @router.get("/kpis")
-async def api_kpis(device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_kpis(
+    device_id: Optional[str] = None,
+    user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER")),
+):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(get_dashboard_kpis, user_id=uid, device_id=device_id)
 
+
 @router.get("/anomalies")
-async def api_anomalies(limit: int = 50, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_anomalies(
+    limit: int = 50,
+    device_id: Optional[str] = None,
+    user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER")),
+):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(
         get_dashboard_recent_anomalies, limit=limit, user_id=uid, device_id=device_id
     )
+
 
 def _recent_events(uid: Optional[str], limit: int) -> List[Dict[str, Any]]:
     if not uid:
         # For admin, we could return all, but the function requires user_id
         # Let's just use the database function directly for admin if needed
         from lsadra.storage.database import get_connection
+
         conn = get_connection()
-        rows = conn.execute("SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT ?", (limit,)).fetchall()
+        rows = conn.execute(
+            "SELECT * FROM normalized_events ORDER BY timestamp DESC LIMIT ?", (limit,)
+        ).fetchall()
         conn.close()
         return [dict(r) for r in rows]
     return get_events_for_user(user_id=uid, limit=limit)
 
 
 @router.get("/events")
-async def api_events(limit: int = 1000, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_events(
+    limit: int = 1000, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))
+):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(_recent_events, uid, limit)
+
 
 def _scoped_metrics(user: dict, device_id: Optional[str], start: str, end: str) -> List[Dict]:
     """Metrics the caller may see: one owned device, or the sum over theirs."""
@@ -90,8 +106,14 @@ def _scoped_metrics(user: dict, device_id: Optional[str], start: str, end: str) 
 
 
 @router.get("/metrics")
-async def api_metrics(start: str, end: str, device_id: Optional[str] = None, user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
+async def api_metrics(
+    start: str,
+    end: str,
+    device_id: Optional[str] = None,
+    user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER")),
+):
     return await run_in_threadpool(_scoped_metrics, user, device_id, start, end)
+
 
 @router.get("/health")
 async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
@@ -104,8 +126,10 @@ async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALY
 
     def _health() -> Dict[str, Any]:
         kpis = get_dashboard_kpis(user_id=uid)
-        return {"active_devices": kpis.get("active_devices", 0),
-                "events_per_second": get_ingestion_rate(user_id=uid)}
+        return {
+            "active_devices": kpis.get("active_devices", 0),
+            "events_per_second": get_ingestion_rate(user_id=uid),
+        }
 
     h = await run_in_threadpool(_health)
     return {
@@ -116,13 +140,16 @@ async def api_dashboard_health(user: dict = Depends(require_role("ADMIN", "ANALY
         "active_devices": h["active_devices"],
     }
 
+
 @router.get("/devices")
 async def api_devices(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(get_dashboard_devices, user_id=uid)
 
+
 def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
     from lsadra.storage.database import get_connection
+
     conn = get_connection()
     try:
         # Check if device exists and belongs to user (if not admin)
@@ -131,11 +158,11 @@ def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
         if uid:
             check_query += " AND user_id = ?"
             params.append(uid)
-        
+
         row = conn.execute(check_query, tuple(params)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Device not found or access denied.")
-            
+
         # Delete related data in correct order to satisfy FOREIGN KEY constraints
         # 1. Anomalies (may reference incidents/events)
         conn.execute("DELETE FROM anomalies WHERE device_id = ?", (device_id,))
@@ -149,12 +176,12 @@ def _delete_device(device_id: str, uid: Optional[str]) -> Dict[str, Any]:
         conn.execute("DELETE FROM normalized_events WHERE device_id = ?", (device_id,))
         # 6. Aggregated Metrics
         conn.execute("DELETE FROM metrics_5min WHERE device_id = ?", (device_id,))
-        
+
         # 7. Finally delete the device itself
         cur = conn.execute("DELETE FROM devices WHERE id = ?", (device_id,))
-        
+
         if cur.rowcount == 0:
-             raise HTTPException(status_code=404, detail="Device record not found in database.")
+            raise HTTPException(status_code=404, detail="Device record not found in database.")
 
         conn.commit()
         return {"status": "ok", "message": f"Device {device_id} and all related telemetry deleted."}
@@ -179,6 +206,7 @@ async def api_delete_device(device_id: str, user: dict = Depends(require_role("A
 
 def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict[str, Any]:
     from lsadra.storage.database import get_connection
+
     conn = get_connection()
     try:
         # Check if device exists and belongs to user (if not admin)
@@ -187,11 +215,11 @@ def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict
         if uid:
             check_query += " AND user_id = ?"
             params.append(uid)
-        
+
         row = conn.execute(check_query, tuple(params)).fetchone()
         if not row:
             raise HTTPException(status_code=404, detail="Device not found or access denied.")
-            
+
         status = "ONLINE" if active else "OFFLINE"
         conn.execute(
             "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
@@ -204,7 +232,9 @@ def _set_device_status(device_id: str, active: bool, uid: Optional[str]) -> Dict
 
 
 @router.post("/devices/{device_id}/status")
-async def api_toggle_device_status(device_id: str, active: bool, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+async def api_toggle_device_status(
+    device_id: str, active: bool, user: dict = Depends(require_role("ADMIN", "ANALYST"))
+):
     """Manually activate or deactivate a device."""
     uid = user["user_id"] if user["role"] != "ADMIN" else None
     return await run_in_threadpool(_set_device_status, device_id, active, uid)
@@ -229,10 +259,11 @@ async def api_export(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEW
     pdf_bytes = await run_in_threadpool(_render_report, uid)
 
     return Response(
-        content=pdf_bytes, 
-        media_type="application/pdf", 
-        headers={"Content-Disposition": "attachment; filename=report.pdf"}
+        content=pdf_bytes,
+        media_type="application/pdf",
+        headers={"Content-Disposition": "attachment; filename=report.pdf"},
     )
+
 
 from lsadra.storage.database import (
     create_user,
@@ -248,13 +279,16 @@ import uuid
 
 Role = Literal["ADMIN", "ANALYST", "VIEWER"]
 
+
 @router.get("/users")
 async def api_users(user: dict = Depends(require_role("ADMIN"))):
     return await run_in_threadpool(list_users)
 
+
 class RoleUpdate(BaseModel):
     user_id: str
     role: Role
+
 
 @router.post("/users/role")
 async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("ADMIN"))):
@@ -264,10 +298,13 @@ async def api_update_role(req: RoleUpdate, user: dict = Depends(require_role("AD
         update_user_role(req.user_id, req.role)  # also ends the user's sessions (G-9)
         audit.record("user.role.change", actor=user, target=req.user_id, details={"role": req.role})
         if req.role == "ADMIN":
-            audit.record("user.role.grant_admin", actor=user, target=req.user_id)  # self-alert (G-26)
+            audit.record(
+                "user.role.grant_admin", actor=user, target=req.user_id
+            )  # self-alert (G-26)
 
     await run_in_threadpool(_do)
     return {"status": "ok"}
+
 
 class UserCreate(BaseModel):
     username: str = Field(..., min_length=1, max_length=64)
@@ -294,27 +331,41 @@ async def api_create_user(req: UserCreate, user: dict = Depends(require_role("AD
     from lsadra.security.passwords import PasswordPolicyError, check_password_policy
 
     try:
-        check_password_policy(req.password, req.username)  # same policy as every other password (G-10)
+        check_password_policy(
+            req.password, req.username
+        )  # same policy as every other password (G-10)
     except PasswordPolicyError as exc:
         raise HTTPException(status_code=422, detail=str(exc))
     account = await run_in_threadpool(_create_user_account, req)
     if account is None:
         raise HTTPException(status_code=400, detail="Username already taken.")
     await run_in_threadpool(
-        audit.record, "user.create", actor=user, target=account["user_id"],
+        audit.record,
+        "user.create",
+        actor=user,
+        target=account["user_id"],
         details={"username": req.username, "role": req.role},
     )
     if req.role == "ADMIN":
-        await run_in_threadpool(audit.record, "user.role.grant_admin", actor=user,
-                                target=account["user_id"])
+        await run_in_threadpool(
+            audit.record, "user.role.grant_admin", actor=user, target=account["user_id"]
+        )
     return {"status": "ok", **account}
 
 
 def _table_counts() -> Dict[str, int]:
     conn = get_connection()
-    tables = ["normalized_events", "anomalies", "incidents", "devices",
-               "device_heartbeats", "metrics_5min", "model_registry",
-               "threat_intel_cache", "feature_drift"]
+    tables = [
+        "normalized_events",
+        "anomalies",
+        "incidents",
+        "devices",
+        "device_heartbeats",
+        "metrics_5min",
+        "model_registry",
+        "threat_intel_cache",
+        "feature_drift",
+    ]
     stats = {}
     for table in tables:
         try:
@@ -347,6 +398,7 @@ def _model_registry() -> List[Dict[str, Any]]:
 async def api_models(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     return await run_in_threadpool(_model_registry)
 
+
 from lsadra.api.data_layer import get_dashboard_drift
 
 
@@ -361,12 +413,15 @@ def _drift_records() -> Dict[str, List[Dict]]:
 async def api_drift(user: dict = Depends(require_role("ADMIN", "ANALYST", "VIEWER"))):
     return await run_in_threadpool(_drift_records)
 
+
 @router.post("/run-drift")
 async def api_run_drift(user: dict = Depends(require_role("ADMIN"))):
     # Drift runs over every device's data, so it is an admin action.
     from lsadra.detection.drift_detector import run as run_drift
+
     drifted = await run_in_threadpool(run_drift)
     return {"status": "ok", "drifted_features": drifted}
+
 
 def _retrain(user_id: str) -> Dict[str, Any]:
     from lsadra.detection import model_lifecycle as lifecycle
@@ -391,8 +446,10 @@ async def api_retrain(user: dict = Depends(require_role("ADMIN"))):
     await run_in_threadpool(audit.record, "model.retrain", actor=user)
     return await run_in_threadpool(_retrain, user["user_id"])
 
+
 from lsadra.onboarding.agent_files import install_hashes
 from lsadra.onboarding.token_manager import generate_token
+
 
 @router.post("/generate-token")
 async def api_generate_token(user: dict = Depends(require_role("ADMIN", "ANALYST"))):

@@ -58,18 +58,23 @@ class EnsembleModel:
             votes = sum(1 for mp in all_preds if mp[i]["is_anomaly"])
             avg_score = float(np.mean([mp[i]["anomaly_score"] for mp in all_preds]))
             details = [
-                {"model": self.models[j].name, "is_anomaly": all_preds[j][i]["is_anomaly"],
-                 "score": all_preds[j][i]["anomaly_score"]}
+                {
+                    "model": self.models[j].name,
+                    "is_anomaly": all_preds[j][i]["is_anomaly"],
+                    "score": all_preds[j][i]["anomaly_score"],
+                }
                 for j in range(len(self.models))
             ]
-            results.append({
-                "is_anomaly": votes >= len(self.models) / 2,
-                "anomaly_score": avg_score,
-                "votes": votes,
-                "total_models": len(self.models),
-                "details": details,
-                "model_name": "Ensemble_Voting",
-            })
+            results.append(
+                {
+                    "is_anomaly": votes >= len(self.models) / 2,
+                    "anomaly_score": avg_score,
+                    "votes": votes,
+                    "total_models": len(self.models),
+                    "details": details,
+                    "model_name": "Ensemble_Voting",
+                }
+            )
 
         return results
 

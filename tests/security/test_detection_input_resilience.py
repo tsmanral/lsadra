@@ -100,12 +100,8 @@ def fake_store(monkeypatch):
         "get_events_since",
         lambda d, after_id: [e for e in store["events"] if e["id"] > after_id],
     )
-    monkeypatch.setattr(
-        orch_mod, "set_watermark", lambda d, wm: store.__setitem__("watermark", wm)
-    )
-    monkeypatch.setattr(
-        orch_mod, "increment_device_event_count", lambda d, n: len(store["events"])
-    )
+    monkeypatch.setattr(orch_mod, "set_watermark", lambda d, wm: store.__setitem__("watermark", wm))
+    monkeypatch.setattr(orch_mod, "increment_device_event_count", lambda d, n: len(store["events"]))
     monkeypatch.setattr(orch_mod, "get_device", lambda d: {"id": d, "status": "ONLINE"})
     monkeypatch.setattr(orch_mod, "update_device_status", lambda d, s: None)
 

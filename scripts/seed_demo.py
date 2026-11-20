@@ -123,7 +123,9 @@ def _parse_ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def time_shift(events: List[Dict[str, Any]], anchor: Optional[datetime] = None) -> List[Dict[str, Any]]:
+def time_shift(
+    events: List[Dict[str, Any]], anchor: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
     """
     Shift the whole corpus forward so its newest event sits at *anchor* (now).
 
@@ -242,8 +244,7 @@ class DemoSeeder:
             )
             if reg.status_code != 200:
                 raise SeedError(
-                    f"could not create demo user {username!r}: "
-                    f"{reg.status_code} {reg.text[:200]}"
+                    f"could not create demo user {username!r}: {reg.status_code} {reg.text[:200]}"
                 )
             resp = self.session.post(
                 self._url("/api/auth/login"),
@@ -297,7 +298,9 @@ class DemoSeeder:
                 "device registration was rate limited (5/min per IP) — wait a minute and retry"
             )
         if reg_resp.status_code != 200:
-            raise SeedError(f"device registration failed: {reg_resp.status_code} {reg_resp.text[:200]}")
+            raise SeedError(
+                f"device registration failed: {reg_resp.status_code} {reg_resp.text[:200]}"
+            )
 
         data = reg_resp.json()
         self.device_id = data["device_id"]
@@ -315,9 +318,7 @@ class DemoSeeder:
             timeout=self.ingest_timeout,
         )
         if resp.status_code == 429:
-            raise SeedError(
-                "ingestion rate limit hit — lower --batch-size or raise --pace"
-            )
+            raise SeedError("ingestion rate limit hit — lower --batch-size or raise --pace")
         if resp.status_code != 200:
             raise SeedError(f"ingest failed: {resp.status_code} {resp.text[:300]}")
         return int(resp.json().get("events_accepted", 0))
@@ -604,8 +605,15 @@ def seed_rate(args: argparse.Namespace) -> int:
     print(f"devices: registered {len(creds)}; offering {args.rate:g} ev/s for {args.duration:g} s")
 
     result = asyncio.run(
-        drive_rate(args.url, creds, cycler, args.rate, args.duration, args.batch_size,
-                   request_timeout=args.ingest_timeout)
+        drive_rate(
+            args.url,
+            creds,
+            cycler,
+            args.rate,
+            args.duration,
+            args.batch_size,
+            request_timeout=args.ingest_timeout,
+        )
     )
     print(json.dumps(summarize_rate(result), indent=2))
     return 0
@@ -750,19 +758,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.pace = 0.95 if rate_mode else 0.8
 
     if not 1 <= args.batch_size <= SERVER_MAX_EVENTS_PER_BATCH:
-        print(
-            f"error: --batch-size must be 1..{SERVER_MAX_EVENTS_PER_BATCH}", file=sys.stderr
-        )
+        print(f"error: --batch-size must be 1..{SERVER_MAX_EVENTS_PER_BATCH}", file=sys.stderr)
         return 2
     if not 0 < args.pace <= 1:
         print("error: --pace must be in (0, 1]", file=sys.stderr)
         return 2
-    if not rate_mode and (
-        args.duration is not None or args.devices != 1 or args.spread_source_ips
-    ):
-        print(
-            "error: --duration, --devices and --spread-source-ips need --rate", file=sys.stderr
-        )
+    if not rate_mode and (args.duration is not None or args.devices != 1 or args.spread_source_ips):
+        print("error: --duration, --devices and --spread-source-ips need --rate", file=sys.stderr)
         return 2
     if rate_mode:
         if args.duration is None:

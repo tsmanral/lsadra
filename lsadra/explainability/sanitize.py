@@ -47,11 +47,11 @@ MARKDOWN_SPECIALS = frozenset("\\`*_[]<>~|$")
 TRUNCATION_MARKER = "…(truncated)"
 
 # Per-field output budgets (characters after escaping, before the marker).
-MAX_IP = 64          # IPv6 text form is at most 45 chars; slack for "Unknown IP"
-MAX_IDENT = 64       # user names, device ids, hosts
-MAX_LABEL = 64       # event types, source types, attack types, MITRE ids
-MAX_TIMESTAMP = 32   # ISO 8601 prefixes
-MAX_TEXT = 256       # free text: rule reasons, urgency, recommendations
+MAX_IP = 64  # IPv6 text form is at most 45 chars; slack for "Unknown IP"
+MAX_IDENT = 64  # user names, device ids, hosts
+MAX_LABEL = 64  # event types, source types, attack types, MITRE ids
+MAX_TIMESTAMP = 32  # ISO 8601 prefixes
+MAX_TEXT = 256  # free text: rule reasons, urgency, recommendations
 
 _WHITESPACE_CONTROLS = {"\t", "\n", "\r", "\x0b", "\x0c", "\x85", " ", " "}
 _STRIP_CATEGORIES = {"Cc", "Cf", "Cs", "Cn"}
@@ -122,5 +122,7 @@ def clean_list(values: Any, max_items: int, max_len: int = MAX_IDENT) -> str:
         items = values.split(",")
     else:
         items = list(values)
-    cleaned = [clean_field(v.strip() if isinstance(v, str) else v, max_len) for v in items[:max_items]]
+    cleaned = [
+        clean_field(v.strip() if isinstance(v, str) else v, max_len) for v in items[:max_items]
+    ]
     return ", ".join(c for c in cleaned if c)

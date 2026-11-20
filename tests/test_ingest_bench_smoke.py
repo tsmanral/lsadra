@@ -27,8 +27,12 @@ def _run_prod_mode(code: str, **extra_env: str) -> subprocess.CompletedProcess:
         **extra_env,
     )
     return subprocess.run(
-        [sys.executable, "-c", code], cwd=REPO_ROOT, env=env,
-        capture_output=True, text=True, timeout=120,
+        [sys.executable, "-c", code],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=120,
     )
 
 
@@ -39,10 +43,7 @@ def test_detection_skip_flag_refuses_to_boot_outside_dev_mode():
 
 
 def test_health_exposes_no_benchmark_telemetry_outside_dev_mode():
-    code = (
-        "import asyncio, json, server\n"
-        "print(json.dumps(asyncio.run(server.api_health())))\n"
-    )
+    code = "import asyncio, json, server\nprint(json.dumps(asyncio.run(server.api_health())))\n"
     proc = _run_prod_mode(code)
     assert proc.returncode == 0, proc.stderr
     body = json.loads(proc.stdout.strip().splitlines()[-1])
@@ -63,8 +64,22 @@ def test_harness_emits_schema_at_50_events_per_second(tmp_path):
     bench = _load_harness()
     out = tmp_path / "bench.json"
     code = bench.main(
-        ["--detection", "off", "--devices", "1", "--rates", "50", "--duration", "5",
-         "--min-requests", "1", "--repeats", "1", "--output", str(out)]
+        [
+            "--detection",
+            "off",
+            "--devices",
+            "1",
+            "--rates",
+            "50",
+            "--duration",
+            "5",
+            "--min-requests",
+            "1",
+            "--repeats",
+            "1",
+            "--output",
+            str(out),
+        ]
     )
     assert code == 0
 
@@ -75,8 +90,10 @@ def test_harness_emits_schema_at_50_events_per_second(tmp_path):
     assert report["params"]["step_duration_s"] == 5
     # Payload set is pinned so the baseline does not drift as the corpus grows.
     assert sorted(report["params"]["scenarios"]) == [
-        "benign_background", "data_movement_offhours",
-        "persistence_new_service", "ssh_bruteforce",
+        "benign_background",
+        "data_movement_offhours",
+        "persistence_new_service",
+        "ssh_bruteforce",
     ]
 
     (run,) = report["runs"]
@@ -105,10 +122,10 @@ def test_fresh_auth_wait_only_for_devices_sending_less_often_than_half_the_ttl()
     bench = _load_harness()
     assert bench.AUTH_CACHE_TTL_S == 60  # the server default the ladder is tuned for
     # 100-event batches: interval = devices * 100 / rate.
-    assert not bench.needs_fresh_auth(1, 25)    # every 4 s
-    assert not bench.needs_fresh_auth(10, 50)   # every 20 s
-    assert bench.needs_fresh_auth(10, 25)       # every 40 s
-    assert bench.needs_fresh_auth(20, 50)       # every 40 s
+    assert not bench.needs_fresh_auth(1, 25)  # every 4 s
+    assert not bench.needs_fresh_auth(10, 50)  # every 20 s
+    assert bench.needs_fresh_auth(10, 25)  # every 40 s
+    assert bench.needs_fresh_auth(20, 50)  # every 40 s
     assert not bench.needs_fresh_auth(20, 100)  # every 20 s
 
 
@@ -128,12 +145,12 @@ def test_rewarm_after_the_wait_keeps_a_sparse_device_off_inline_bcrypt():
         now = [0.0]
         cache = VerifiedCredentialCache(ttl, 10, clock=lambda: now[0])
         cache.remember("dev", "key", "$2b$hash")
-        now[0] += 20.0                             # entry age when the settle ends
+        now[0] += 20.0  # entry age when the settle ends
         now[0] += wait_before_rewarm
         assert cache.is_verified("dev", "key", "$2b$hash")
         if cache.claim_refresh("dev", "key", "$2b$hash"):
             cache.finish_refresh("dev", "key", "$2b$hash", ok=True)
-        now[0] += 3.0 + 40.0                       # second settle, then 40 s between batches
+        now[0] += 3.0 + 40.0  # second settle, then 40 s between batches
         return cache.is_verified("dev", "key", "$2b$hash")
 
     assert not next_batch_hits(0.0)  # before: inline bcrypt on that batch
@@ -152,10 +169,20 @@ def test_trace_summary_names_what_a_slow_request_waited_on():
         seed_demo.RequestRecord(1.0, 0.020, 200, 100, 100, request_id="r-1"),
     ]
     records = [
-        {"kind": "request", "id": "r-0", "t0": 10.0, "t1": 10.290,
-         "calls": [["get_device", 10.001, 10.002, "t"], ["store", 10.010, 10.020, "t"]]},
-        {"kind": "request", "id": "r-1", "t0": 11.0, "t1": 11.015,
-         "calls": [["store", 11.002, 11.012, "t"]]},
+        {
+            "kind": "request",
+            "id": "r-0",
+            "t0": 10.0,
+            "t1": 10.290,
+            "calls": [["get_device", 10.001, 10.002, "t"], ["store", 10.010, 10.020, "t"]],
+        },
+        {
+            "kind": "request",
+            "id": "r-1",
+            "t0": 11.0,
+            "t1": 11.015,
+            "calls": [["store", 11.002, 11.012, "t"]],
+        },
         {"kind": "gc", "gen": 2, "t0": 10.030, "t1": 10.280},
         {"kind": "detection", "t0": 9.0, "t1": 10.5},
     ]

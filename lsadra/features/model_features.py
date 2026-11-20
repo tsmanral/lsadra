@@ -20,11 +20,22 @@ from lsadra.features.feature_extractor import FEATURE_COLS
 from lsadra.features.rule_features import RULE_FEATURE_COLS, build_rule_features
 
 NUMERIC_RULE_COLS: List[str] = [
-    "failed_logins_last_5min", "login_attempts_last_5min", "login_attempt_velocity",
-    "unique_dst_ports_10min", "bytes_out_to_dest_30min", "dest_is_global",
-    "cross_source_activity", "known_lolbin", "suspicious_cmdline", "encoded_command",
-    "unusual_parent", "artifact_in_user_writable_dir", "artifact_in_hidden_dir",
-    "windows_artifact", "registry_autostart_key", "registry_service_key",
+    "failed_logins_last_5min",
+    "login_attempts_last_5min",
+    "login_attempt_velocity",
+    "unique_dst_ports_10min",
+    "bytes_out_to_dest_30min",
+    "dest_is_global",
+    "cross_source_activity",
+    "known_lolbin",
+    "suspicious_cmdline",
+    "encoded_command",
+    "unusual_parent",
+    "artifact_in_user_writable_dir",
+    "artifact_in_hidden_dir",
+    "windows_artifact",
+    "registry_autostart_key",
+    "registry_service_key",
 ]
 
 EVENT_TYPE_COLS: List[str] = [f"et_{name}" for name in sorted(EVENT_TYPES)]

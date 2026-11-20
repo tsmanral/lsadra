@@ -69,9 +69,11 @@ def test_well_formed_output_is_accepted():
         (_good(function_call={"name": "x"}), "tool_call"),
         (_good(extra="x"), "schema"),
         (
-            _good(recommended_actions=[
-                {"action": "isolate_host", "target": "other-host", "rationale": "r"}
-            ]),
+            _good(
+                recommended_actions=[
+                    {"action": "isolate_host", "target": "other-host", "rationale": "r"}
+                ]
+            ),
             "unknown_target",
         ),
         ("x" * 9000, "output_too_large"),
@@ -110,8 +112,9 @@ def test_action_broker_only_proposes(tmp_path):
 
     create_user("u-1", "owner.demo", "x", "ADMIN")
     create_device("dev-demo-31", "u-1", HOST, "linux", "x")
-    inc = create_incident("dev-demo-31", "203.0.113.50", "Brute Force", "HIGH",
-                          "2026-01-20T03:00:00Z")
+    inc = create_incident(
+        "dev-demo-31", "203.0.113.50", "Brute Force", "HIGH", "2026-01-20T03:00:00Z"
+    )
 
     for name in ("execute", "run", "apply", "perform"):
         assert not hasattr(action_broker, name)

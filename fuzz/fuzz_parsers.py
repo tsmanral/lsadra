@@ -27,7 +27,13 @@ with atheris.instrument_imports():
     from lsadra.ingestion.windows_event_parser import WindowsEventParser
 
 DEVICE = "fuzz-device.demo"
-V4_PARSERS = [SyslogParser(), WindowsEventParser(), NetworkFlowParser(), EndpointParser(), _SSHParserAdapter()]
+V4_PARSERS = [
+    SyslogParser(),
+    WindowsEventParser(),
+    NetworkFlowParser(),
+    EndpointParser(),
+    _SSHParserAdapter(),
+]
 MANAGER = IngestionManager()
 HINTS = [None, "ssh", "syslog", "windows", "network", "endpoint"]
 

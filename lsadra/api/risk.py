@@ -52,8 +52,14 @@ def _card(entity_type: str, entity: str, owner: Optional[str]) -> Optional[Dict[
     case = get_open_risk_notable(entity_type, entity)
     if case is not None and owner is not None and case.get("user_id") != owner:
         case = None
-    return {"entity_type": entity_type, "entity": entity, **card,
-            "threshold": RISK_THRESHOLD, "open_case": case, "timeline": events}
+    return {
+        "entity_type": entity_type,
+        "entity": entity,
+        **card,
+        "threshold": RISK_THRESHOLD,
+        "open_case": case,
+        "timeline": events,
+    }
 
 
 def _entities(owner: Optional[str], limit: int) -> List[Dict[str, Any]]:
@@ -70,8 +76,12 @@ def _entities(owner: Optional[str], limit: int) -> List[Dict[str, Any]]:
 async def api_risk_entities(limit: int = Query(50, ge=1, le=200), user: dict = Depends(_READ)):
     """Entities with recent risk signals, highest score first."""
     entities = await run_in_threadpool(_entities, _owner_filter(user), limit)
-    return {"mode": risk_mode(), "threshold": RISK_THRESHOLD,
-            "window_days": RISK_WINDOW_DAYS, "entities": entities}
+    return {
+        "mode": risk_mode(),
+        "threshold": RISK_THRESHOLD,
+        "window_days": RISK_WINDOW_DAYS,
+        "entities": entities,
+    }
 
 
 @router.get("/timeline")
@@ -110,7 +120,9 @@ def _set_case_status(case_id: int, status: str, owner: Optional[str]) -> bool:
 
 @router.patch("/cases/{case_id}")
 async def api_risk_case_status(
-    case_id: int, req: CaseStatus, user: dict = Depends(require_role("ADMIN", "ANALYST")),
+    case_id: int,
+    req: CaseStatus,
+    user: dict = Depends(require_role("ADMIN", "ANALYST")),
 ):
     """Close (or reopen) a risk case."""
     if not await run_in_threadpool(_set_case_status, case_id, req.status, _owner_filter(user)):
@@ -128,7 +140,17 @@ class AssetWeight(BaseModel):
 @router.put("/asset-weights")
 async def api_set_asset_weight(req: AssetWeight, user: dict = Depends(require_role("ADMIN"))):
     """Set how much an asset's risk counts (1 = normal, up to 5)."""
-    await run_in_threadpool(set_asset_weight, req.entity_type, req.entity, req.weight,
-                            req.note, user.get("username") or user["user_id"])
-    return {"status": "ok", "entity_type": req.entity_type, "entity": req.entity,
-            "weight": req.weight}
+    await run_in_threadpool(
+        set_asset_weight,
+        req.entity_type,
+        req.entity,
+        req.weight,
+        req.note,
+        user.get("username") or user["user_id"],
+    )
+    return {
+        "status": "ok",
+        "entity_type": req.entity_type,
+        "entity": req.entity,
+        "weight": req.weight,
+    }

@@ -59,7 +59,9 @@ def fetch(cache_dir: Path, sources: set[str] | None = None) -> int:
             print(f"cached  {entry['id']}")
             continue
         src = manifest["sources"][entry["source"]]
-        url = src["url_template"].format(commit=src["commit"], path=urllib.parse.quote(entry["path"]))
+        url = src["url_template"].format(
+            commit=src["commit"], path=urllib.parse.quote(entry["path"])
+        )
         target.parent.mkdir(parents=True, exist_ok=True)
         tmp = target.with_suffix(target.suffix + ".part")
         try:
@@ -72,7 +74,10 @@ def fetch(cache_dir: Path, sources: set[str] | None = None) -> int:
         digest = sha256_of(tmp)
         if digest != entry["sha256"]:
             tmp.unlink()
-            print(f"FAILED  {entry['id']}: sha256 {digest} != pinned {entry['sha256']}", file=sys.stderr)
+            print(
+                f"FAILED  {entry['id']}: sha256 {digest} != pinned {entry['sha256']}",
+                file=sys.stderr,
+            )
             failures += 1
             continue
         tmp.replace(target)

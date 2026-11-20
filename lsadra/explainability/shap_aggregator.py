@@ -17,8 +17,8 @@ FEATURE_GROUPS: Dict[str, List[str]] = {
 MITRE_FEATURE_MAP: Dict[str, List[str]] = {
     "T1110.001": ["Behavioral", "Velocity"],  # Brute Force
     "T1110.004": ["Behavioral", "Velocity"],  # Credential Stuffing
-    "T1078": ["Temporal"],                     # Valid Accounts (off-hours)
-    "T1190": ["Behavioral", "Temporal"],       # Exploit Public-Facing App
+    "T1078": ["Temporal"],  # Valid Accounts (off-hours)
+    "T1190": ["Behavioral", "Temporal"],  # Exploit Public-Facing App
 }
 
 
@@ -60,10 +60,7 @@ class ShapAggregator:
 
         agg: Dict[str, float] = {}
         for feat in all_features:
-            weighted_sum = sum(
-                abs(d.get(feat, 0.0)) * w
-                for d, w in zip(shap_dicts, model_weights)
-            )
+            weighted_sum = sum(abs(d.get(feat, 0.0)) * w for d, w in zip(shap_dicts, model_weights))
             agg[feat] = weighted_sum
 
         return dict(sorted(agg.items(), key=lambda kv: kv[1], reverse=True))
@@ -94,9 +91,7 @@ class ShapAggregator:
         return dict(sorted(breakdown.items(), key=lambda kv: kv[1], reverse=True))
 
     @staticmethod
-    def mitre_confidence(
-        shap_dict: Dict[str, float], mitre_id: str
-    ) -> float:
+    def mitre_confidence(shap_dict: Dict[str, float], mitre_id: str) -> float:
         """
         Estimate confidence (0–1) that the MITRE technique assignment is
         correct based on how much the relevant feature groups contributed.

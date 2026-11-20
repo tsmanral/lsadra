@@ -142,7 +142,10 @@ def test_orchestrator_without_shadow_attribute_still_runs():
 
     orch = DetectionOrchestrator.__new__(DetectionOrchestrator)
     orch.baseline, orch.ensemble, orch.autoencoder = (
-        StatisticalBaselineModel(), EnsembleModel(), AutoencoderModel())
+        StatisticalBaselineModel(),
+        EnsembleModel(),
+        AutoencoderModel(),
+    )
     orch._trained = False
     out = orch._run_layers(_benign_df(repeat=1))
     assert out and out[0]["shadow_ecod_score"] is None

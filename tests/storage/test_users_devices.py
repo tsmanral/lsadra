@@ -16,9 +16,17 @@ import pytest
 from tests.storage._support import DEVICE_ID, USER_ID, transactions
 
 USER_KEYS = {
-    "id", "username", "password_hash", "role", "created_at",
+    "id",
+    "username",
+    "password_hash",
+    "role",
+    "created_at",
     # migration 008 (G-9, G-33)
-    "token_version", "disabled", "totp_secret", "totp_enabled", "totp_last_step",
+    "token_version",
+    "disabled",
+    "totp_secret",
+    "totp_enabled",
+    "totp_last_step",
 }
 DEVICE_KEYS = {
     "id",
@@ -263,7 +271,11 @@ def test_record_heartbeat_matches_the_legacy_four_call_sequence(seeded, initial)
     hb_old = seeded.get_latest_heartbeat("dev-legacy")
     assert set(hb_new) == set(hb_old)
     fields = ("cpu_pct", "mem_pct", "agent_version")
-    assert tuple(hb_new[f] for f in fields) == tuple(hb_old[f] for f in fields) == (12.5, 40.0, "1.2.3")
+    assert (
+        tuple(hb_new[f] for f in fields)
+        == tuple(hb_old[f] for f in fields)
+        == (12.5, 40.0, "1.2.3")
+    )
 
 
 def test_record_heartbeat_optional_fields_default_to_null(seeded):

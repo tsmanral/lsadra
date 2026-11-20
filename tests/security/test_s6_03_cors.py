@@ -31,6 +31,7 @@ def _test_db(tmp_path):
 def client():
     from fastapi.testclient import TestClient
     from server import app
+
     return TestClient(app)
 
 

@@ -1,10 +1,9 @@
 # Bootstrap ruff config.
 #
-# The legacy codebase has ~963 default-ruleset findings and ~66 unformatted
-# files. Rather than a repo-wide reformat (which would collide with in-flight
-# PRs), we start with a correctness-only rule set that the code already passes
-# and tighten `select` incrementally. `ruff format` adoption is tracked as an
-# advisory CI step until a dedicated formatting PR lands.
+# The legacy codebase has ~963 default-ruleset findings, so we start with a
+# correctness-only rule set that the code already passes and tighten `select`
+# incrementally. The whole repo is `ruff format`-clean (#112) and CI enforces
+# it; the reformat commit is listed in .git-blame-ignore-revs.
 line-length = 100
 target-version = "py312"
 extend-exclude = ["docs/figures", "docs/figures2"]

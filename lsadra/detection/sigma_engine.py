@@ -94,9 +94,13 @@ class SigmaHit:
 
     def as_dict(self) -> Dict[str, Any]:
         return {
-            "rule_id": self.rule_id, "title": self.title, "level": self.level,
-            "status": self.status, "techniques": list(self.technique_ids),
-            "tactics": list(self.tactics), "source": self.source,
+            "rule_id": self.rule_id,
+            "title": self.title,
+            "level": self.level,
+            "status": self.status,
+            "techniques": list(self.technique_ids),
+            "tactics": list(self.tactics),
+            "source": self.source,
             "correlation": self.correlation,
         }
 
@@ -109,6 +113,7 @@ def sigma_mode() -> str:
 
 
 # ── event mapping ──────────────────────────────────────────────────────────
+
 
 def _attrs(value: Any) -> Dict[str, Any]:
     from lsadra.features.rule_features import _attrs as parse
@@ -129,7 +134,9 @@ def _is_windows(attrs: Dict[str, Any], et: str, image: str) -> bool:
         return attrs["os"] == "windows"
     if "event_id" in attrs or "registry_key" in attrs or et == "registry_set":
         return True
-    probe = " ".join(str(v) for v in (image, attrs.get("image_path"), attrs.get("task_command")) if v)
+    probe = " ".join(
+        str(v) for v in (image, attrs.get("image_path"), attrs.get("task_command")) if v
+    )
     return "\\" in probe or probe.lower().endswith(".exe") or ".exe " in probe.lower()
 
 
@@ -236,11 +243,13 @@ def to_sigma_event(row: Dict[str, Any]):
 
 # ── engine ─────────────────────────────────────────────────────────────────
 
+
 class SigmaEngine:
     """Compiled rules, filters applied; evaluation is stateless per frame."""
 
-    def __init__(self, rule_dirs: Sequence[Path] = (RULES_DIR,),
-                 extra_filters: Sequence[Path] = ()) -> None:
+    def __init__(
+        self, rule_dirs: Sequence[Path] = (RULES_DIR,), extra_filters: Sequence[Path] = ()
+    ) -> None:
         from sigma.collection import SigmaCollection
         from sigma.correlations import SigmaCorrelationRule
         from sigma.matching import SigmaMatcher
@@ -253,7 +262,8 @@ class SigmaEngine:
         for path in paths:
             part = SigmaCollection.from_yaml(
                 path.read_text(encoding="utf-8"),
-                collect_filters=True, resolve_references=False,
+                collect_filters=True,
+                resolve_references=False,
             )
             for r in part.rules:
                 self._source[str(r.id)] = "sigmahq" if "sigmahq" in path.parts else "lsadra"
@@ -269,16 +279,20 @@ class SigmaEngine:
         # Names of the rules each correlation consumes.
         self._corr_inputs = [
             {ref.reference for ref in c.rules}
-            | {ref.rule.name for ref in c.rules if getattr(ref, "rule", None) is not None
-               and ref.rule.name}
+            | {
+                ref.rule.name
+                for ref in c.rules
+                if getattr(ref, "rule", None) is not None and ref.rule.name
+            }
             for c in self.correlations
         ]
         self._base = SigmaMatcher(SigmaCollection(self.rules))
         # Context rows (history before the scored batch) only feed correlation
         # rules, so they run through the correlations' input rules alone.
         inputs = set().union(*self._corr_inputs) if self._corr_inputs else set()
-        self._corr_base = SigmaMatcher(SigmaCollection(
-            [r for r in self.rules if r.name and r.name in inputs]))
+        self._corr_base = SigmaMatcher(
+            SigmaCollection([r for r in self.rules if r.name and r.name in inputs])
+        )
         self._meta: Dict[Tuple[str, bool], SigmaHit] = {}
         self._lock = threading.Lock()
 
@@ -325,8 +339,9 @@ class SigmaEngine:
         )
 
     # evaluation -------------------------------------------------------
-    def evaluate_frame(self, rows: List[Dict[str, Any]],
-                       scored: Optional[Sequence[bool]] = None) -> List[List[SigmaHit]]:
+    def evaluate_frame(
+        self, rows: List[Dict[str, Any]], scored: Optional[Sequence[bool]] = None
+    ) -> List[List[SigmaHit]]:
         """
         Sigma hits for each row, in row order.
 
@@ -346,8 +361,10 @@ class SigmaEngine:
             except Exception:
                 logger.exception("Could not map row %s to a Sigma event", row.get("id"))
         events.sort(key=lambda pair: (pair[1].timestamp, pair[0]))
-        correlators = [(SigmaCorrelationRuleMatcher(c), self._corr_inputs[i])
-                       for i, c in enumerate(self.correlations)]
+        correlators = [
+            (SigmaCorrelationRuleMatcher(c), self._corr_inputs[i])
+            for i, c in enumerate(self.correlations)
+        ]
 
         with self._lock:
             for i, event in events:
@@ -390,7 +407,9 @@ def get_engine() -> Optional[SigmaEngine]:
                     _ENGINE = SigmaEngine(extra_filters=extra)
                     logger.info(
                         "Sigma layer (%s): %d rules, %d correlations, %d filters",
-                        sigma_mode(), len(_ENGINE.rules), len(_ENGINE.correlations),
+                        sigma_mode(),
+                        len(_ENGINE.rules),
+                        len(_ENGINE.correlations),
                         len(_ENGINE.filters),
                     )
                 except Exception:

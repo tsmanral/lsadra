@@ -25,7 +25,7 @@ WINDOWS_SEEDS = [
     "4624|2026-03-10T08:00:01Z|dave.demo|192.0.2.20|host3.demo",
     (
         '<Event xmlns="http://schemas.microsoft.com/win/2004/08/events/event">'
-        "<System><EventID>4625</EventID><TimeCreated SystemTime=\"2026-03-10T08:00:02Z\"/>"
+        '<System><EventID>4625</EventID><TimeCreated SystemTime="2026-03-10T08:00:02Z"/>'
         "<Computer>host3.demo</Computer></System><EventData>"
         '<Data Name="TargetUserName">dave.demo</Data><Data Name="IpAddress">192.0.2.20</Data>'
         '<Data Name="LogonType">3</Data></EventData></Event>'

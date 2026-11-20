@@ -25,8 +25,11 @@ class TestSeverityScoring:
         from lsadra.detection.severity import compute_severity_score
 
         score, label = compute_severity_score(
-            layer1_z=5.0, layer2_score=0.8, layer2_votes=3,
-            total_models=3, layer3_error=0.3,
+            layer1_z=5.0,
+            layer2_score=0.8,
+            layer2_votes=3,
+            total_models=3,
+            layer3_error=0.3,
         )
         assert 0.0 <= score <= 1.0
         assert label in ("CRITICAL", "HIGH", "MEDIUM", "LOW")
@@ -35,8 +38,11 @@ class TestSeverityScoring:
         from lsadra.detection.severity import compute_severity_score
 
         score, label = compute_severity_score(
-            layer1_z=8.0, layer2_score=0.95, layer2_votes=3,
-            total_models=3, layer3_error=0.45,
+            layer1_z=8.0,
+            layer2_score=0.95,
+            layer2_votes=3,
+            total_models=3,
+            layer3_error=0.45,
         )
         assert score >= 0.7
         assert label in ("CRITICAL", "HIGH")
@@ -45,8 +51,11 @@ class TestSeverityScoring:
         from lsadra.detection.severity import compute_severity_score
 
         score, label = compute_severity_score(
-            layer1_z=0.5, layer2_score=0.1, layer2_votes=0,
-            total_models=3, layer3_error=0.01,
+            layer1_z=0.5,
+            layer2_score=0.1,
+            layer2_votes=0,
+            total_models=3,
+            layer3_error=0.01,
         )
         assert score < 0.4
         assert label == "LOW"
@@ -72,41 +81,61 @@ class TestRuleEngine:
     def test_brute_force_detection(self):
         from lsadra.detection.rule_engine import evaluate_rules
 
-        threat, mitre = evaluate_rules({
-            "failures_15m": 25, "unique_users_15m": 2,
-            "successes_15m": 0, "is_off_hours": 0, "failure_ratio_15m": 1.0,
-        })
+        threat, mitre = evaluate_rules(
+            {
+                "failures_15m": 25,
+                "unique_users_15m": 2,
+                "successes_15m": 0,
+                "is_off_hours": 0,
+                "failure_ratio_15m": 1.0,
+            }
+        )
         assert threat == "Brute Force Attack"
         assert mitre == "T1110.001"
 
     def test_credential_stuffing(self):
         from lsadra.detection.rule_engine import evaluate_rules
 
-        threat, mitre = evaluate_rules({
-            "failures_15m": 20, "unique_users_15m": 8,
-            "successes_15m": 0, "is_off_hours": 0, "failure_ratio_15m": 1.0,
-        })
+        threat, mitre = evaluate_rules(
+            {
+                "failures_15m": 20,
+                "unique_users_15m": 8,
+                "successes_15m": 0,
+                "is_off_hours": 0,
+                "failure_ratio_15m": 1.0,
+            }
+        )
         assert threat == "Credential Stuffing"
         assert mitre == "T1110.004"
 
     def test_off_hour_access(self):
         from lsadra.detection.rule_engine import evaluate_rules
 
-        threat, mitre = evaluate_rules({
-            "failures_15m": 0, "unique_users_15m": 1,
-            "successes_15m": 1, "is_off_hours": 1, "failure_ratio_15m": 0,
-        })
+        threat, mitre = evaluate_rules(
+            {
+                "failures_15m": 0,
+                "unique_users_15m": 1,
+                "successes_15m": 1,
+                "is_off_hours": 1,
+                "failure_ratio_15m": 0,
+            }
+        )
         assert threat == "Anomalous Off-Hour Access"
 
     def test_no_match_is_distinguishable_and_carries_no_technique(self):
         """An ordinary row matches no rule; the old fallback returned T1190."""
         from lsadra.detection.rule_engine import NO_RULE_MATCH, evaluate_rules
 
-        result = evaluate_rules({
-            "failures_15m": 0, "unique_users_15m": 1,
-            "successes_15m": 1, "is_off_hours": 0, "failure_ratio_15m": 0,
-            "event_type": "auth_success",
-        })
+        result = evaluate_rules(
+            {
+                "failures_15m": 0,
+                "unique_users_15m": 1,
+                "successes_15m": 1,
+                "is_off_hours": 0,
+                "failure_ratio_15m": 0,
+                "event_type": "auth_success",
+            }
+        )
         assert result == NO_RULE_MATCH
         assert "T1190" not in result
 
@@ -127,18 +156,29 @@ class TestVerdictMerge:
 
         orch = DetectionOrchestrator.__new__(DetectionOrchestrator)
         orch._trained = False  # layer 2 abstains
-        orch.baseline = _Layer(lambda df: [
-            {"z_max": 9.0 if f else 0.0, "is_baseline_anomaly": f} for f in l1_flags])
-        orch.autoencoder = _Layer(lambda df: [
-            {"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df))
+        orch.baseline = _Layer(
+            lambda df: [{"z_max": 9.0 if f else 0.0, "is_baseline_anomaly": f} for f in l1_flags]
+        )
+        orch.autoencoder = _Layer(
+            lambda df: [{"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df)
+        )
         return orch
 
     @staticmethod
     def _rows(*rows):
-        base = {"id": 1, "device_id": "d", "user_id": "u", "source_ip": "192.0.2.1",
-                "timestamp": "2026-01-15T10:00:00", "event_type": "auth_success",
-                "failures_15m": 0, "unique_users_15m": 1, "successes_15m": 1,
-                "is_off_hours": 0, "failure_ratio_15m": 0.0}
+        base = {
+            "id": 1,
+            "device_id": "d",
+            "user_id": "u",
+            "source_ip": "192.0.2.1",
+            "timestamp": "2026-01-15T10:00:00",
+            "event_type": "auth_success",
+            "failures_15m": 0,
+            "unique_users_15m": 1,
+            "successes_15m": 1,
+            "is_off_hours": 0,
+            "failure_ratio_15m": 0.0,
+        }
         return pd.DataFrame([{**base, "id": i + 1, **r} for i, r in enumerate(rows)])
 
     def test_ordinary_event_is_not_an_alert(self):
@@ -149,8 +189,16 @@ class TestVerdictMerge:
 
     def test_rule_match_alerts_with_its_technique(self):
         res = self._orchestrator([False])._run_layers(
-            self._rows({"failures_15m": 25, "unique_users_15m": 2, "successes_15m": 0,
-                        "failure_ratio_15m": 1.0, "event_type": "auth_failure"}))
+            self._rows(
+                {
+                    "failures_15m": 25,
+                    "unique_users_15m": 2,
+                    "successes_15m": 0,
+                    "failure_ratio_15m": 1.0,
+                    "event_type": "auth_failure",
+                }
+            )
+        )
         assert res[0]["is_anomaly"] is True
         assert res[0]["mitre_technique"] == "T1110.001"
 
@@ -233,6 +281,7 @@ class TestFeatureMatrix:
 
     def test_feature_columns_present(self):
         from lsadra.features.feature_extractor import FEATURE_COLS
+
         df = make_feature_matrix()
         for col in FEATURE_COLS:
             assert col in df.columns

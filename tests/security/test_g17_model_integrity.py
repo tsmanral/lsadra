@@ -166,8 +166,11 @@ def test_autoencoder_refuses_signed_but_malformed_state(model_dir):
         {**good, "format": "something-else"},
         {**good, "features": ["x"] * n},
         {**good, "weights": [[[0.0] * 3] * n, [[0.0] * 2] * 3]},  # does not chain
-        {**good, "weights": [[[0.0] * 3] * n, [[0.0] * (n - 1)] * 3],
-         "biases": [[0.0] * 3, [0.0] * (n - 1)]},  # wrong output size
+        {
+            **good,
+            "weights": [[[0.0] * 3] * n, [[0.0] * (n - 1)] * 3],
+            "biases": [[0.0] * 3, [0.0] * (n - 1)],
+        },  # wrong output size
         {**good, "std": [0.0] * n},
         {**good, "threshold": float("nan")},
         {**good, "mean": "not a list"},
@@ -242,9 +245,7 @@ def test_signed_round_trip_still_loads(model_dir):
     assert len(loaded.predict(df)) == len(df)
     ae2 = AutoencoderModel()
     assert ae2.load(model_dir / "autoencoder.json") is True
-    assert [r["is_ae_anomaly"] for r in ae2.score(df)] == [
-        r["is_ae_anomaly"] for r in ae.score(df)
-    ]
+    assert [r["is_ae_anomaly"] for r in ae2.score(df)] == [r["is_ae_anomaly"] for r in ae.score(df)]
 
 
 def test_store_rejects_path_names(model_dir):

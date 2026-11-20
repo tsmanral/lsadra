@@ -70,9 +70,9 @@ SCORE_KEYS = ["severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencod
 FPRS = [0.01, 0.001]
 
 # Agent and server behaviour the online replay mirrors.
-AGENT_FLUSH_SECONDS = 3.0      # lsadra/endpoint_agent/linux_agent.py flush_interval_seconds
-AGENT_BATCH_SIZE = 50          # linux_agent.py batch_size
-EVENTS_PER_RUN = 500           # get_events_since() default limit
+AGENT_FLUSH_SECONDS = 3.0  # lsadra/endpoint_agent/linux_agent.py flush_interval_seconds
+AGENT_BATCH_SIZE = 50  # linux_agent.py batch_size
+EVENTS_PER_RUN = 500  # get_events_since() default limit
 BENCH_USER_ID = "bench-owner"  # the dashboard account that owns every device
 
 
@@ -80,14 +80,19 @@ BENCH_USER_ID = "bench-owner"  # the dashboard account that owns every device
 # Stream assembly
 # ============================================================================
 
+
 def _git_sha() -> str:
     try:
-        return subprocess.check_output(["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True).strip()
+        return subprocess.check_output(
+            ["git", "rev-parse", "HEAD"], cwd=REPO_ROOT, text=True
+        ).strip()
     except Exception:
         return "unknown"
 
 
-def _inject(instance: List[bench_events.BenchEvent], host: str, day: int) -> List[bench_events.BenchEvent]:
+def _inject(
+    instance: List[bench_events.BenchEvent], host: str, day: int
+) -> List[bench_events.BenchEvent]:
     """Move an attack instance onto *host*, starting on bench *day* at its
     original UTC time of day, keeping relative spacing."""
     if not instance:
@@ -129,13 +134,16 @@ def build_stream(args: argparse.Namespace) -> Tuple[List[bench_events.BenchEvent
     for entry in manifest["datasets"]:
         src = entry["source"]
         wanted = ("splunk" in args.datasets and src == "splunk_attack_data") or (
-            "evtx" in args.datasets and src == "evtx_attack_samples")
+            "evtx" in args.datasets and src == "evtx_attack_samples"
+        )
         if not wanted:
             continue
         if not fetch_datasets.is_cached(args.cache_dir, entry):
             skipped.append(entry["id"])
             continue
-        evs = bench_events.load_windows_dataset(entry, fetch_datasets.cache_path(args.cache_dir, entry))
+        evs = bench_events.load_windows_dataset(
+            entry, fetch_datasets.cache_path(args.cache_dir, entry)
+        )
         place(entry["id"], evs, windows)
     if skipped:
         logger.warning("Not cached, skipped (run fetch_datasets.py): %s", ", ".join(skipped))
@@ -159,26 +167,29 @@ def to_rows(stream: List[bench_events.BenchEvent]) -> List[Dict[str, Any]]:
     rows = []
     for i, ev in enumerate(stream, start=1):
         f = ev.contract_fields()
-        rows.append({
-            "id": i,
-            "timestamp": f["timestamp"],
-            "device_id": ev.host,
-            "user_id": BENCH_USER_ID,
-            "host": f["host"],
-            "effective_username": f["effective_username"],
-            "source_ip": f["source_ip"],
-            "event_type": f["event_type"],
-            "raw_message": f["raw_message"],
-            "attributes": json.dumps(f["attributes"]),
-            "is_synthetic": 0,
-            "_ts": ev.timestamp.timestamp(),
-        })
+        rows.append(
+            {
+                "id": i,
+                "timestamp": f["timestamp"],
+                "device_id": ev.host,
+                "user_id": BENCH_USER_ID,
+                "host": f["host"],
+                "effective_username": f["effective_username"],
+                "source_ip": f["source_ip"],
+                "event_type": f["event_type"],
+                "raw_message": f["raw_message"],
+                "attributes": json.dumps(f["attributes"]),
+                "is_synthetic": 0,
+                "_ts": ev.timestamp.timestamp(),
+            }
+        )
     return rows
 
 
 # ============================================================================
 # Replay through the real pipeline
 # ============================================================================
+
 
 def _quiet_ml_logs() -> None:
     for name in ("lsadra", "shap", "numba"):
@@ -255,7 +266,9 @@ class ProductionTrainer:
         self.trained_on: Optional[int] = None
         self.growth_base: Optional[int] = None
 
-    def maybe_train(self, now: float, stored: List[Dict[str, Any]], results: Dict[int, Dict[str, Any]]) -> None:
+    def maybe_train(
+        self, now: float, stored: List[Dict[str, Any]], results: Dict[int, Dict[str, Any]]
+    ) -> None:
         from lsadra import config as cfg
         from lsadra.detection import model_lifecycle as lifecycle
         from lsadra.models.autoencoder_model import AutoencoderModel
@@ -273,14 +286,16 @@ class ProductionTrainer:
                 return
             self.growth_base = clock
             trigger = "auto-growth"
-        recent = stored[-cfg.TRAINING_MAX_EVENTS:]
+        recent = stored[-cfg.TRAINING_MAX_EVENTS :]
         events = [r for r in recent if not results.get(r["id"], {}).get("is_anomaly")]
         excluded_anomalies = len(recent) - len(events)
         events, capped = lifecycle.cap_device_share(events, cfg.TRAINING_MAX_DEVICE_SHARE)
         attempt: Dict[str, Any] = {
             "at": datetime.fromtimestamp(now, timezone.utc).isoformat(timespec="seconds"),
-            "events": len(events), "excluded_anomalies": excluded_anomalies,
-            "excluded_device_cap": capped, "trigger": trigger,
+            "events": len(events),
+            "excluded_anomalies": excluded_anomalies,
+            "excluded_device_cap": capped,
+            "trigger": trigger,
         }
         self.attempts.append(attempt)
         df = _features(events) if len(events) >= cfg.MIN_TRAINING_EVENTS else None
@@ -288,7 +303,11 @@ class ProductionTrainer:
             attempt["status"] = "skipped"
             self.next_allowed = now + lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
             return
-        baseline, ensemble, autoencoder = StatisticalBaselineModel(), EnsembleModel(), AutoencoderModel()
+        baseline, ensemble, autoencoder = (
+            StatisticalBaselineModel(),
+            EnsembleModel(),
+            AutoencoderModel(),
+        )
         try:
             baseline.train(df)
             ensemble.train(df)
@@ -306,7 +325,11 @@ class ProductionTrainer:
         attempt["status"] = "promoted"
         from lsadra.detection.detection_orchestrator import fit_shadow_ecod
 
-        self.orch.baseline, self.orch.ensemble, self.orch.autoencoder = baseline, ensemble, autoencoder
+        self.orch.baseline, self.orch.ensemble, self.orch.autoencoder = (
+            baseline,
+            ensemble,
+            autoencoder,
+        )
         self.orch.shadow_ecod = fit_shadow_ecod(df)
         self.orch._trained = True
         self.trained_on = len(df)
@@ -317,7 +340,9 @@ def _clean(rows: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
     return [{k: v for k, v in r.items() if not k.startswith("_")} for r in rows]
 
 
-def online_runs(rows: List[Dict[str, Any]], throttle: float) -> List[Tuple[str, List[Dict[str, Any]], bool]]:
+def online_runs(
+    rows: List[Dict[str, Any]], throttle: float
+) -> List[Tuple[str, List[Dict[str, Any]], bool]]:
     """Detection runs as the online path would execute them.
 
     Returns ``(device_id, chunk, final_flush)`` in execution order. Each device's
@@ -334,7 +359,9 @@ def online_runs(rows: List[Dict[str, Any]], throttle: float) -> List[Tuple[str, 
     for dev, drows in by_dev.items():
         cur: List[Dict[str, Any]] = []
         for r in drows:
-            if cur and (r["_ts"] - cur[0]["_ts"] > AGENT_FLUSH_SECONDS or len(cur) >= AGENT_BATCH_SIZE):
+            if cur and (
+                r["_ts"] - cur[0]["_ts"] > AGENT_FLUSH_SECONDS or len(cur) >= AGENT_BATCH_SIZE
+            ):
                 batches.append((cur[-1]["_ts"], cur[0]["id"], dev, cur))
                 cur = []
             cur.append(r)
@@ -353,7 +380,7 @@ def online_runs(rows: List[Dict[str, Any]], throttle: float) -> List[Tuple[str, 
             pending[dev] = pending[dev][EVENTS_PER_RUN:]
     for dev, rest in pending.items():
         for i in range(0, len(rest), EVENTS_PER_RUN):
-            runs.append((dev, rest[i:i + EVENTS_PER_RUN], True))
+            runs.append((dev, rest[i : i + EVENTS_PER_RUN], True))
     return runs
 
 
@@ -379,11 +406,16 @@ def online_features(rows: List[Dict[str, Any]], workers: int):
     return runs, feats
 
 
-def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed: int,
-               online: Optional[Tuple[List[Any], List[Any]]] = None,
-               training_log: Optional[List[Dict[str, Any]]] = None,
-               challenger_labels: Optional[Dict[int, Dict[str, Any]]] = None,
-               challenger_info: Optional[Dict[str, Any]] = None) -> Dict[int, Dict[str, Any]]:
+def run_config(
+    config: str,
+    rows: List[Dict[str, Any]],
+    test_start: float,
+    seed: int,
+    online: Optional[Tuple[List[Any], List[Any]]] = None,
+    training_log: Optional[List[Dict[str, Any]]] = None,
+    challenger_labels: Optional[Dict[int, Dict[str, Any]]] = None,
+    challenger_info: Optional[Dict[str, Any]] = None,
+) -> Dict[int, Dict[str, Any]]:
     """Score every test-period row under *config*; returns results by event id.
 
     For ``production``, each training attempt is appended to *training_log*.
@@ -430,8 +462,10 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
     assert online is not None
     runs, chunk_feats = online
     if config == "retrained-online":
-        train = pd.concat([f[f["id"].map(ts_by_id) < test_start] for f in chunk_feats if not f.empty],
-                          ignore_index=True)
+        train = pd.concat(
+            [f[f["id"].map(ts_by_id) < test_start] for f in chunk_feats if not f.empty],
+            ignore_index=True,
+        )
         if not _train(orch, train):
             raise RuntimeError("retrained-online: training failed")
 
@@ -465,36 +499,49 @@ def run_config(config: str, rows: List[Dict[str, Any]], test_start: float, seed:
     return results
 
 
-def to_records(stream: List[bench_events.BenchEvent], rows: List[Dict[str, Any]],
-               results: Dict[int, Dict[str, Any]], test_start: float,
-               challenger_keys: Sequence[str] = ()) -> List[Dict[str, Any]]:
+def to_records(
+    stream: List[bench_events.BenchEvent],
+    rows: List[Dict[str, Any]],
+    results: Dict[int, Dict[str, Any]],
+    test_start: float,
+    challenger_keys: Sequence[str] = (),
+) -> List[Dict[str, Any]]:
     recs = []
     for ev, row in zip(stream, rows):
         if row["_ts"] < test_start:
             continue
         res = results.get(row["id"])
         scored = res is not None
-        recs.append({
-            "role": ev.role,
-            "technique": ev.technique,
-            "instance": ev.instance,
-            "scored": scored,
-            "severity_score": float(res["severity_score"]) if scored else metrics.NEG_INF,
-            "layer1_z": float(res["layer1_score"]) if scored else metrics.NEG_INF,
-            "layer2_ensemble": float(res["layer2_score"]) if scored else metrics.NEG_INF,
-            "layer3_autoencoder": float(res["layer3_score"]) if scored else metrics.NEG_INF,
-            "shadow_ecod": (float(res["shadow_ecod_score"])
-                            if scored and res.get("shadow_ecod_score") is not None else metrics.NEG_INF),
-            **{k: float(res[k]) if scored and k in res else metrics.NEG_INF for k in challenger_keys},
-            "is_anomaly": bool(res["is_anomaly"]) if scored else False,
-            "mitre_technique": res["mitre_technique"] if scored else None,
-        })
+        recs.append(
+            {
+                "role": ev.role,
+                "technique": ev.technique,
+                "instance": ev.instance,
+                "scored": scored,
+                "severity_score": float(res["severity_score"]) if scored else metrics.NEG_INF,
+                "layer1_z": float(res["layer1_score"]) if scored else metrics.NEG_INF,
+                "layer2_ensemble": float(res["layer2_score"]) if scored else metrics.NEG_INF,
+                "layer3_autoencoder": float(res["layer3_score"]) if scored else metrics.NEG_INF,
+                "shadow_ecod": (
+                    float(res["shadow_ecod_score"])
+                    if scored and res.get("shadow_ecod_score") is not None
+                    else metrics.NEG_INF
+                ),
+                **{
+                    k: float(res[k]) if scored and k in res else metrics.NEG_INF
+                    for k in challenger_keys
+                },
+                "is_anomaly": bool(res["is_anomaly"]) if scored else False,
+                "mitre_technique": res["mitre_technique"] if scored else None,
+            }
+        )
     return recs
 
 
 # ============================================================================
 # Report
 # ============================================================================
+
 
 def _versions() -> Dict[str, str]:
     out = {"python": platform.python_version()}
@@ -539,17 +586,27 @@ def render_markdown(report: Dict[str, Any]) -> str:
         if tr:
             lines += [
                 f"Training: {tr['skipped_too_few_events']} attempts skipped for too few events, then "
-                + ("; ".join(
-                    f"{a['status']} at {a['at']} on {a['events']} events"
-                    + (f" (canary recall {', '.join(f'{k} {v}' for k, v in a['canary'].items())})" if a.get("canary") else "")
-                    for a in tr["attempts"]) or "no training run")
+                + (
+                    "; ".join(
+                        f"{a['status']} at {a['at']} on {a['events']} events"
+                        + (
+                            f" (canary recall {', '.join(f'{k} {v}' for k, v in a['canary'].items())})"
+                            if a.get("canary")
+                            else ""
+                        )
+                        for a in tr["attempts"]
+                    )
+                    or "no training run"
+                )
                 + ".",
                 "",
             ]
         lines += [
             "Event-level TPR per technique: the deployed verdict, then each score at 1 % / 0.1 % FPR.",
             "",
-            "| Technique | Events | Verdict | " + " | ".join(f"`{k}`" for k in res["scores"]) + " |",
+            "| Technique | Events | Verdict | "
+            + " | ".join(f"`{k}`" for k in res["scores"])
+            + " |",
             "|---|---|---|" + "---|" * len(res["scores"]),
         ]
         for tech, row in dv["techniques"].items():
@@ -558,7 +615,11 @@ def render_markdown(report: Dict[str, Any]) -> str:
                 a = res["scores"][key]["0.01"]["techniques"].get(tech, {})
                 b = res["scores"][key]["0.001"]["techniques"].get(tech, {})
                 cells.append(f"{a.get('event_tpr')} / {b.get('event_tpr')}")
-            lines.append(f"| {tech} | {row['positive_events']} | {row['event_tpr']} | " + " | ".join(cells) + " |")
+            lines.append(
+                f"| {tech} | {row['positive_events']} | {row['event_tpr']} | "
+                + " | ".join(cells)
+                + " |"
+            )
         lines += [
             "",
             "Overall event TPR by score (@1% / @0.1% FPR, achieved FPR in brackets):",
@@ -580,19 +641,35 @@ def main(argv: Optional[List[str]] = None) -> int:
     ap.add_argument("--days", type=int, default=14)
     ap.add_argument("--train-days", type=int, default=4)
     ap.add_argument("--seed", type=int, default=7)
-    ap.add_argument("--datasets", nargs="+", default=["demo", "splunk", "evtx"],
-                    choices=["demo", "splunk", "evtx"])
+    ap.add_argument(
+        "--datasets",
+        nargs="+",
+        default=["demo", "splunk", "evtx"],
+        choices=["demo", "splunk", "evtx"],
+    )
     ap.add_argument("--configs", nargs="+", default=list(CONFIGS), choices=CONFIGS)
     ap.add_argument("--cache-dir", type=Path, default=fetch_datasets.DEFAULT_CACHE)
-    ap.add_argument("--workers", type=int, default=os.cpu_count() or 1,
-                    help="processes for per-run feature extraction")
+    ap.add_argument(
+        "--workers",
+        type=int,
+        default=os.cpu_count() or 1,
+        help="processes for per-run feature extraction",
+    )
     ap.add_argument("--label", default="baseline")
-    ap.add_argument("--challengers", action="store_true",
-                    help="also score the Phase 1 challenger models (retrained-* configs; needs "
-                         "onnxruntime, skl2onnx and lightgbm)")
-    ap.add_argument("--output", type=Path, required=True, help="JSON path; a .md summary is written next to it")
-    ap.add_argument("--render-only", action="store_true",
-                    help="rewrite the .md summary from an existing --output JSON without running")
+    ap.add_argument(
+        "--challengers",
+        action="store_true",
+        help="also score the Phase 1 challenger models (retrained-* configs; needs "
+        "onnxruntime, skl2onnx and lightgbm)",
+    )
+    ap.add_argument(
+        "--output", type=Path, required=True, help="JSON path; a .md summary is written next to it"
+    )
+    ap.add_argument(
+        "--render-only",
+        action="store_true",
+        help="rewrite the .md summary from an existing --output JSON without running",
+    )
     args = ap.parse_args(argv)
     if args.render_only:
         report = json.loads(args.output.read_text(encoding="utf-8"))
@@ -617,15 +694,27 @@ def main(argv: Optional[List[str]] = None) -> int:
         t0 = time.perf_counter()
         online = online_features(rows, args.workers)
         timings["online_features"] = round(time.perf_counter() - t0, 1)
-        logger.info("online replay: %d detection runs, features in %.1fs", len(online[0]), timings["online_features"])
+        logger.info(
+            "online replay: %d detection runs, features in %.1fs",
+            len(online[0]),
+            timings["online_features"],
+        )
     labels = {r["id"]: {"role": ev.role, "instance": ev.instance} for ev, r in zip(stream, rows)}
     for cfg in args.configs:
         t0 = time.perf_counter()
         training_log: List[Dict[str, Any]] = []
         use_ch = args.challengers and cfg != "production"
         ch_info: Dict[str, Any] = {}
-        scored = run_config(cfg, rows, test_start, args.seed, online, training_log,
-                            labels if use_ch else None, ch_info)
+        scored = run_config(
+            cfg,
+            rows,
+            test_start,
+            args.seed,
+            online,
+            training_log,
+            labels if use_ch else None,
+            ch_info,
+        )
         keys = SCORE_KEYS + (CHALLENGER_KEYS if use_ch else [])
         recs = to_records(stream, rows, scored, test_start, CHALLENGER_KEYS if use_ch else ())
         results[cfg] = metrics.summarize(recs, keys, FPRS, host_days)
@@ -638,8 +727,14 @@ def main(argv: Optional[List[str]] = None) -> int:
             }
         timings[cfg] = round(time.perf_counter() - t0, 1)
         dv = results[cfg]["deployed_verdict"]
-        logger.info("%s: %.1fs, verdict FPR %s TPR %s, %s false alerts/host/day",
-                    cfg, timings[cfg], dv["fpr"], dv["event_tpr"], dv["alerts_per_host_day_benign"])
+        logger.info(
+            "%s: %.1fs, verdict FPR %s TPR %s, %s false alerts/host/day",
+            cfg,
+            timings[cfg],
+            dv["fpr"],
+            dv["event_tpr"],
+            dv["alerts_per_host_day_benign"],
+        )
 
     manifest = fetch_datasets.load_manifest()
     report = {
@@ -656,7 +751,10 @@ def main(argv: Optional[List[str]] = None) -> int:
             "platform": platform.platform(),
             "seconds": timings,
             "stream": stream_info,
-            "sources": {k: {kk: v[kk] for kk in ("repo", "commit", "license")} for k, v in manifest["sources"].items()},
+            "sources": {
+                k: {kk: v[kk] for kk in ("repo", "commit", "license")}
+                for k, v in manifest["sources"].items()
+            },
         },
         "results": results,
     }

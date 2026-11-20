@@ -33,15 +33,15 @@ from lsadra.ingestion.base_parser import BaseParser
 # detection rules (lsadra/detection/attack_map.py), never by a parser: a logon
 # or a new service is not evidence of a technique on its own.
 _EVENT_MAP: Dict[str, tuple] = {
-    "4624": ("auth_success",          True),
-    "4625": ("auth_failure",          False),
-    "4648": ("auth_success",          True),
-    "4672": ("privileged_logon",      True),
-    "4688": ("process_exec",          True),
+    "4624": ("auth_success", True),
+    "4625": ("auth_failure", False),
+    "4648": ("auth_success", True),
+    "4672": ("privileged_logon", True),
+    "4688": ("process_exec", True),
     "4698": ("scheduled_task_create", True),
-    "4720": ("account_create",        True),
-    "7045": ("service_install",       True),
-    "1102": ("log_cleared",           True),
+    "4720": ("account_create", True),
+    "7045": ("service_install", True),
+    "1102": ("log_cleared", True),
 }
 
 # Pipe-delimited flat format: EventID|timestamp|username|source_ip|...
@@ -51,9 +51,15 @@ _PIPE_RE = re.compile(
 )
 
 _LOGON_TYPES: Dict[str, str] = {
-    "2": "Interactive", "3": "Network", "4": "Batch",
-    "5": "Service",     "7": "Unlock",  "8": "NetworkCleartext",
-    "9": "NewCredentials", "10": "RemoteInteractive", "11": "CachedInteractive",
+    "2": "Interactive",
+    "3": "Network",
+    "4": "Batch",
+    "5": "Service",
+    "7": "Unlock",
+    "8": "NetworkCleartext",
+    "9": "NewCredentials",
+    "10": "RemoteInteractive",
+    "11": "CachedInteractive",
 }
 
 
@@ -185,7 +191,7 @@ class WindowsEventParser(BaseParser):
 
         data_fields = {
             "TargetUserName": m.group("user"),
-            "IpAddress":      m.group("ip"),
+            "IpAddress": m.group("ip"),
         }
         return self._build_event(event_id, ts, data_fields, None, line, device_id)
 
@@ -204,30 +210,30 @@ class WindowsEventParser(BaseParser):
     ) -> Dict[str, Any]:
         """Assemble the final unified event dict from extracted components."""
         event_type, success = _EVENT_MAP[event_id]
-        username    = data_fields.get("TargetUserName") or data_fields.get("SubjectUserName") or None
-        source_ip   = data_fields.get("IpAddress") or None
+        username = data_fields.get("TargetUserName") or data_fields.get("SubjectUserName") or None
+        source_ip = data_fields.get("IpAddress") or None
         if source_ip in ("-", "::1", "127.0.0.1"):
             source_ip = None
 
         extra: Dict[str, Any] = {
-            "event_id":    event_id,
-            "logon_type":  _LOGON_TYPES.get(data_fields.get("LogonType", ""), ""),
-            "domain":      data_fields.get("TargetDomainName", ""),
-            "computer":    computer or "",
+            "event_id": event_id,
+            "logon_type": _LOGON_TYPES.get(data_fields.get("LogonType", ""), ""),
+            "domain": data_fields.get("TargetDomainName", ""),
+            "computer": computer or "",
             "process_name": data_fields.get("NewProcessName", ""),
-            "task_name":   data_fields.get("TaskName", ""),
+            "task_name": data_fields.get("TaskName", ""),
             "service_name": data_fields.get("ServiceName", ""),
         }
 
         return {
-            "timestamp":   ts,
+            "timestamp": ts,
             "source_type": self.source_type,
-            "source_ip":   source_ip,
-            "dest_ip":     None,
-            "username":    username,
-            "event_type":  event_type,
-            "success":     success,
-            "raw":         raw,
-            "device_id":   device_id,
-            "extra":       extra,
+            "source_ip": source_ip,
+            "dest_ip": None,
+            "username": username,
+            "event_type": event_type,
+            "success": success,
+            "raw": raw,
+            "device_id": device_id,
+            "extra": extra,
         }

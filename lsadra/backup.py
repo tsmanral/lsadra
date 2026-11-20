@@ -71,12 +71,17 @@ def _integrity(path: Path) -> str:
 def _summary(path: Path) -> Dict[str, Any]:
     conn = sqlite3.connect(f"file:{path}?mode=ro", uri=True)
     try:
-        tables = [r[0] for r in conn.execute(
-            "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
-        )]
+        tables = [
+            r[0]
+            for r in conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+            )
+        ]
         counts = {t: conn.execute(f'SELECT COUNT(*) FROM "{t}"').fetchone()[0] for t in tables}
         try:
-            migrations = [r[0] for r in conn.execute("SELECT filename FROM _schema_migrations ORDER BY id")]
+            migrations = [
+                r[0] for r in conn.execute("SELECT filename FROM _schema_migrations ORDER BY id")
+            ]
         except sqlite3.OperationalError:
             migrations = []
     finally:
@@ -137,7 +142,9 @@ def verify_backup(path: Path) -> Dict[str, Any]:
     manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
     actual = _sha256(path)
     if actual != manifest.get("sha256"):
-        raise BackupError("Backup does not match its manifest's SHA-256; it was changed or damaged.")
+        raise BackupError(
+            "Backup does not match its manifest's SHA-256; it was changed or damaged."
+        )
     check = _integrity(path)
     if check != "ok":
         raise BackupError(f"Backup failed its integrity check: {check}")
@@ -170,8 +177,12 @@ def restore_backup(path: Path) -> Path:
 def _audit(action: str, path: Path, digest: str, extra: Optional[Dict[str, Any]] = None) -> None:
     from lsadra.security import audit
 
-    audit.record(action, actor={"user_id": None, "username": "server-cli"},
-                 target=path.name, details={"sha256": digest, **(extra or {})})
+    audit.record(
+        action,
+        actor={"user_id": None, "username": "server-cli"},
+        target=path.name,
+        details={"sha256": digest, **(extra or {})},
+    )
 
 
 def main(argv=None) -> int:
@@ -198,8 +209,10 @@ def main(argv=None) -> int:
             print(f"OK: {args.file} (sha256 {m['sha256']}, created {m['created_at']})")
         else:
             if not args.yes:
-                print("Restore replaces the current database. Stop the server, then re-run with --yes.",
-                      file=sys.stderr)
+                print(
+                    "Restore replaces the current database. Stop the server, then re-run with --yes.",
+                    file=sys.stderr,
+                )
                 return 2
             safety = restore_backup(args.file)
             print(f"Restored {args.file}. The previous database was saved as {safety}.")

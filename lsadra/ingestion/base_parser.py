@@ -17,16 +17,16 @@ from typing import Any, Dict, Optional
 # Unified V4 event schema (all parsers must produce this shape)
 # ---------------------------------------------------------------------------
 REQUIRED_SCHEMA_FIELDS: tuple = (
-    "timestamp",   # ISO 8601 string
-    "source_type", # "ssh_log"|"syslog"|"windows_event"|"network_flow"|"endpoint"
-    "source_ip",   # str (may be None for some endpoint events)
-    "dest_ip",     # str | None
-    "username",    # str | None
+    "timestamp",  # ISO 8601 string
+    "source_type",  # "ssh_log"|"syslog"|"windows_event"|"network_flow"|"endpoint"
+    "source_ip",  # str (may be None for some endpoint events)
+    "dest_ip",  # str | None
+    "username",  # str | None
     "event_type",  # normalised action label
-    "success",     # bool
-    "raw",         # original raw line
-    "device_id",   # originating device
-    "extra",       # dict of parser-specific fields
+    "success",  # bool
+    "raw",  # original raw line
+    "device_id",  # originating device
+    "extra",  # dict of parser-specific fields
 )
 
 

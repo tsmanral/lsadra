@@ -63,37 +63,77 @@ def seeded():
     create_device(OTHER_DEVICE_ID, OTHER_ID, "db-01.demo", "linux", "x")
 
     now = datetime.now(timezone.utc).replace(tzinfo=None).isoformat()
-    inc = create_incident(DEVICE_ID, ATTACKER, "SSH Brute Force", "HIGH", now, "BRUTE_FORCE_RESPONSE")
+    inc = create_incident(
+        DEVICE_ID, ATTACKER, "SSH Brute Force", "HIGH", now, "BRUTE_FORCE_RESPONSE"
+    )
     other_inc = create_incident(OTHER_DEVICE_ID, OTHER_ATTACKER, "Port Scan", "LOW", now)
 
     alert_ids = []
     for i in range(3):
-        ev = insert_event({
-            "timestamp": now, "device_id": DEVICE_ID, "user_id": ANALYST_ID,
-            "host": "web-01.demo", "effective_username": "svc.demo",
-            "source_ip": ATTACKER, "event_type": "auth_failure",
-            "raw_message": f"Failed password for svc.demo from {ATTACKER} port 22 ssh2 #{i}",
-            "attributes": {"source_type": "ssh"},
-        })
-        alert_ids.append(insert_anomaly({
-            "event_id": ev, "device_id": DEVICE_ID, "user_id": ANALYST_ID,
-            "source_ip": ATTACKER, "severity_score": 0.5 + i * 0.2, "severity_label": "HIGH",
-            "is_anomaly": True, "threat_type": "SSH Brute Force", "attack_type": "SSH Brute Force",
-            "mitre_technique": "T1110", "narrative": f"**[HIGH]** **SSH Brute Force** from **{ATTACKER}**.",
-            "incident_id": inc,
-        }))
-    other_ev = insert_event({
-        "timestamp": now, "device_id": OTHER_DEVICE_ID, "user_id": OTHER_ID,
-        "host": "db-01.demo", "effective_username": "dba.demo", "source_ip": OTHER_ATTACKER,
-        "event_type": "conn", "raw_message": "synthetic", "attributes": {},
-    })
-    other_alert = insert_anomaly({
-        "event_id": other_ev, "device_id": OTHER_DEVICE_ID, "user_id": OTHER_ID,
-        "source_ip": OTHER_ATTACKER, "severity_score": 0.2, "severity_label": "LOW",
-        "is_anomaly": True, "threat_type": "Port Scan", "incident_id": other_inc,
-    })
-    return {"headers": headers, "inc": inc, "other_inc": other_inc,
-            "alerts": alert_ids, "other_alert": other_alert}
+        ev = insert_event(
+            {
+                "timestamp": now,
+                "device_id": DEVICE_ID,
+                "user_id": ANALYST_ID,
+                "host": "web-01.demo",
+                "effective_username": "svc.demo",
+                "source_ip": ATTACKER,
+                "event_type": "auth_failure",
+                "raw_message": f"Failed password for svc.demo from {ATTACKER} port 22 ssh2 #{i}",
+                "attributes": {"source_type": "ssh"},
+            }
+        )
+        alert_ids.append(
+            insert_anomaly(
+                {
+                    "event_id": ev,
+                    "device_id": DEVICE_ID,
+                    "user_id": ANALYST_ID,
+                    "source_ip": ATTACKER,
+                    "severity_score": 0.5 + i * 0.2,
+                    "severity_label": "HIGH",
+                    "is_anomaly": True,
+                    "threat_type": "SSH Brute Force",
+                    "attack_type": "SSH Brute Force",
+                    "mitre_technique": "T1110",
+                    "narrative": f"**[HIGH]** **SSH Brute Force** from **{ATTACKER}**.",
+                    "incident_id": inc,
+                }
+            )
+        )
+    other_ev = insert_event(
+        {
+            "timestamp": now,
+            "device_id": OTHER_DEVICE_ID,
+            "user_id": OTHER_ID,
+            "host": "db-01.demo",
+            "effective_username": "dba.demo",
+            "source_ip": OTHER_ATTACKER,
+            "event_type": "conn",
+            "raw_message": "synthetic",
+            "attributes": {},
+        }
+    )
+    other_alert = insert_anomaly(
+        {
+            "event_id": other_ev,
+            "device_id": OTHER_DEVICE_ID,
+            "user_id": OTHER_ID,
+            "source_ip": OTHER_ATTACKER,
+            "severity_score": 0.2,
+            "severity_label": "LOW",
+            "is_anomaly": True,
+            "threat_type": "Port Scan",
+            "incident_id": other_inc,
+        }
+    )
+    return {
+        "headers": headers,
+        "inc": inc,
+        "other_inc": other_inc,
+        "alerts": alert_ids,
+        "other_alert": other_alert,
+    }
 
 
 # ── Incident drill-down ──────────────────────────────────────────────────
@@ -114,7 +154,9 @@ def test_incident_detail_returns_alerts_entities_and_playbook(client, seeded):
     assert body["entities"]["users"] == ["svc.demo"]
     assert body["entities"]["mitre_techniques"] == ["T1110"]
     assert body["playbook"]["name"] == "BRUTE_FORCE_RESPONSE"
-    assert [s["id"] for s in body["playbook"]["steps"]] == list(range(1, len(body["playbook"]["steps"]) + 1))
+    assert [s["id"] for s in body["playbook"]["steps"]] == list(
+        range(1, len(body["playbook"]["steps"]) + 1)
+    )
 
 
 def test_incident_without_playbook_gets_general_triage(client, seeded):
@@ -129,7 +171,9 @@ def test_admin_sees_any_incident(client, seeded):
 
 
 def test_unknown_incident_is_404(client, seeded):
-    assert client.get("/api/incidents/999999", headers=seeded["headers"]["admin"]).status_code == 404
+    assert (
+        client.get("/api/incidents/999999", headers=seeded["headers"]["admin"]).status_code == 404
+    )
 
 
 def test_incident_list_route_still_works(client, seeded):
@@ -164,10 +208,15 @@ def test_entity_lookup_by_user_and_host(client, seeded):
 
 @pytest.mark.parametrize("fmt", ["inc_{}", "INC-{}", "{}", "#{}"])
 def test_entity_lookup_resolves_incident_ids(client, seeded, fmt):
-    r = client.get("/api/entity", params={"q": fmt.format(seeded["inc"])},
-                   headers=seeded["headers"]["analyst"])
+    r = client.get(
+        "/api/entity", params={"q": fmt.format(seeded["inc"])}, headers=seeded["headers"]["analyst"]
+    )
     assert r.status_code == 200
-    assert r.json() == {"entity": fmt.format(seeded["inc"]), "type": "Incident", "incident_id": seeded["inc"]}
+    assert r.json() == {
+        "entity": fmt.format(seeded["inc"]),
+        "type": "Incident",
+        "incident_id": seeded["inc"],
+    }
 
 
 def test_entity_with_no_activity_is_404_not_made_up(client, seeded):
@@ -181,8 +230,22 @@ def test_entity_with_no_activity_is_404_not_made_up(client, seeded):
 def test_feedback_round_trip_and_totals(client, seeded):
     h = seeded["headers"]["analyst"]
     a1, a2, _ = seeded["alerts"]
-    assert client.post("/api/feedback", json={"alert_id": a1, "label": "true_positive", "note": "confirmed"}, headers=h).status_code == 201
-    assert client.post("/api/feedback", json={"alert_id": a2, "label": "false_positive", "note": "scheduled job"}, headers=h).status_code == 201
+    assert (
+        client.post(
+            "/api/feedback",
+            json={"alert_id": a1, "label": "true_positive", "note": "confirmed"},
+            headers=h,
+        ).status_code
+        == 201
+    )
+    assert (
+        client.post(
+            "/api/feedback",
+            json={"alert_id": a2, "label": "false_positive", "note": "scheduled job"},
+            headers=h,
+        ).status_code
+        == 201
+    )
 
     body = client.get("/api/feedback", headers=h).json()
     assert body["total"] == 2
@@ -199,24 +262,39 @@ def test_feedback_round_trip_and_totals(client, seeded):
 
 def test_feedback_empty_has_no_precision(client, seeded):
     body = client.get("/api/feedback", headers=seeded["headers"]["analyst"]).json()
-    assert body == {"items": [], "total": 0, "true_positives": 0, "false_positives": 0, "precision": None}
+    assert body == {
+        "items": [],
+        "total": 0,
+        "true_positives": 0,
+        "false_positives": 0,
+        "precision": None,
+    }
 
 
 def test_feedback_rejects_unknown_label(client, seeded):
-    r = client.post("/api/feedback", json={"alert_id": seeded["alerts"][0], "label": "needs_review"},
-                    headers=seeded["headers"]["analyst"])
+    r = client.post(
+        "/api/feedback",
+        json={"alert_id": seeded["alerts"][0], "label": "needs_review"},
+        headers=seeded["headers"]["analyst"],
+    )
     assert r.status_code == 422
 
 
 def test_feedback_on_missing_alert_is_404(client, seeded):
-    r = client.post("/api/feedback", json={"alert_id": 424242, "label": "true_positive"},
-                    headers=seeded["headers"]["analyst"])
+    r = client.post(
+        "/api/feedback",
+        json={"alert_id": 424242, "label": "true_positive"},
+        headers=seeded["headers"]["analyst"],
+    )
     assert r.status_code == 404
 
 
 def test_viewer_cannot_label(client, seeded):
-    r = client.post("/api/feedback", json={"alert_id": seeded["alerts"][0], "label": "true_positive"},
-                    headers=seeded["headers"]["viewer"])
+    r = client.post(
+        "/api/feedback",
+        json={"alert_id": seeded["alerts"][0], "label": "true_positive"},
+        headers=seeded["headers"]["viewer"],
+    )
     assert r.status_code == 403
 
 

@@ -77,8 +77,9 @@ def test_first_admin_is_created_and_can_log_in(token):
     assert r.status_code == 201, r.text
     assert r.json()["role"] == "ADMIN"
     assert _status(client, token).json() == {"needs_admin": False}
-    login = client.post("/api/auth/login",
-                        json={"username": "owner.demo", "password": TEST_PASSWORD})
+    login = client.post(
+        "/api/auth/login", json={"username": "owner.demo", "password": TEST_PASSWORD}
+    )
     assert login.status_code == 200, login.text
     assert login.json()["role"] == "ADMIN"
 
@@ -107,8 +108,9 @@ def test_forwarded_header_cannot_fake_loopback(token, monkeypatch):
     from lsadra import config
 
     monkeypatch.setattr(config, "TRUSTED_PROXY_IPS", {"192.0.2.1"})
-    r = _client("192.0.2.1").post("/api/setup/admin", json=_body(token),
-                                  headers={"X-Forwarded-For": "127.0.0.1"})
+    r = _client("192.0.2.1").post(
+        "/api/setup/admin", json=_body(token), headers={"X-Forwarded-For": "127.0.0.1"}
+    )
     assert r.status_code == 403
     assert _role("owner.demo") is None
 

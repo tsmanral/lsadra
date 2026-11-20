@@ -50,9 +50,9 @@ def test_due_only_after_growth_and_below_the_cap(monkeypatch):
     assert not growth_retrain_due(99, base=50, trained_on=50)
     assert growth_retrain_due(100, base=50, trained_on=50)
     assert not growth_retrain_due(100_000, base=50, trained_on=10_000)  # already at the cap
-    assert not growth_retrain_due(100, base=None, trained_on=None)      # no model yet
+    assert not growth_retrain_due(100, base=None, trained_on=None)  # no model yet
     monkeypatch.setattr(config, "AUTO_RETRAIN_GROWTH", 0.0)
-    assert not growth_retrain_due(100_000, base=50, trained_on=50)      # turned off
+    assert not growth_retrain_due(100_000, base=50, trained_on=50)  # turned off
 
 
 def test_one_retrain_per_doubling(no_cooldown, monkeypatch):
@@ -79,8 +79,7 @@ def test_a_rejected_candidate_waits_for_the_next_doubling(no_cooldown, monkeypat
     from lsadra.detection import model_lifecycle as lifecycle
 
     orch = _first_model()
-    monkeypatch.setattr(lifecycle, "run_canary",
-                        lambda *a, **k: {"passed": False, "scenarios": {}})
+    monkeypatch.setattr(lifecycle, "run_canary", lambda *a, **k: {"passed": False, "scenarios": {}})
     calls = _spy(orch, monkeypatch)
 
     orch._maybe_growth_retrain(128)
@@ -133,8 +132,12 @@ def test_online_batches_drive_the_check(no_cooldown, monkeypatch):
     from lsadra.storage.database import get_connection
 
     with get_connection() as conn:
-        rows = [dict(r) for r in conn.execute(
-            "SELECT * FROM normalized_events ORDER BY id DESC LIMIT 5").fetchall()]
+        rows = [
+            dict(r)
+            for r in conn.execute(
+                "SELECT * FROM normalized_events ORDER BY id DESC LIMIT 5"
+            ).fetchall()
+        ]
     monkeypatch.setattr("lsadra.detection.detection_orchestrator.MIN_BASELINE_EVENTS", 0)
     orch._process_new_events("dev-a", sorted(rows, key=lambda r: r["id"]))
     assert seen == [max(r["id"] for r in rows)]

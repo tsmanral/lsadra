@@ -52,8 +52,10 @@ def self_test() -> int:
             problems.append(f"canary failed: {canary}")
     for problem in problems:
         print(f"self-test: {problem}", file=sys.stderr)
-    print(f"lsadra-server {__version__} self-test: {rules} Sigma rules, "
-          f"{'FAILED' if problems else 'ok'}")
+    print(
+        f"lsadra-server {__version__} self-test: {rules} Sigma rules, "
+        f"{'FAILED' if problems else 'ok'}"
+    )
     return 1 if problems else 0
 
 

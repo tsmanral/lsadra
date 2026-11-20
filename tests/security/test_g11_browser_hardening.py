@@ -77,11 +77,16 @@ def test_openapi_inventory_is_off_outside_dev_mode():
         "c = TestClient(server.app)\n"
         "print(c.get('/openapi.json').status_code, c.get('/docs').status_code)\n"
     )
-    env = {**os.environ, "LSADRA_DEV_MODE": "false", "LSADRA_JWT_SECRET": "synthetic-test-secret-" + "x" * 24,
-           "LSADRA_SCHEDULER_ENABLED": "false"}
+    env = {
+        **os.environ,
+        "LSADRA_DEV_MODE": "false",
+        "LSADRA_JWT_SECRET": "synthetic-test-secret-" + "x" * 24,
+        "LSADRA_SCHEDULER_ENABLED": "false",
+    }
     env.pop("LSADRA_EXPOSE_API_DOCS", None)
-    out = subprocess.run([sys.executable, "-c", code], cwd=ROOT, env=env,
-                         capture_output=True, text=True, timeout=120)
+    out = subprocess.run(
+        [sys.executable, "-c", code], cwd=ROOT, env=env, capture_output=True, text=True, timeout=120
+    )
     assert out.returncode == 0, out.stderr[-2000:]
     assert out.stdout.strip().splitlines()[-1] == "404 404"
 

@@ -74,10 +74,18 @@ def test_retention_covers_personal_data_tables(identity_env):
     closed = db.create_incident("dev-demo-03", "192.0.2.10", "brute_force", "HIGH", OLD)
     still_open = db.create_incident("dev-demo-03", "192.0.2.11", "brute_force", "HIGH", OLD)
     _sql("UPDATE incidents SET status = 'RESOLVED' WHERE id = ?", (closed,))
-    _sql("INSERT INTO alerts_feedback (alert_id, label, created_at) VALUES (1, 'false_positive', ?)", (OLD,))
-    _sql("INSERT INTO ip_geolocation (ip_address, city, resolved_at) VALUES ('198.51.100.7', 'X', ?)", (OLD,))
-    _sql("INSERT INTO threat_intel_cache (ip_address, queried_at, expires_at) VALUES ('198.51.100.8', ?, ?)",
-         (OLD, OLD))
+    _sql(
+        "INSERT INTO alerts_feedback (alert_id, label, created_at) VALUES (1, 'false_positive', ?)",
+        (OLD,),
+    )
+    _sql(
+        "INSERT INTO ip_geolocation (ip_address, city, resolved_at) VALUES ('198.51.100.7', 'X', ?)",
+        (OLD,),
+    )
+    _sql(
+        "INSERT INTO threat_intel_cache (ip_address, queried_at, expires_at) VALUES ('198.51.100.8', ?, ?)",
+        (OLD, OLD),
+    )
     db.store_token("tok-demo-old", owner, datetime.utcnow() - timedelta(days=400))
     audit.record("test.event")  # recent audit row: must survive
 
