@@ -17,7 +17,9 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
-use server::{data_dir_of, data_env, find_installed, resolve_launch, server_env, Server, Status};
+use server::{
+    data_dir_of, data_env, find_bundled, find_installed, resolve_launch, server_env, Server, Status,
+};
 use settings::Settings;
 
 const MAIN_WINDOW: &str = "main";
@@ -68,7 +70,8 @@ pub fn run() {
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()));
             let installed = find_installed(std::env::var_os("PATH"), paths.home_dir().ok());
-            let launch = resolve_launch(&settings, exe_dir.as_deref(), installed);
+            let bundled = find_bundled(exe_dir.as_deref(), paths.resource_dir().ok().as_deref());
+            let launch = resolve_launch(&settings, exe_dir.as_deref(), bundled, installed);
             let secret = settings::jwt_secret(&data_dir)?;
             let mut env = server_env(settings.port, &secret, |k| std::env::var(k).ok());
             // A packaged server keeps its database and models in this user's
