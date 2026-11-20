@@ -553,9 +553,11 @@ async def ingest_raw_batch(
     detect = _reserve_detection(device_id)
     if db_rows:
         await _store_reserved(device_id, db_rows, detect)
+        # Source names come out of parsed device lines: flatten, then escape.
+        sources = log_safe(", ".join(f"{k}={v}" for k, v in sorted(source_counts.items())))
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
-            accepted, device_id, parse_errors, log_safe(source_counts),
+            accepted, device_id, parse_errors, sources,
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
