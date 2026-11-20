@@ -557,7 +557,7 @@ async def ingest_raw_batch(
         # stays in the response and /stats rather than the server log.
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, source types: %d)",
-            accepted, device_id, parse_errors, len(source_counts),
+            accepted, log_safe(device_id), parse_errors, len(source_counts),
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
