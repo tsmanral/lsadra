@@ -1,18 +1,27 @@
 name: Desktop app
 
-# Builds and tests the Tauri tray app in desktop/ on all three desktop OSes.
-# Not a required check: it runs only when the app or the dashboard changes.
+# Builds and tests the Tauri tray app in desktop/ on all three desktop OSes,
+# and the self-contained lsadra-server it ships (PyInstaller, desktop/sidecar/).
+# Not a required check: it runs only when the app, the dashboard or the
+# server's build inputs change (and on main for any server change, since the
+# installers carry the server).
 on:
   pull_request:
     paths:
       - "desktop/**"
       - "frontend/**"
+      - "requirements/base.txt"
+      - "requirements/sidecar.txt"
       - ".github/workflows/desktop.yml"
   push:
     branches: [main]
     paths:
       - "desktop/**"
       - "frontend/**"
+      - "lsadra/**"
+      - "pyproject.toml"
+      - "requirements/base.txt"
+      - "requirements/sidecar.txt"
       - ".github/workflows/desktop.yml"
   workflow_dispatch:
 
@@ -47,6 +56,20 @@ jobs:
         run: |
           rustup toolchain install stable --profile minimal --component rustfmt,clippy
           rustup default stable
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: "3.12"
+      - name: Build the bundled server (PyInstaller, hash-locked inputs)
+        shell: bash
+        run: |
+          python -m pip install --require-hashes -r requirements/base.txt -r requirements/sidecar.txt
+          cd desktop/sidecar
+          pyinstaller --noconfirm --clean --distpath ../src-tauri/sidecar lsadra-server.spec
+      - name: Self-test the bundled server
+        # A module or data file PyInstaller missed only fails at run time.
+        shell: bash
+        working-directory: desktop/src-tauri/sidecar/lsadra-server
+        run: ./lsadra-server --self-test
       - name: Build the dashboard the app ships
         working-directory: frontend
         run: |
@@ -66,7 +89,7 @@ jobs:
         working-directory: desktop
         run: |
           npm ci
-          npx tauri build
+          npx tauri build --config src-tauri/tauri.sidecar.conf.json
       - name: Upload installers
         if: github.event_name != 'pull_request'
         uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2

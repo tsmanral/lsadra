@@ -1,3 +1,5 @@
 node_modules/
 src-tauri/target/
 src-tauri/gen/
+# Self-contained server built by PyInstaller (desktop/sidecar/)
+/src-tauri/sidecar/

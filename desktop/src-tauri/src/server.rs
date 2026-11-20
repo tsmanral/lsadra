@@ -111,9 +111,24 @@ pub fn find_installed(path: Option<OsString>, home: Option<PathBuf>) -> Option<P
         .find(|p| p.is_file())
 }
 
+/// Folder the installers put the self-contained server in, inside the app's
+/// resource folder (see `tauri.sidecar.conf.json`).
+pub const BUNDLED_SERVER_DIR: &str = "lsadra-server";
+
+/// Find the self-contained server the installer ships: in the app's resource
+/// folder (`lsadra-server/lsadra-server`), or directly next to the executable.
+pub fn find_bundled(exe_dir: Option<&Path>, resource_dir: Option<&Path>) -> Option<PathBuf> {
+    let in_resources = resource_dir.map(|d| d.join(BUNDLED_SERVER_DIR).join(BUNDLED_SERVER));
+    let beside_exe = exe_dir.map(|d| d.join(BUNDLED_SERVER));
+    [in_resources, beside_exe]
+        .into_iter()
+        .flatten()
+        .find(|p| p.is_file())
+}
+
 /// Decide how to start the server, in this order:
 ///
-/// 1. a self-contained `lsadra-server` next to the app executable;
+/// 1. `bundled`, the self-contained server found by [`find_bundled`];
 /// 2. the `server` setting (`LSADRA_SERVER`), an installed `lsadra-server`;
 /// 3. the `server_dir` setting (`LSADRA_HOME`), a source checkout;
 /// 4. a checkout above the app executable (`npm run dev`);
@@ -121,13 +136,11 @@ pub fn find_installed(path: Option<OsString>, home: Option<PathBuf>) -> Option<P
 pub fn resolve_launch(
     settings: &Settings,
     exe_dir: Option<&Path>,
+    bundled: Option<PathBuf>,
     installed: Option<PathBuf>,
 ) -> Launch {
-    if let Some(exe_dir) = exe_dir {
-        let bundled = exe_dir.join(BUNDLED_SERVER);
-        if bundled.is_file() {
-            return Launch::Bundled { program: bundled };
-        }
+    if let Some(program) = bundled {
+        return Launch::Bundled { program };
     }
     if let Some(program) = settings.server.clone().filter(|p| p.is_file()) {
         return Launch::Installed { program };
@@ -204,6 +217,41 @@ pub fn server_env(
         env.push(("LSADRA_JWT_SECRET".to_string(), secret.to_string()));
     }
     env
+}
+
+/// Hand the server a first-run setup token (`LSADRA_SETUP_TOKEN`), so the
+/// dashboard can create the first admin account without a shell. The token is
+/// new at every app start and only goes to the server this app launches and
+/// to its own window. A token already in the environment is kept.
+pub fn setup_env(token: &str, inherited: impl Fn(&str) -> Option<String>) -> Vec<(String, String)> {
+    match inherited("LSADRA_SETUP_TOKEN").filter(|v| !v.trim().is_empty()) {
+        Some(_) => Vec::new(),
+        None => vec![("LSADRA_SETUP_TOKEN".to_string(), token.to_string())],
+    }
+}
+
+/// The dashboard address the window opens: the start page, carrying the setup
+/// token the frontend keeps for first-run setup (frontend/src/services/setupToken.ts).
+pub fn dashboard_path(
+    env: &[(String, String)],
+    inherited: impl Fn(&str) -> Option<String>,
+) -> String {
+    let token = env
+        .iter()
+        .rev()
+        .find(|(k, _)| k == "LSADRA_SETUP_TOKEN")
+        .map(|(_, v)| v.clone())
+        .or_else(|| inherited("LSADRA_SETUP_TOKEN"))
+        .filter(|t| {
+            !t.is_empty()
+                && t.chars()
+                    .all(|c| c.is_ascii_alphanumeric() || c == '_' || c == '-')
+        });
+    match token {
+        // "/" (not "index.html"): the dashboard router has no /index.html route.
+        Some(t) => format!("/?setup_token={t}"),
+        None => "index.html".to_string(),
+    }
 }
 
 /// Where a packaged server keeps its data: `LSADRA_DATA_DIR` and
@@ -385,14 +433,7 @@ impl Server {
             Launch::NotConfigured => {
                 return Err("no LSADRA server found; set server_dir in settings.json".into())
             }
-            Launch::Bundled { program } => {
-                let mut cmd = Command::new(program);
-                if let Some(dir) = program.parent() {
-                    cmd.current_dir(dir);
-                }
-                cmd
-            }
-            Launch::Installed { program } => {
+            Launch::Bundled { program } | Launch::Installed { program } => {
                 // Run from the data folder so nothing lands in whatever
                 // folder the app was started from.
                 let mut cmd = Command::new(program);
@@ -689,7 +730,12 @@ mod tests {
         let exe_dir = temp_dir("bundled");
         fs::write(exe_dir.join(BUNDLED_SERVER), "").unwrap();
         let checkout = fake_checkout("bundled-co", true);
-        let launch = resolve_launch(&settings(Some(checkout.clone())), Some(&exe_dir), None);
+        let launch = resolve_launch(
+            &settings(Some(checkout.clone())),
+            Some(&exe_dir),
+            find_bundled(Some(&exe_dir), None),
+            None,
+        );
         assert_eq!(
             launch,
             Launch::Bundled {
@@ -701,9 +747,44 @@ mod tests {
     }
 
     #[test]
+    fn bundled_server_is_found_in_the_resource_folder_first() {
+        let resources = temp_dir("bundled-res");
+        let exe_dir = temp_dir("bundled-exe");
+        assert_eq!(find_bundled(Some(&exe_dir), Some(&resources)), None);
+        fs::write(exe_dir.join(BUNDLED_SERVER), "").unwrap();
+        assert_eq!(
+            find_bundled(Some(&exe_dir), Some(&resources)),
+            Some(exe_dir.join(BUNDLED_SERVER))
+        );
+        let in_resources = resources.join(BUNDLED_SERVER_DIR).join(BUNDLED_SERVER);
+        fs::create_dir_all(in_resources.parent().unwrap()).unwrap();
+        fs::write(&in_resources, "").unwrap();
+        assert_eq!(
+            find_bundled(Some(&exe_dir), Some(&resources)),
+            Some(in_resources.clone())
+        );
+        // The bundled server beats an installed one and any checkout.
+        let checkout = fake_checkout("bundled-res-co", true);
+        assert_eq!(
+            resolve_launch(
+                &settings(Some(checkout.clone())),
+                Some(&exe_dir),
+                Some(in_resources.clone()),
+                Some(PathBuf::from("/usr/bin/lsadra-server"))
+            ),
+            Launch::Bundled {
+                program: in_resources
+            }
+        );
+        for dir in [resources, exe_dir, checkout] {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
     fn resolve_uses_serve_module_when_present() {
         let checkout = fake_checkout("serve", true);
-        match resolve_launch(&settings(Some(checkout.clone())), None, None) {
+        match resolve_launch(&settings(Some(checkout.clone())), None, None, None) {
             Launch::Python { dir, args, .. } => {
                 assert_eq!(dir, checkout);
                 assert_eq!(args, vec!["-m", "lsadra.serve"]);
@@ -716,7 +797,7 @@ mod tests {
     #[test]
     fn resolve_falls_back_to_uvicorn_on_loopback() {
         let checkout = fake_checkout("uvicorn", false);
-        match resolve_launch(&settings(Some(checkout.clone())), None, None) {
+        match resolve_launch(&settings(Some(checkout.clone())), None, None, None) {
             Launch::Python { args, .. } => {
                 assert!(args.windows(2).any(|w| w == ["--host", "127.0.0.1"]));
                 assert!(args.windows(2).any(|w| w == ["--port", "8000"]));
@@ -735,7 +816,7 @@ mod tests {
             .join("target")
             .join("debug");
         fs::create_dir_all(&exe_dir).unwrap();
-        match resolve_launch(&settings(None), Some(&exe_dir), None) {
+        match resolve_launch(&settings(None), Some(&exe_dir), None, None) {
             Launch::Python { dir, .. } => assert_eq!(dir, checkout),
             other => panic!("unexpected {other:?}"),
         }
@@ -746,7 +827,7 @@ mod tests {
     fn resolve_reports_not_configured() {
         let nowhere = temp_dir("nowhere");
         assert_eq!(
-            resolve_launch(&settings(Some(nowhere.clone())), Some(&nowhere), None),
+            resolve_launch(&settings(Some(nowhere.clone())), Some(&nowhere), None, None),
             Launch::NotConfigured
         );
         let _ = fs::remove_dir_all(&nowhere);
@@ -764,7 +845,7 @@ mod tests {
         let program = fake_installed("installed");
         let nowhere = temp_dir("installed-nowhere");
         assert_eq!(
-            resolve_launch(&settings(None), Some(&nowhere), Some(program.clone())),
+            resolve_launch(&settings(None), Some(&nowhere), None, Some(program.clone())),
             Launch::Installed {
                 program: program.clone()
             }
@@ -774,6 +855,7 @@ mod tests {
         assert!(matches!(
             resolve_launch(
                 &settings(Some(checkout.clone())),
+                None,
                 None,
                 Some(program.clone())
             ),
@@ -791,7 +873,7 @@ mod tests {
         let mut s = settings(Some(checkout.clone()));
         s.server = Some(program.clone());
         assert_eq!(
-            resolve_launch(&s, None, Some(PathBuf::from("/elsewhere"))),
+            resolve_launch(&s, None, None, Some(PathBuf::from("/elsewhere"))),
             Launch::Installed {
                 program: program.clone()
             }
@@ -799,7 +881,7 @@ mod tests {
         // A setting that points at nothing is ignored, not fatal.
         s.server = Some(checkout.join("missing"));
         assert!(matches!(
-            resolve_launch(&s, None, None),
+            resolve_launch(&s, None, None, None),
             Launch::Python { .. }
         ));
         let _ = fs::remove_dir_all(program.parent().unwrap());
@@ -879,6 +961,29 @@ mod tests {
             Some(PathBuf::from("/srv/lsadra"))
         );
         assert_eq!(data_dir_of(&[], env_of(&[])), None);
+    }
+
+    #[test]
+    fn setup_token_reaches_server_and_window_only_when_safe() {
+        let token = "ab".repeat(32);
+        let env = setup_env(&token, env_of(&[]));
+        assert_eq!(env, vec![("LSADRA_SETUP_TOKEN".to_string(), token.clone())]);
+        assert_eq!(
+            dashboard_path(&env, env_of(&[])),
+            format!("/?setup_token={token}")
+        );
+        // A token the user set is kept, and the window gets that one.
+        let mine = "cd".repeat(32);
+        let inherited = [("LSADRA_SETUP_TOKEN", mine.as_str())];
+        assert!(setup_env(&token, env_of(&inherited)).is_empty());
+        assert_eq!(
+            dashboard_path(&[], env_of(&inherited)),
+            format!("/?setup_token={mine}")
+        );
+        // Anything that could change the URL is never put in it.
+        let odd = [("LSADRA_SETUP_TOKEN", "x&y=1#z")];
+        assert_eq!(dashboard_path(&[], env_of(&odd)), "index.html");
+        assert_eq!(dashboard_path(&[], env_of(&[])), "index.html");
     }
 
     #[test]

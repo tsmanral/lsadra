@@ -58,6 +58,7 @@ from lsadra.tls_middleware import TLSEnforcementMiddleware
 from lsadra.api.alert_stream import router as alert_stream_router
 from lsadra.api.identity import router as identity_router
 from lsadra.api.risk import router as risk_router
+from lsadra.api.setup import router as setup_router
 from lsadra.api.dashboard import router as dashboard_router
 from lsadra.api.intel import router as intel_router
 from lsadra.api.investigation import router as investigation_router
@@ -181,6 +182,7 @@ app.include_router(alert_stream_router)  # /ws/alerts
 app.include_router(investigation_router, prefix="/api")  # incident detail, entity, feedback
 app.include_router(identity_router)  # logout, TOTP, device revoke/rotate, audit (G-9, G-26, G-33)
 app.include_router(risk_router, prefix="/api/risk")
+app.include_router(setup_router, prefix="/api/setup")
 
 
 # ── Utility endpoints ───────────────────────────────────────────────────

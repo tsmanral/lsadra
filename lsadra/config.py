@@ -169,6 +169,14 @@ TOKEN_ALGORITHM: str = "HS256"
 ALLOW_SIGNUP: bool = (
     os.getenv("LSADRA_ALLOW_SIGNUP", "true" if DEV_MODE else "false").lower() == "true"
 )
+# First-run admin setup (desktop app). When set, POST /api/setup/admin creates
+# the first ADMIN account from a loopback client that presents this token, and
+# only while no admin exists. The desktop app generates a fresh random token at
+# each start, hands it to the server it launches and to its own window, so the
+# dashboard can offer "create your admin account" on a new install. Unset (the
+# default) turns the endpoint off; use `lsadra-admin create-admin` instead.
+SETUP_TOKEN: str = os.getenv("LSADRA_SETUP_TOKEN", "").strip()
+SETUP_TOKEN_MIN_LENGTH: int = 32
 # 60-minute sessions (G-9). Logout, a role or password change, or disabling the
 # account also ends every earlier session at once (users.token_version).
 JWT_EXPIRATION_MINUTES: int = int(os.getenv("LSADRA_JWT_EXPIRATION_MINUTES", "60"))

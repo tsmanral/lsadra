@@ -95,12 +95,17 @@ pub fn jwt_secret(data_dir: &Path) -> std::io::Result<String> {
         }
     }
     fs::create_dir_all(data_dir)?;
-    let mut bytes = [0u8; 32];
-    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
-    let secret: String = bytes.iter().map(|b| format!("{b:02x}")).collect();
+    let secret = random_hex()?;
     let mut file = open_private(&path)?;
     file.write_all(secret.as_bytes())?;
     Ok(secret)
+}
+
+/// 32 random bytes as 64 hex characters.
+pub fn random_hex() -> std::io::Result<String> {
+    let mut bytes = [0u8; 32];
+    getrandom::fill(&mut bytes).map_err(|e| std::io::Error::other(e.to_string()))?;
+    Ok(bytes.iter().map(|b| format!("{b:02x}")).collect())
 }
 
 #[cfg(unix)]
