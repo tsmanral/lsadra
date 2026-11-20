@@ -568,7 +568,7 @@ docs/               Documentation tree
 fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
-.github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release-please (release PR) + release (signed + attested) + release dry run, secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
+.github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release-please (release PR) + release (signed + attested) + release dry run, secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, contributor triage (labels and assigns outside PRs and issues, welcomes first-timers), intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
 .github/labels.json Issue labels (good first issue, area: *, needs-triage), synced by the labels workflow
 requirements.txt    Full install from the hash-locked files in requirements/: server, ML, tests and ruff; requirements/docs.txt is the docs-site toolchain

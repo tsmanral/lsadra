@@ -1,0 +1,52 @@
+name: contributor-triage
+
+# Safety net for outside contributions: every PR or issue opened by someone
+# outside the maintainer team gets the "needs-triage" label and is assigned to
+# the project lead, and first-time contributors get a short welcome. This makes
+# a new contribution visible the same day even if nobody is watching the repo.
+#
+# pull_request_target runs in the context of the base repository so it can
+# label fork PRs. It is safe here because the job never checks out, builds or
+# runs any code from the PR: it only reads event metadata (number, author,
+# author association) and calls the GitHub REST API with the job token.
+on:
+  pull_request_target:
+    types: [opened, reopened]
+  issues:
+    types: [opened]
+
+permissions: {}
+
+jobs:
+  triage:
+    # Skip maintainers and bots; everyone else is an outside contributor.
+    if: >-
+      github.repository == 'tsmanral/lsadra' &&
+      !contains(fromJSON('["OWNER","MEMBER","COLLABORATOR"]'),
+        github.event.pull_request.author_association || github.event.issue.author_association) &&
+      !endsWith(github.event.pull_request.user.login || github.event.issue.user.login, '[bot]')
+    runs-on: ubuntu-latest
+    permissions:
+      issues: write
+      pull-requests: write
+    steps:
+      - name: Label, assign and welcome
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          NUMBER: ${{ github.event.pull_request.number || github.event.issue.number }}
+          ASSOCIATION: ${{ github.event.pull_request.author_association || github.event.issue.author_association }}
+          KIND: ${{ github.event_name == 'pull_request_target' && 'pull request' || 'issue' }}
+          LEAD: tsmanral
+        run: |
+          set -euo pipefail
+          gh api -X POST "repos/$REPO/issues/$NUMBER/labels" -f "labels[]=needs-triage" >/dev/null
+          gh api -X POST "repos/$REPO/issues/$NUMBER/assignees" -f "assignees[]=$LEAD" >/dev/null
+          case "$ASSOCIATION" in
+            FIRST_TIME_CONTRIBUTOR|FIRST_TIMER|NONE)
+              body="Thanks for your first $KIND to LSADRA, and welcome! A maintainer will take a look within a day.
+
+          While you wait, [CONTRIBUTING.md](https://github.com/$REPO/blob/main/CONTRIBUTING.md) covers the local checks and the commit sign-off (\`git commit -s\`) that CI requires. Please report security problems privately, as [SECURITY.md](https://github.com/$REPO/blob/main/SECURITY.md) explains, never in a public issue."
+              gh api -X POST "repos/$REPO/issues/$NUMBER/comments" -f "body=$body" >/dev/null
+              ;;
+          esac
