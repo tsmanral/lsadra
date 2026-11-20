@@ -17,7 +17,7 @@ use tauri::menu::{Menu, MenuItem, PredefinedMenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
-use server::{resolve_launch, server_env, Server, Status};
+use server::{data_dir_of, data_env, find_installed, resolve_launch, server_env, Server, Status};
 use settings::Settings;
 
 const MAIN_WINDOW: &str = "main";
@@ -67,9 +67,19 @@ pub fn run() {
             let exe_dir = std::env::current_exe()
                 .ok()
                 .and_then(|p| p.parent().map(|d| d.to_path_buf()));
-            let launch = resolve_launch(&settings, exe_dir.as_deref());
+            let installed = find_installed(std::env::var_os("PATH"), paths.home_dir().ok());
+            let launch = resolve_launch(&settings, exe_dir.as_deref(), installed);
             let secret = settings::jwt_secret(&data_dir)?;
-            let env = server_env(settings.port, &secret, |k| std::env::var(k).ok());
+            let mut env = server_env(settings.port, &secret, |k| std::env::var(k).ok());
+            // A packaged server keeps its database and models in this user's
+            // app data folder, apart from the desktop app's own files.
+            env.extend(data_env(&launch, &data_dir.join("server"), &log_dir, |k| {
+                std::env::var(k).ok()
+            }));
+            let data_text = match data_dir_of(&env, |k| std::env::var(k).ok()) {
+                Some(dir) => format!("Data: {}", dir.display()),
+                None => "Data: the checkout's data folder".to_string(),
+            };
             let server = Arc::new(Server::new(
                 launch,
                 settings.port,
@@ -90,6 +100,7 @@ pub fn run() {
             let toggle_item = MenuItem::with_id(app, "toggle", "Start server", true, None::<&str>)?;
             let log_text = format!("Server log: {}", server.log_path().display());
             let log_item = MenuItem::with_id(app, "log", log_text, false, None::<&str>)?;
+            let data_item = MenuItem::with_id(app, "data", data_text, false, None::<&str>)?;
             let quit_item = MenuItem::with_id(app, "quit", "Quit LSADRA", true, None::<&str>)?;
             let menu = Menu::with_items(
                 app,
@@ -98,6 +109,7 @@ pub fn run() {
                     &open_item,
                     &toggle_item,
                     &PredefinedMenuItem::separator(app)?,
+                    &data_item,
                     &log_item,
                     &PredefinedMenuItem::separator(app)?,
                     &quit_item,

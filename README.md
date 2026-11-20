@@ -244,14 +244,14 @@ The command saves the installer to a file and checks its SHA-256 before running 
 
 ## Desktop app (preview)
 
-`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first as in step 5 above (`LSADRA_DEV_MODE=true` is fine for that one command, since it only writes to the database). For now it runs the server from a source checkout set up as in step 1 of the quick start; a self-contained server bundle comes later.
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first with `lsadra-admin create-admin`, pointed at the app's data folder as shown in [desktop/README.md](desktop/README.md#first-account). It runs an installed `lsadra-server` (`pipx install .` from a checkout) and keeps that server's database and models in your user's app data folder, or, during development, the source checkout it is built from. A self-contained server bundle comes later.
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
 cd desktop && npm ci && npm run dev      # or: npm run build  (installers in src-tauri/target/release/bundle)
 ```
 
-See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
+See [desktop/README.md](desktop/README.md) for where the data goes, settings (`LSADRA_SERVER`, `LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
 
 ## Run with Docker
 
