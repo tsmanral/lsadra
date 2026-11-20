@@ -9,3 +9,9 @@ rules:
   adhoc-packages:
     ignore:
       - commitlint.yml
+  # contributor-triage.yml needs pull_request_target to label fork PRs. It
+  # never checks out or runs PR code and only reads event metadata, which is
+  # the safe use of that trigger.
+  dangerous-triggers:
+    ignore:
+      - contributor-triage.yml
