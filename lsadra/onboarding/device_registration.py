@@ -24,6 +24,7 @@ from lsadra.config import (
 )
 from lsadra.ingestion.api_ingestion import _authenticate_device
 from lsadra.ratelimit import SlidingWindowRateLimiter
+from lsadra.security.log_safety import log_safe
 from lsadra.onboarding.token_manager import validate_and_consume
 from lsadra.storage.database import create_device, get_devices_for_user
 
@@ -135,7 +136,7 @@ async def register_device(body: RegisterRequest, request: Request) -> RegisterRe
     api_key = registered["api_key"]
     logger.info(
         "Device registered: id=%s hostname=%s user=%s",
-        device_id, body.hostname, user_id,
+        device_id, log_safe(body.hostname), user_id,
     )
 
     # Default config (Linux)

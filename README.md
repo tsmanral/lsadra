@@ -238,7 +238,7 @@ curl -fsSLo lsadra-install.sh https://<your-server>/static/installer_linux.sh \
 
 The command saves the installer to a file and checks its SHA-256 before running it with `sudo`; the installer then checks the agent's SHA-256 before installing it as a systemd service, and picks `/var/log/auth.log` or `journalctl` automatically. Tokens are single-use. The installer refuses a plain-HTTP server unless `--allow-insecure-http` is added, which the page does (with a warning) when the API is on `http://`; use that only on a trusted local network, because the agent sends its API key on every request.
 
-**Windows (test agent).** `python windows_agent_simulator.py` starts a local API, registers a simulated Windows device and streams events from a dummy log file. `windows_live_agent.py` reads the live Windows event log.
+**Windows (test agent).** `python windows_agent_simulator.py` starts a local API, registers a simulated Windows device and streams events from a dummy log file. It hands the device API key to the agent through `LSADRA_AGENT_API_KEY`, so the key is never written to `agent_config.yml`. `windows_live_agent.py` reads the live Windows event log.
 
 **Anything else.** Send events straight to the [ingestion API](#ingesting-logs).
 
@@ -325,6 +325,7 @@ All settings are environment variables; [`.env.example`](.env.example) lists eve
 | `LSADRA_ALERT_RETENTION_DAYS` | `365` | How long alerts, closed incidents and rollups are kept (never less than the raw window) |
 | `LSADRA_SCHEDULER_ENABLED` | `true` | Background jobs: retention, metrics, correlation, drift, device health |
 | `LSADRA_MIN_BASELINE_EVENTS` | `200` | Events a device needs before its baseline is trusted |
+| `LSADRA_AGENT_API_KEY` | empty | Read by the endpoint agent, not the server: supplies the device API key instead of the `api_key` line in the agent's config file |
 
 ## Testing
 
