@@ -134,9 +134,7 @@ def create_user(
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     """Return a user row or *None*."""
     with _connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         return dict(row) if row else None
 
 
@@ -334,9 +332,7 @@ def increment_device_event_count(device_id: str, count: int = 1) -> int:
             (count, device_id),
         )
         conn.commit()
-        row = conn.execute(
-            "SELECT event_count FROM devices WHERE id = ?", (device_id,)
-        ).fetchone()
+        row = conn.execute("SELECT event_count FROM devices WHERE id = ?", (device_id,)).fetchone()
         return dict(row)["event_count"] if row else 0
 
 
@@ -362,9 +358,7 @@ def consume_token(token: str) -> Optional[Dict[str, Any]]:
     Returns the token row (with ``user_id``) if valid, else *None*.
     """
     with _connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM registration_tokens WHERE token = ?", (token,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM registration_tokens WHERE token = ?", (token,)).fetchone()
 
         if row is None:
             return None
@@ -471,9 +465,7 @@ def store_batch_and_touch(device_id: str, events: List[Dict[str, Any]]) -> int:
         return len(events)
 
 
-def get_events_since(
-    device_id: str, after_id: int, limit: int = 500
-) -> List[Dict[str, Any]]:
+def get_events_since(device_id: str, after_id: int, limit: int = 500) -> List[Dict[str, Any]]:
     """Fetch events for a device newer than *after_id*."""
     with _connection() as conn:
         rows = conn.execute(
@@ -508,7 +500,6 @@ def get_events_before(
         return [dict(r) for r in rows]
 
 
-
 def insert_sigma_matches(results: List[Dict[str, Any]]) -> int:
     """
     Store the ``sigma_matches`` of detection results (one row per rule match).
@@ -519,20 +510,22 @@ def insert_sigma_matches(results: List[Dict[str, Any]]) -> int:
     now = datetime.utcnow().isoformat()  # same clock and format as retention
     for res in results:
         for hit in res.get("sigma_matches") or []:
-            rows.append((
-                int(res.get("event_id") or 0),
-                str(res.get("device_id") or ""),
-                str(hit.get("rule_id") or ""),
-                str(hit.get("title") or ""),
-                str(hit.get("level") or ""),
-                json.dumps(list(hit.get("techniques") or [])),
-                json.dumps(list(hit.get("tactics") or [])),
-                str(hit.get("source") or ""),
-                1 if hit.get("correlation") else 0,
-                str(res.get("sigma_mode") or "shadow"),
-                str(res.get("created_at") or ""),
-                now,
-            ))
+            rows.append(
+                (
+                    int(res.get("event_id") or 0),
+                    str(res.get("device_id") or ""),
+                    str(hit.get("rule_id") or ""),
+                    str(hit.get("title") or ""),
+                    str(hit.get("level") or ""),
+                    json.dumps(list(hit.get("techniques") or [])),
+                    json.dumps(list(hit.get("tactics") or [])),
+                    str(hit.get("source") or ""),
+                    1 if hit.get("correlation") else 0,
+                    str(res.get("sigma_mode") or "shadow"),
+                    str(res.get("created_at") or ""),
+                    now,
+                )
+            )
     if not rows:
         return 0
     with _connection() as conn:
@@ -547,9 +540,7 @@ def insert_sigma_matches(results: List[Dict[str, Any]]) -> int:
     return len(rows)
 
 
-def get_sigma_matches(
-    device_id: Optional[str] = None, limit: int = 500
-) -> List[Dict[str, Any]]:
+def get_sigma_matches(device_id: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
     """Most recent Sigma matches, newest first, optionally for one device."""
     query = "SELECT * FROM sigma_matches"
     params: List[Any] = []
@@ -571,6 +562,7 @@ def get_sigma_matches(
 
 # ── entity risk (audit G-29; lsadra/detection/risk.py) ─────────────────────
 
+
 def _risk_row(r: sqlite3.Row) -> Dict[str, Any]:
     row = dict(r)
     if "tactics" in row:
@@ -589,12 +581,25 @@ def insert_risk_events(rows: List[Dict[str, Any]]) -> int:
                (entity_type, entity, device_id, user_id, event_id, source, rule_id, title,
                 level, technique_id, tactics, base_score, event_time, created_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
-            [(
-                r["entity_type"], r["entity"], r.get("device_id") or "", r.get("user_id"),
-                r.get("event_id"), r["source"], r.get("rule_id"), r.get("title") or "",
-                r.get("level") or "", r.get("technique_id"), json.dumps(list(r.get("tactics") or [])),
-                float(r["base_score"]), r["event_time"], now,
-            ) for r in rows],
+            [
+                (
+                    r["entity_type"],
+                    r["entity"],
+                    r.get("device_id") or "",
+                    r.get("user_id"),
+                    r.get("event_id"),
+                    r["source"],
+                    r.get("rule_id"),
+                    r.get("title") or "",
+                    r.get("level") or "",
+                    r.get("technique_id"),
+                    json.dumps(list(r.get("tactics") or [])),
+                    float(r["base_score"]),
+                    r["event_time"],
+                    now,
+                )
+                for r in rows
+            ],
         )
         conn.commit()
     return len(rows)
@@ -671,8 +676,16 @@ def get_open_risk_notable(entity_type: str, entity: str) -> Optional[Dict[str, A
 
 
 def create_risk_notable(
-    entity_type: str, entity: str, device_id: str, user_id: Optional[str], score: float,
-    tactics: List[str], signal_count: int, mode: str, first_seen: str, last_seen: str,
+    entity_type: str,
+    entity: str,
+    device_id: str,
+    user_id: Optional[str],
+    score: float,
+    tactics: List[str],
+    signal_count: int,
+    mode: str,
+    first_seen: str,
+    last_seen: str,
 ) -> int:
     """Open a risk case for an entity. Returns its id."""
     now = datetime.utcnow().isoformat()
@@ -682,8 +695,20 @@ def create_risk_notable(
                (entity_type, entity, device_id, user_id, score, tactics, signal_count, mode,
                 status, first_seen, last_seen, created_at, updated_at)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)""",
-            (entity_type, entity, device_id, user_id, float(score), json.dumps(list(tactics)),
-             int(signal_count), mode, first_seen, last_seen, now, now),
+            (
+                entity_type,
+                entity,
+                device_id,
+                user_id,
+                float(score),
+                json.dumps(list(tactics)),
+                int(signal_count),
+                mode,
+                first_seen,
+                last_seen,
+                now,
+                now,
+            ),
         )
         conn.commit()
         return cur.lastrowid or 0
@@ -697,8 +722,14 @@ def update_risk_notable(
         conn.execute(
             """UPDATE risk_notables SET score = ?, tactics = ?, signal_count = ?, last_seen = ?,
                       updated_at = ? WHERE id = ?""",
-            (float(score), json.dumps(list(tactics)), int(signal_count), last_seen,
-             datetime.utcnow().isoformat(), int(notable_id)),
+            (
+                float(score),
+                json.dumps(list(tactics)),
+                int(signal_count),
+                last_seen,
+                datetime.utcnow().isoformat(),
+                int(notable_id),
+            ),
         )
         conn.commit()
 
@@ -737,8 +768,11 @@ def get_risk_notables(
 def get_risk_notable(notable_id: int) -> Optional[Dict[str, Any]]:
     """One risk case by id."""
     with _connection() as conn:
-        row = conn.execute("SELECT * FROM risk_notables WHERE id = ?", (int(notable_id),)).fetchone()
+        row = conn.execute(
+            "SELECT * FROM risk_notables WHERE id = ?", (int(notable_id),)
+        ).fetchone()
         return _risk_row(row) if row else None
+
 
 def get_events_for_user(
     user_id: str, synthetic: bool = False, limit: int = 5000
@@ -841,9 +875,7 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
         return row_id or 0
 
 
-def get_recent_rule_alert(
-    rule_id: str, source_ip: str, since: str
-) -> Optional[Dict[str, Any]]:
+def get_recent_rule_alert(rule_id: str, source_ip: str, since: str) -> Optional[Dict[str, Any]]:
     """The newest anomaly *rule_id* raised for *source_ip* at or after *since*.
 
     *since* is ``YYYY-MM-DD HH:MM:SS`` in UTC, the format of
@@ -874,9 +906,7 @@ def get_anomalies_for_user(
         return [dict(r) for r in rows]
 
 
-def get_anomalies_for_device(
-    device_id: str, limit: int = 200
-) -> List[Dict[str, Any]]:
+def get_anomalies_for_device(device_id: str, limit: int = 200) -> List[Dict[str, Any]]:
     """Return anomalies for a specific device."""
     with _connection() as conn:
         rows = conn.execute(
@@ -1017,7 +1047,9 @@ def elevate_cross_source_incidents(source_ip: str, at: str) -> List[Dict[str, An
 def update_incident_status(incident_id: int, status: str, notes: str = "") -> None:
     """Update incident status (OPEN, INVESTIGATING, RESOLVED, FALSE_POSITIVE)."""
     with _connection() as conn:
-        resolved_at = datetime.utcnow().isoformat() if status in ("RESOLVED", "FALSE_POSITIVE") else None
+        resolved_at = (
+            datetime.utcnow().isoformat() if status in ("RESOLVED", "FALSE_POSITIVE") else None
+        )
         conn.execute(
             """UPDATE incidents
                SET status = ?, notes = ?, resolved_at = COALESCE(?, resolved_at)
@@ -1056,10 +1088,10 @@ def get_all_incidents(
     with _connection() as conn:
         query = "SELECT i.* FROM incidents i"
         params: List[Any] = []
-        
+
         if user_id:
             query += " JOIN devices d ON i.device_id = d.id"
-            
+
         conditions = []
         if status:
             conditions.append("i.status = ?")
@@ -1067,13 +1099,13 @@ def get_all_incidents(
         if user_id:
             conditions.append("d.user_id = ?")
             params.append(user_id)
-            
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-            
+
         query += " ORDER BY i.last_seen DESC LIMIT ?"
         params.append(limit)
-        
+
         rows = conn.execute(query, tuple(params)).fetchall()
         return [dict(r) for r in rows]
 
@@ -1247,15 +1279,21 @@ def upsert_metrics_5min(
                    max_severity  = excluded.max_severity,
                    unique_ips    = excluded.unique_ips,
                    unique_users  = excluded.unique_users""",
-            (device_id, window_start, event_count, anomaly_count,
-             avg_severity, max_severity, unique_ips, unique_users),
+            (
+                device_id,
+                window_start,
+                event_count,
+                anomaly_count,
+                avg_severity,
+                max_severity,
+                unique_ips,
+                unique_users,
+            ),
         )
         conn.commit()
 
 
-def get_metrics_timeseries(
-    device_id: str, start: str, end: str
-) -> List[Dict[str, Any]]:
+def get_metrics_timeseries(device_id: str, start: str, end: str) -> List[Dict[str, Any]]:
     """Return metrics_5min rows for a device within a time range."""
     with _connection() as conn:
         rows = conn.execute(
@@ -1304,9 +1342,19 @@ def upsert_threat_intel(
                    raw_response  = excluded.raw_response,
                    queried_at    = excluded.queried_at,
                    expires_at    = excluded.expires_at""",
-            (ip_address, abuse_score, country_code, isp, domain, is_tor,
-             total_reports, last_reported, raw_response,
-             now.isoformat(), expires.isoformat()),
+            (
+                ip_address,
+                abuse_score,
+                country_code,
+                isp,
+                domain,
+                is_tor,
+                total_reports,
+                last_reported,
+                raw_response,
+                now.isoformat(),
+                expires.isoformat(),
+            ),
         )
         conn.commit()
 
@@ -1568,8 +1616,12 @@ def store_feedback(
                 suggested_thresholds, source_type)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
-                alert_id, label, analyst_note, fp_pattern,
-                json.dumps(suggested_thresholds), source_type,
+                alert_id,
+                label,
+                analyst_note,
+                fp_pattern,
+                json.dumps(suggested_thresholds),
+                source_type,
             ),
         )
         conn.commit()
@@ -1684,9 +1736,7 @@ def get_ingestion_stats(
         last_event, updated_at.
     """
     with _connection(db_conn) as conn:
-        rows = conn.execute(
-            "SELECT * FROM ingestion_stats ORDER BY events_count DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM ingestion_stats ORDER BY events_count DESC").fetchall()
         return [dict(r) for r in rows]
 
 

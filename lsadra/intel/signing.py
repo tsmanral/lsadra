@@ -93,15 +93,18 @@ def load_trusted_keys(path: Path | None = None) -> Dict[str, Ed25519PublicKey]:
 def sign(manifest_bytes: bytes, private_key: Ed25519PrivateKey) -> str:
     """Return the detached signature file contents (JSON) for these manifest bytes."""
     sig = private_key.sign(manifest_bytes)
-    return json.dumps(
-        {
-            "alg": "Ed25519",
-            "key_id": key_id_for(private_key.public_key()),
-            "signature": base64.b64encode(sig).decode(),
-        },
-        indent=2,
-        sort_keys=True,
-    ) + "\n"
+    return (
+        json.dumps(
+            {
+                "alg": "Ed25519",
+                "key_id": key_id_for(private_key.public_key()),
+                "signature": base64.b64encode(sig).decode(),
+            },
+            indent=2,
+            sort_keys=True,
+        )
+        + "\n"
+    )
 
 
 def verify(

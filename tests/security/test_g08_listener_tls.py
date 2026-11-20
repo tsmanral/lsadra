@@ -38,45 +38,92 @@ ROOT = Path(__file__).resolve().parents[2]
 
 def test_default_bind_is_loopback():
     env = {k: v for k, v in os.environ.items() if k != "LSADRA_API_HOST"}
-    out = subprocess.run([sys.executable, "-c", "from lsadra import config; print(config.API_HOST)"],
-                         cwd=ROOT, env=env, capture_output=True, text=True, timeout=60)
+    out = subprocess.run(
+        [sys.executable, "-c", "from lsadra import config; print(config.API_HOST)"],
+        cwd=ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert out.stdout.strip() == "127.0.0.1"
 
 
 def test_loopback_may_serve_plain_http(tmp_path):
-    plan = tls.plan_listener("127.0.0.1", 8000, cert="", key="", trusted_proxies=frozenset(),
-                             allow_plaintext=False, tls_dir=tmp_path)
+    plan = tls.plan_listener(
+        "127.0.0.1",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
     assert not plan.tls
 
 
 def test_non_loopback_without_tls_gets_a_generated_certificate(tmp_path):
-    plan = tls.plan_listener("0.0.0.0", 8000, cert="", key="", trusted_proxies=frozenset(),
-                             allow_plaintext=False, tls_dir=tmp_path)
+    plan = tls.plan_listener(
+        "0.0.0.0",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
     # LOAD-BEARING: never plain HTTP on all interfaces by default.
     assert plan.tls
     if os.name == "posix":
         assert stat.S_IMODE(Path(plan.keyfile).stat().st_mode) == 0o600
     fp = tls.fingerprint_pem(plan.certfile)
     assert len(fp.replace(":", "")) == 64
-    again = tls.plan_listener("0.0.0.0", 8000, cert="", key="", trusted_proxies=frozenset(),
-                              allow_plaintext=False, tls_dir=tmp_path)
+    again = tls.plan_listener(
+        "0.0.0.0",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
     assert tls.fingerprint_pem(again.certfile) == fp  # reused, not regenerated
 
 
 def test_explicit_exceptions_are_honoured(tmp_path):
-    proxied = tls.plan_listener("0.0.0.0", 8000, cert="", key="",
-                                trusted_proxies=frozenset({"192.0.2.1"}), allow_plaintext=False,
-                                tls_dir=tmp_path)
-    allowed = tls.plan_listener("0.0.0.0", 8000, cert="", key="", trusted_proxies=frozenset(),
-                                allow_plaintext=True, tls_dir=tmp_path)
+    proxied = tls.plan_listener(
+        "0.0.0.0",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset({"192.0.2.1"}),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
+    allowed = tls.plan_listener(
+        "0.0.0.0",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=True,
+        tls_dir=tmp_path,
+    )
     assert not proxied.tls and not allowed.tls
     with pytest.raises(tls.ListenerPolicyError):
         tls.plan_listener("0.0.0.0", 8000, cert="/x.pem", key="", tls_dir=tmp_path)
 
 
 def test_identity_endpoint_serves_the_fingerprint(identity_env, tmp_path, monkeypatch):
-    plan = tls.plan_listener("0.0.0.0", 8000, cert="", key="", trusted_proxies=frozenset(),
-                             allow_plaintext=False, tls_dir=tmp_path)
+    plan = tls.plan_listener(
+        "0.0.0.0",
+        8000,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
     monkeypatch.setattr(tls, "ACTIVE_FINGERPRINT", None)
     tls.activate(plan)
     assert identity_env.get("/api/server/identity").status_code == 401
@@ -88,8 +135,15 @@ def test_identity_endpoint_serves_the_fingerprint(identity_env, tmp_path, monkey
 
 @pytest.fixture
 def https_server(tmp_path):
-    plan = tls.plan_listener("0.0.0.0", 0, cert="", key="", trusted_proxies=frozenset(),
-                             allow_plaintext=False, tls_dir=tmp_path)
+    plan = tls.plan_listener(
+        "0.0.0.0",
+        0,
+        cert="",
+        key="",
+        trusted_proxies=frozenset(),
+        allow_plaintext=False,
+        tls_dir=tmp_path,
+    )
 
     class Handler(http.server.BaseHTTPRequestHandler):
         def do_GET(self):

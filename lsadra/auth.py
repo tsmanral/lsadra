@@ -62,6 +62,7 @@ def burn_password_check(plain_password: str) -> None:
 
 # ── JWT creation ─────────────────────────────────────────────────────────
 
+
 def create_access_token(
     user_id: str,
     username: str,

@@ -56,6 +56,7 @@ MAX_BATCH_SIZE = 100
 # without bound.
 MAX_BUFFERED_EVENTS = 1000
 
+
 # ── Configuration Loader ─────────────────────────────────────────────────
 def load_config(p: str) -> Dict[str, Any]:
     cfg = DEFAULT_CONFIG.copy()
@@ -124,7 +125,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
 
     if g.get("iso_ts"):
         try:
-            ts = datetime.fromisoformat(g["iso_ts"].replace('Z', '+00:00'))
+            ts = datetime.fromisoformat(g["iso_ts"].replace("Z", "+00:00"))
         except ValueError:
             return None
     else:
@@ -161,7 +162,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
                 "port": port,
                 "auth_method": method,
                 "service": "sshd",
-            }
+            },
         }
 
     # 2. Check for sudo commands
@@ -175,10 +176,7 @@ def _parse_line(line: str) -> Optional[Dict[str, Any]]:
             "host": host,
             "effective_username": user[:_MAX_USERNAME],
             "raw_message": f"User {user} executed sudo: {cmd}"[:_MAX_RAW],
-            "attributes": {
-                "severity": "HIGH",
-                "command": cmd[:_MAX_ATTR_VALUE]
-            }
+            "attributes": {"severity": "HIGH", "command": cmd[:_MAX_ATTR_VALUE]},
         }
 
     return None
@@ -249,19 +247,18 @@ _OPENER: Optional[urllib.request.OpenerDirector] = None
 
 # ── Batch Sender ─────────────────────────────────────────────────────────
 
-def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, device_id: str, api_key: str) -> bool:
+
+def _send_batch(
+    events: List[Dict[str, Any]], server_url: str, endpoint: str, device_id: str, api_key: str
+) -> bool:
     url = f"{server_url.rstrip('/')}{endpoint}"
     # The batch envelope is exactly {"events": [...]}; the device identity
     # travels in the X-Device-Id header (the core rejects unknown keys).
     payload = json.dumps({"events": events}).encode("utf-8")
-    
-    headers = {
-        "X-Device-Id": device_id,
-        "X-API-Key": api_key,
-        "Content-Type": "application/json"
-    }
+
+    headers = {"X-Device-Id": device_id, "X-API-Key": api_key, "Content-Type": "application/json"}
     backoff = 2
-    
+
     while True:
         try:
             req = urllib.request.Request(url, data=payload, headers=headers, method="POST")
@@ -276,8 +273,10 @@ def _send_batch(events: List[Dict[str, Any]], server_url: str, endpoint: str, de
             if exc.code == 422:
                 # Event-contract rejection: resending the same bytes can never
                 # succeed, and retrying forever would stall the tailer.
-                logger.error("Server rejected batch as invalid (422), dropping it: %.500s",
-                             exc.read().decode("utf-8", "replace"))
+                logger.error(
+                    "Server rejected batch as invalid (422), dropping it: %.500s",
+                    exc.read().decode("utf-8", "replace"),
+                )
                 return False
             delay = _retry_after(exc) if exc.code in (429, 503) else None
             if delay is None:
@@ -323,8 +322,9 @@ class _Batcher:
             overflow = len(self.buffer) - MAX_BUFFERED_EVENTS
             del self.buffer[:overflow]
             self.dropped += overflow
-            logger.warning("Event buffer full, dropped %d oldest event(s) (%d total)",
-                           overflow, self.dropped)
+            logger.warning(
+                "Event buffer full, dropped %d oldest event(s) (%d total)", overflow, self.dropped
+            )
 
     def maybe_flush(self, now: Optional[float] = None) -> None:
         now = time.time() if now is None else now
@@ -338,21 +338,29 @@ class _Batcher:
         while self.buffer:
             batch = self.buffer[: self.batch_size]
             del self.buffer[: len(batch)]
-            _send_batch(batch, self.cfg["server_url"], self.cfg["collector_endpoint"],
-                        self.cfg["device_id"], self.cfg["api_key"])
+            _send_batch(
+                batch,
+                self.cfg["server_url"],
+                self.cfg["collector_endpoint"],
+                self.cfg["device_id"],
+                self.cfg["api_key"],
+            )
 
 
 # ── Posture checks ────────────────────────────────────────────────────────
+
 
 def _load_posture_module():
     """posture.py sits next to this file (installed agent) or in the package."""
     try:
         from lsadra.endpoint_agent import posture  # type: ignore
+
         return posture
     except ImportError:
         pass
     try:
         import posture  # type: ignore
+
         return posture
     except ImportError:
         return None
@@ -365,7 +373,13 @@ def _posture_loop(cfg: Dict[str, Any], interval_s: float, posture) -> None:
             events = posture.to_events(posture.run_all())
             failed = sum(e["attributes"]["status"] == "fail" for e in events)
             logger.info("Posture checks: %d run, %d failed", len(events), failed)
-            _send_batch(events, cfg["server_url"], cfg["collector_endpoint"], cfg["device_id"], cfg["api_key"])
+            _send_batch(
+                events,
+                cfg["server_url"],
+                cfg["collector_endpoint"],
+                cfg["device_id"],
+                cfg["api_key"],
+            )
         except Exception as exc:  # never let posture checks take the agent down
             logger.warning("Posture checks failed: %s", exc)
         time.sleep(interval_s)
@@ -395,6 +409,7 @@ def start_posture_checks(cfg: Dict[str, Any]):
 
 # ── File tailer ───────────────────────────────────────────────────────────
 
+
 def _tail(path: str, batch_size: int, flush_interval: float, cfg: Dict[str, Any]):
     logger.info("Tailing %s  (batch=%d, flush=%ds)", path, batch_size, flush_interval)
     batcher = _Batcher(batch_size, flush_interval, cfg)
@@ -406,13 +421,13 @@ def _tail(path: str, batch_size: int, flush_interval: float, cfg: Dict[str, Any]
     with open(path, "r") as f:
         # Seek near end for demo continuity
         f.seek(0, os.SEEK_END)
-        
+
         while True:
             line = f.readline()
             if line:
                 ev = _parse_line(line)
                 if ev:
-                    logger.info("Captured relevant event: %s", ev.get('event_type'))
+                    logger.info("Captured relevant event: %s", ev.get("event_type"))
                     batcher.add(ev)
 
             batcher.maybe_flush()
@@ -423,13 +438,14 @@ def _tail(path: str, batch_size: int, flush_interval: float, cfg: Dict[str, Any]
 
 # ── Journal tailer ────────────────────────────────────────────────────────
 
+
 def _tail_journal(batch_size: int, flush_interval: float, cfg: Dict[str, Any]):
     import subprocess
-    
+
     logger.info("Starting journalctl tailing (modern source)...")
     # -n 0 ensures we ONLY see events that happen AFTER the agent starts (Clean Demo)
     cmd = ["journalctl", "-f", "-n", "0", "-o", "short"]
-    
+
     try:
         proc = subprocess.Popen(cmd, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
     except Exception as e:
@@ -449,7 +465,7 @@ def _tail_journal(batch_size: int, flush_interval: float, cfg: Dict[str, Any]):
 
             ev = _parse_line(line)
             if ev:
-                logger.info("Captured relevant event from journal: %s", ev.get('event_type'))
+                logger.info("Captured relevant event from journal: %s", ev.get("event_type"))
                 batcher.add(ev)
 
             batcher.maybe_flush()
@@ -460,6 +476,7 @@ def _tail_journal(batch_size: int, flush_interval: float, cfg: Dict[str, Any]):
 
 
 # ── Main ──────────────────────────────────────────────────────────────────
+
 
 def main():
     parser = argparse.ArgumentParser(description="LSADRA Linux Endpoint Agent")
@@ -478,9 +495,13 @@ def main():
     except ValueError as exc:
         logger.error("%s", exc)
         sys.exit(1)
-    if not cfg.get("server_cert_sha256") and not str(cfg.get("server_url", "")).startswith("https://"):
-        logger.warning("server_url is not https:// and no server_cert_sha256 is pinned; "
-                       "the device key travels unencrypted.")
+    if not cfg.get("server_cert_sha256") and not str(cfg.get("server_url", "")).startswith(
+        "https://"
+    ):
+        logger.warning(
+            "server_url is not https:// and no server_cert_sha256 is pinned; "
+            "the device key travels unencrypted."
+        )
 
     batch_size = int(cfg.get("batch_size", 50))
     flush_interval = float(cfg.get("flush_interval_seconds", 2))
@@ -500,6 +521,7 @@ def main():
         return
 
     import shutil
+
     use_journal = False
     if shutil.which("journalctl") or not existing:
         use_journal = True
@@ -522,11 +544,15 @@ def _tail_paths(paths: List[str], batch_size: int, flush_interval: float, cfg: D
         logger.error("No readable log path to tail.")
         return
     import threading
+
     for p in paths[1:]:
-        threading.Thread(target=_tail, args=(p, batch_size, flush_interval, cfg),
-                         name=f"tail:{p}", daemon=True).start()
+        threading.Thread(
+            target=_tail, args=(p, batch_size, flush_interval, cfg), name=f"tail:{p}", daemon=True
+        ).start()
     _tail(paths[0], batch_size, flush_interval, cfg)
+
 
 if __name__ == "__main__":
     from datetime import datetime
+
     main()

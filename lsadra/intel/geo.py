@@ -35,7 +35,9 @@ DEFAULT_NAMES = (
     "dbip-country-lite.mmdb",
 )
 DBIP_ATTRIBUTION = "IP geolocation by DB-IP (https://db-ip.com), CC BY 4.0"
-MAXMIND_ATTRIBUTION = "This product includes GeoLite2 data created by MaxMind (https://www.maxmind.com)"
+MAXMIND_ATTRIBUTION = (
+    "This product includes GeoLite2 data created by MaxMind (https://www.maxmind.com)"
+)
 
 _lock = threading.Lock()
 _reader = None
@@ -89,8 +91,11 @@ def _get_reader():
 
 
 def _attribution(db_type: str) -> str:
-    return DBIP_ATTRIBUTION if "dbip" in db_type.lower() or "db-ip" in db_type.lower() \
+    return (
+        DBIP_ATTRIBUTION
+        if "dbip" in db_type.lower() or "db-ip" in db_type.lower()
         else MAXMIND_ATTRIBUTION
+    )
 
 
 def status() -> Dict[str, Any]:
@@ -181,8 +186,11 @@ def download(client=None, today: Optional[date] = None) -> Path:
             if hashlib.sha256(r.content).hexdigest() != expected:
                 raise ValueError("GeoLite2 download does not match its published SHA-256")
             with tarfile.open(fileobj=io.BytesIO(r.content), mode="r:gz") as tar:
-                member = next(m for m in tar.getmembers()
-                              if m.isfile() and m.name.endswith("GeoLite2-City.mmdb"))
+                member = next(
+                    m
+                    for m in tar.getmembers()
+                    if m.isfile() and m.name.endswith("GeoLite2-City.mmdb")
+                )
                 data = tar.extractfile(member).read()
             dest = geo_dir / "GeoLite2-City.mmdb"
         else:

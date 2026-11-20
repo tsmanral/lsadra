@@ -46,6 +46,7 @@ logger = logging.getLogger(__name__)
 # V3 NarrativeBuilder (preserved exactly)
 # ============================================================================
 
+
 class NarrativeBuilder:
     """Produce analyst-friendly natural-language alert descriptions (V3)."""
 
@@ -74,21 +75,23 @@ class NarrativeBuilder:
         Returns:
             Multi-sentence narrative string.
         """
-        ip     = clean_field(row_data.get("source_ip", "Unknown IP"), MAX_IP)
-        user   = clean_field(row_data.get("effective_username", "Unknown"), MAX_IDENT)
+        ip = clean_field(row_data.get("source_ip", "Unknown IP"), MAX_IP)
+        user = clean_field(row_data.get("effective_username", "Unknown"), MAX_IDENT)
         device = clean_field(row_data.get("device_id", "Unknown Device"), MAX_IDENT)
 
         sev_label = "MEDIUM"
         sev_score = 0.0
-        urgency   = ""
+        urgency = ""
         if severity_context:
             sev_label = severity_context.get("severity_label", "MEDIUM")
             sev_score = severity_context.get("severity_score", 0.0)
-            urgency   = severity_context.get("urgency", "")
+            urgency = severity_context.get("urgency", "")
 
-        sev_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}.get(sev_label, "⚪")
+        sev_emoji = {"CRITICAL": "🔴", "HIGH": "🟠", "MEDIUM": "🟡", "LOW": "🟢"}.get(
+            sev_label, "⚪"
+        )
         sev_label = clean_field(sev_label, MAX_LABEL)
-        urgency   = clean_field(urgency, MAX_TEXT)
+        urgency = clean_field(urgency, MAX_TEXT)
 
         parts = [
             f"{sev_emoji} **[{sev_label}]** **{clean_field(threat_type, MAX_LABEL)}** "
@@ -109,9 +112,9 @@ class NarrativeBuilder:
         if layer_reasons:
             parts.append("Flagged due to " + ", ".join(layer_reasons) + ".")
 
-        failures     = row_data.get("failures_15m", 0)
+        failures = row_data.get("failures_15m", 0)
         unique_users = row_data.get("unique_users_15m", 0)
-        off_hours    = row_data.get("is_off_hours", 0)
+        off_hours = row_data.get("is_off_hours", 0)
         details = []
         if failures:
             details.append(f"{int(failures)} failed logins in 15 min")
@@ -126,9 +129,9 @@ class NarrativeBuilder:
             parts.append(f"**{urgency}**")
 
         advice_map = {
-            "Brute Force Attack":     "Consider blocking the source IP and enforcing account lockout.",
-            "Credential Stuffing":    "Verify MFA is enabled on targeted accounts.",
-            "Low and Slow Attack":    "Monitor this IP over the next 24 hours.",
+            "Brute Force Attack": "Consider blocking the source IP and enforcing account lockout.",
+            "Credential Stuffing": "Verify MFA is enabled on targeted accounts.",
+            "Low and Slow Attack": "Monitor this IP over the next 24 hours.",
             "Anomalous Off-Hour Access": "Confirm whether this access was authorised.",
         }
         advice = advice_map.get(threat_type)
@@ -141,6 +144,7 @@ class NarrativeBuilder:
 # ============================================================================
 # V4 narrative functions
 # ============================================================================
+
 
 def generate_alert_narrative(
     features: Dict[str, Any],
@@ -168,15 +172,15 @@ def generate_alert_narrative(
     try:
         rule_type = rule_alert.get("type", "UNKNOWN")
         dispatcher = {
-            "BRUTE_FORCE":       _narrate_brute_force,
+            "BRUTE_FORCE": _narrate_brute_force,
             "CREDENTIAL_STUFFING": _narrate_credential_stuffing,
-            "LOW_AND_SLOW":      _narrate_low_and_slow,
-            "LATERAL_MOVEMENT":  _narrate_lateral_movement,
-            "PORT_SCAN":         _narrate_port_scan,
+            "LOW_AND_SLOW": _narrate_low_and_slow,
+            "LATERAL_MOVEMENT": _narrate_lateral_movement,
+            "PORT_SCAN": _narrate_port_scan,
             "LARGE_DATA_TRANSFER": _narrate_large_data_transfer,
             "SUSPICIOUS_PROCESS": _narrate_suspicious_process,
             "PRIVILEGE_ESCALATION": _narrate_privilege_escalation,
-            "PERSISTENCE":       _narrate_persistence,
+            "PERSISTENCE": _narrate_persistence,
         }
         func = dispatcher.get(rule_type, _narrate_generic)
         narrative = func(features, rule_alert, entity_timeline)
@@ -211,11 +215,11 @@ def _narrate_brute_force(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build brute force narrative."""
-    ip          = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
+    ip = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
     failed_5min = int(features.get("failed_logins_last_5min", 0))
-    failed_15min= int(features.get("failed_logins_last_15min", 0))
-    velocity    = float(features.get("login_attempt_velocity", 0))
-    uniq_users  = int(features.get("unique_usernames_per_ip", 0))
+    failed_15min = int(features.get("failed_logins_last_15min", 0))
+    velocity = float(features.get("login_attempt_velocity", 0))
+    uniq_users = int(features.get("unique_usernames_per_ip", 0))
 
     sentence = (
         f"IP {ip} performed {failed_5min} failed login attempts in the last "
@@ -238,10 +242,10 @@ def _narrate_credential_stuffing(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build credential stuffing narrative."""
-    ip          = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
-    uniq_users  = int(features.get("unique_usernames_per_ip", 0))
-    fail_ratio  = float(features.get("failure_ratio", 0))
-    cross       = bool(features.get("cross_source_activity", False))
+    ip = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
+    uniq_users = int(features.get("unique_usernames_per_ip", 0))
+    fail_ratio = float(features.get("failure_ratio", 0))
+    cross = bool(features.get("cross_source_activity", False))
 
     sentence = (
         f"IP {ip} attempted logins against {uniq_users} distinct usernames "
@@ -259,9 +263,9 @@ def _narrate_low_and_slow(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build low-and-slow attack narrative."""
-    ip       = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
+    ip = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
     velocity = float(features.get("login_attempt_velocity", 0))
-    window   = 15
+    window = 15
 
     sentence = (
         f"IP {ip} conducted a slow distributed attack across {window} minutes "
@@ -269,7 +273,7 @@ def _narrate_low_and_slow(
     )
     if timeline and len(timeline) >= 2:
         first_ts = timeline[0].get("timestamp", "")[:16]
-        last_ts  = timeline[-1].get("timestamp", "")[:16]
+        last_ts = timeline[-1].get("timestamp", "")[:16]
         if first_ts and last_ts:
             sentence += (
                 f" Activity spans from {clean_field(first_ts, MAX_TIMESTAMP)} "
@@ -285,10 +289,10 @@ def _narrate_lateral_movement(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build lateral movement narrative."""
-    ip              = clean_field(rule_alert.get("ip") or features.get("source_ip", "Unknown IP"), MAX_IP)
-    unique_devices  = clean_field(features.get("unique_ips_per_username", 0), MAX_LABEL)
-    unique_users    = clean_field(features.get("unique_usernames_per_ip", 0), MAX_LABEL)
-    affected_users  = rule_alert.get("affected_users", "")
+    ip = clean_field(rule_alert.get("ip") or features.get("source_ip", "Unknown IP"), MAX_IP)
+    unique_devices = clean_field(features.get("unique_ips_per_username", 0), MAX_LABEL)
+    unique_users = clean_field(features.get("unique_usernames_per_ip", 0), MAX_LABEL)
+    affected_users = rule_alert.get("affected_users", "")
 
     sentence = (
         f"Source IP {ip} accessed {unique_devices} devices and "
@@ -307,9 +311,9 @@ def _narrate_port_scan(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build port scan narrative."""
-    ip         = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
+    ip = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
     uniq_ports = int(features.get("unique_dst_ports_per_ip", 0))
-    window     = 10
+    window = 10
 
     sentence = f"IP {ip} probed {uniq_ports} destination ports in {window} minutes."
     sentence += _technique_sentence(rule_alert, "T1046")
@@ -322,10 +326,10 @@ def _narrate_large_data_transfer(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build large data transfer / exfiltration narrative."""
-    device    = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
+    device = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
     bytes_out = float(features.get("total_bytes_out", 0))
-    dest_ip   = clean_field(features.get("dest_ip") or "unknown destination", MAX_IP)
-    mb        = bytes_out / 1_000_000
+    dest_ip = clean_field(features.get("dest_ip") or "unknown destination", MAX_IP)
+    mb = bytes_out / 1_000_000
 
     sentence = (
         f"Host {device} transferred {mb:.1f} MB outbound to {dest_ip} "
@@ -341,8 +345,8 @@ def _narrate_suspicious_process(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build suspicious process / LOLBin narrative."""
-    device       = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
-    proc_count   = int(features.get("suspicious_process_count", 0))
+    device = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
+    proc_count = int(features.get("suspicious_process_count", 0))
     lolbin_count = int(features.get("lolbin_usage_count", 0))
 
     sentence = f"Device {device} executed {proc_count} suspicious processes."
@@ -361,9 +365,9 @@ def _narrate_privilege_escalation(
     username = clean_field(
         features.get("username") or features.get("effective_username", "Unknown"), MAX_IDENT
     )
-    device   = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
-    count    = len(timeline) if timeline else 1
-    window   = 15
+    device = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
+    count = len(timeline) if timeline else 1
+    window = 15
 
     sentence = (
         f"User {username} on {device} performed {count} privilege "
@@ -379,14 +383,11 @@ def _narrate_persistence(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Build persistence mechanism narrative."""
-    device     = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
+    device = clean_field(features.get("device_id", "Unknown"), MAX_IDENT)
     event_type = clean_field(features.get("event_type", "persistence event"), MAX_LABEL)
-    src        = clean_field(features.get("source_type", "unknown source"), MAX_LABEL)
+    src = clean_field(features.get("source_type", "unknown source"), MAX_LABEL)
 
-    sentence = (
-        f"A persistence mechanism ({event_type}) was detected on device {device} "
-        f"via {src}."
-    )
+    sentence = f"A persistence mechanism ({event_type}) was detected on device {device} via {src}."
     sentence += _technique_sentence(rule_alert, "T1543")
     return sentence
 
@@ -397,15 +398,16 @@ def _narrate_generic(
     timeline: Optional[List[Dict[str, Any]]],
 ) -> str:
     """Fallback narrative for unrecognised rule types."""
-    ip     = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
+    ip = clean_field(features.get("source_ip", "Unknown IP"), MAX_IP)
     reason = clean_field(rule_alert.get("reason", "anomalous activity detected"), MAX_TEXT)
-    mitre  = clean_field(rule_alert.get("mitre_id", "unknown MITRE technique"), MAX_LABEL)
+    mitre = clean_field(rule_alert.get("mitre_id", "unknown MITRE technique"), MAX_LABEL)
     return f"Suspicious activity from {ip}: {reason}. Related to {mitre}."
 
 
 # ============================================================================
 # Investigative summary
 # ============================================================================
+
 
 def generate_investigative_summary(
     ip: str,
@@ -454,12 +456,12 @@ def _para_executive_summary(
     threat_intel: Optional[Dict[str, Any]],
 ) -> str:
     """Para 1: Executive summary."""
-    ip        = clean_field(ip, MAX_IP)
-    attack    = clean_field(incident.get("attack_type", "Unknown Attack"), MAX_LABEL)
-    severity  = clean_field(incident.get("severity_label", "UNKNOWN"), MAX_LABEL)
-    first     = clean_field(incident.get("first_seen", "")[:16], MAX_TIMESTAMP)
-    last      = clean_field(incident.get("last_seen",  "")[:16], MAX_TIMESTAMP)
-    cnt       = clean_field(incident.get("anomaly_count", len(timeline)), MAX_LABEL)
+    ip = clean_field(ip, MAX_IP)
+    attack = clean_field(incident.get("attack_type", "Unknown Attack"), MAX_LABEL)
+    severity = clean_field(incident.get("severity_label", "UNKNOWN"), MAX_LABEL)
+    first = clean_field(incident.get("first_seen", "")[:16], MAX_TIMESTAMP)
+    last = clean_field(incident.get("last_seen", "")[:16], MAX_TIMESTAMP)
+    cnt = clean_field(incident.get("anomaly_count", len(timeline)), MAX_LABEL)
 
     ti_note = ""
     if threat_intel:
@@ -488,9 +490,7 @@ def _para_executive_summary(
     )
 
 
-def _para_attack_pattern(
-    ip: str, incident: Dict[str, Any], timeline: List[Dict[str, Any]]
-) -> str:
+def _para_attack_pattern(ip: str, incident: Dict[str, Any], timeline: List[Dict[str, Any]]) -> str:
     """Para 2: Attack pattern analysis."""
     if not timeline:
         return "## 🔍 Attack Pattern\n\nInsufficient timeline data for pattern analysis."
@@ -500,17 +500,15 @@ def _para_attack_pattern(
 
     sequence = " → ".join(clean_field(t, MAX_LABEL) for t in unique_types[:8])
     timeline_text = format_timeline_text(timeline)
-    return (
-        f"## 🔍 Attack Pattern\n\n"
-        f"Observed event sequence: {sequence}\n\n"
-        f"{timeline_text}"
-    )
+    return f"## 🔍 Attack Pattern\n\nObserved event sequence: {sequence}\n\n{timeline_text}"
 
 
 def _para_affected_assets(timeline: List[Dict[str, Any]]) -> str:
     """Para 3: Affected assets derived from timeline."""
-    devices   = list({e.get("device_id", "") for e in timeline if e.get("device_id")})
-    usernames = list({e.get("effective_username", "") for e in timeline if e.get("effective_username")})
+    devices = list({e.get("device_id", "") for e in timeline if e.get("device_id")})
+    usernames = list(
+        {e.get("effective_username", "") for e in timeline if e.get("effective_username")}
+    )
 
     return (
         f"## 🖥️ Affected Assets\n\n"
@@ -598,6 +596,7 @@ def _get_recommendations(attack_type: str) -> List[str]:
 # Helper functions
 # ============================================================================
 
+
 def format_timeline_text(timeline: List[Dict[str, Any]]) -> str:
     """
     Format an entity timeline into a grouped readable summary.
@@ -621,11 +620,14 @@ def format_timeline_text(timeline: List[Dict[str, Any]]) -> str:
 
     for src, events in by_source.items():
         first = clean_field(events[0].get("timestamp", "")[:16], MAX_TIMESTAMP)
-        last  = clean_field(events[-1].get("timestamp", "")[:16], MAX_TIMESTAMP)
+        last = clean_field(events[-1].get("timestamp", "")[:16], MAX_TIMESTAMP)
         types = ", ".join(
-            clean_field(t, MAX_LABEL) for t in sorted({str(e.get("event_type", "")) for e in events})
+            clean_field(t, MAX_LABEL)
+            for t in sorted({str(e.get("event_type", "")) for e in events})
         )
-        lines.append(f"**{clean_field(src, MAX_LABEL)}** ({len(events)} events, {first} → {last}): {types}")
+        lines.append(
+            f"**{clean_field(src, MAX_LABEL)}** ({len(events)} events, {first} → {last}): {types}"
+        )
 
     return "\n".join(lines)
 
@@ -647,7 +649,7 @@ def get_shap_narrative_fragment(shap_values: Optional[Dict[str, float]]) -> str:
         return ""
     try:
         top_feat = max(shap_values, key=lambda k: abs(shap_values[k]))
-        top_val  = shap_values[top_feat]
+        top_val = shap_values[top_feat]
         readable = clean_field(str(top_feat).replace("_", " "), MAX_LABEL)
         return f"Analysis driven primarily by {readable} (SHAP: {top_val:.2f})."
     except (ValueError, TypeError):
@@ -707,6 +709,7 @@ def get_confidence_level(
 # False positive analysis
 # ============================================================================
 
+
 def analyze_false_positive(
     original_alert: Dict[str, Any],
     analyst_note: str = "",
@@ -730,19 +733,19 @@ def analyze_false_positive(
     Returns:
         Dict with pattern, suggested_threshold_change, missing_context, confidence.
     """
-    features   = original_alert.get("features", {})
-    rule_type  = original_alert.get("type", "UNKNOWN")
-    velocity   = float(features.get("login_attempt_velocity", 0))
+    features = original_alert.get("features", {})
+    rule_type = original_alert.get("type", "UNKNOWN")
+    velocity = float(features.get("login_attempt_velocity", 0))
     uniq_users = float(features.get("unique_usernames_per_ip", 0))
-    bytes_out  = float(features.get("total_bytes_out", 0))
-    lolbin     = float(features.get("lolbin_usage_count", 0))
-    failed_5m  = float(features.get("failed_logins_last_5min", 0))
-    device     = features.get("device_id", "")
+    bytes_out = float(features.get("total_bytes_out", 0))
+    lolbin = float(features.get("lolbin_usage_count", 0))
+    failed_5m = float(features.get("failed_logins_last_5min", 0))
+    device = features.get("device_id", "")
 
     note_lower = analyst_note.lower()
 
     # --- Pattern 1: Monitoring/automation burst (low-velocity, single user) ---
-    if (rule_type == "BRUTE_FORCE" and uniq_users <= 1 and velocity < 0.5):
+    if rule_type == "BRUTE_FORCE" and uniq_users <= 1 and velocity < 0.5:
         return _fp_result(
             "monitoring_automation",
             {"failed_logins_last_5min": max(int(failed_5m * 1.5), 10)},
@@ -751,7 +754,7 @@ def analyze_false_positive(
         )
 
     # --- Pattern 2: Large overnight backup transfer ---
-    if (rule_type == "LARGE_DATA_TRANSFER" and bytes_out > 10_000_000):
+    if rule_type == "LARGE_DATA_TRANSFER" and bytes_out > 10_000_000:
         hour = _get_event_hour(original_alert)
         if hour is not None and (hour < 6 or hour >= 22):
             return _fp_result(
@@ -762,7 +765,7 @@ def analyze_false_positive(
             )
 
     # --- Pattern 3: LOLBin in admin/backup tooling ---
-    if (rule_type == "SUSPICIOUS_PROCESS" and lolbin > 0):
+    if rule_type == "SUSPICIOUS_PROCESS" and lolbin > 0:
         if any(kw in note_lower for kw in ("backup", "admin", "deploy", "sccm", "ansible")):
             return _fp_result(
                 "admin_tooling_lolbin",
@@ -772,8 +775,9 @@ def analyze_false_positive(
             )
 
     # --- Pattern 4: CI/CD burst logins ---
-    if (rule_type in ("BRUTE_FORCE", "CREDENTIAL_STUFFING")
-            and any(kw in note_lower for kw in ("ci", "cd", "jenkins", "github", "deploy"))):
+    if rule_type in ("BRUTE_FORCE", "CREDENTIAL_STUFFING") and any(
+        kw in note_lower for kw in ("ci", "cd", "jenkins", "github", "deploy")
+    ):
         return _fp_result(
             "cicd_burst",
             {"failed_logins_last_5min": int(failed_5m * 2)},
@@ -798,10 +802,10 @@ def _fp_result(
 ) -> Dict[str, Any]:
     """Build a standardised false-positive analysis result dict."""
     return {
-        "pattern":                    pattern,
+        "pattern": pattern,
         "suggested_threshold_change": suggested_thresholds,
-        "missing_context":            missing_context,
-        "confidence":                 confidence,
+        "missing_context": missing_context,
+        "confidence": confidence,
     }
 
 

@@ -163,7 +163,10 @@ def test_windows_logon_parser_never_raises(line):
 
 
 @FUZZ
-@given(_any_line(ALL_SEEDS), st.sampled_from([None, "ssh", "syslog", "windows", "network", "endpoint", "bogus"]))
+@given(
+    _any_line(ALL_SEEDS),
+    st.sampled_from([None, "ssh", "syslog", "windows", "network", "endpoint", "bogus"]),
+)
 def test_ingestion_manager_never_raises(line, hint):
     manager = IngestionManager()
     event = _timed(manager.ingest_line, line, DEVICE, hint)

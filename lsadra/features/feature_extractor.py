@@ -83,6 +83,7 @@ V4_FEATURE_COLS: List[str] = [
 # V3 entry point (preserved exactly)
 # ============================================================================
 
+
 def build_features(raw_events: List[Dict[str, Any]]) -> pd.DataFrame:
     """
     Convert a list of normalized event dicts into a feature DataFrame.
@@ -119,6 +120,7 @@ def build_features(raw_events: List[Dict[str, Any]]) -> pd.DataFrame:
 # V4 enhanced entry point
 # ============================================================================
 
+
 def build_enhanced_feature_table(df: pd.DataFrame) -> pd.DataFrame:
     """
     Compute all V4 temporal, relationship, and source-specific features
@@ -148,17 +150,15 @@ def build_enhanced_feature_table(df: pd.DataFrame) -> pd.DataFrame:
         df["timestamp"] = parse_event_timestamps(df["timestamp"])
 
     for extractor, name in [
-        (_add_temporal_features,      "temporal"),
-        (_add_relationship_features,  "relationship"),
-        (_add_network_features,       "network"),
-        (_add_endpoint_features,      "endpoint"),
+        (_add_temporal_features, "temporal"),
+        (_add_relationship_features, "relationship"),
+        (_add_network_features, "network"),
+        (_add_endpoint_features, "endpoint"),
     ]:
         try:
             df = extractor(df)
         except Exception:
-            logger.exception(
-                "[V4 ENHANCEMENT] Feature group '%s' failed — skipping.", name
-            )
+            logger.exception("[V4 ENHANCEMENT] Feature group '%s' failed — skipping.", name)
 
     for col in V4_FEATURE_COLS:
         if col not in df.columns:
@@ -172,6 +172,7 @@ def build_enhanced_feature_table(df: pd.DataFrame) -> pd.DataFrame:
 # Temporal features
 # ---------------------------------------------------------------------------
 
+
 def _add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add rolling-window temporal features per source_ip.
@@ -182,14 +183,14 @@ def _add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
 
     # Flag failed authentication events
     df["_is_failure"] = ~df["success"].astype(bool)
-    df["_attempt"]    = 1
+    df["_attempt"] = 1
 
     # Rolling counts — compute per group then concat back
     # [DESIGN CHOICE] pandas 2.x groupby().apply() returns a DataFrame when
     # the applied function returns a Series, so we use a concat approach instead.
-    failed_5m_parts  = []
+    failed_5m_parts = []
     failed_15m_parts = []
-    velocity_parts   = []
+    velocity_parts = []
 
     for ip, group in df.groupby("source_ip", group_keys=False):
         failed_5m_parts.append(_rolling_count(group, "_is_failure", "5min"))
@@ -197,13 +198,13 @@ def _add_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
         velocity_parts.append(_rolling_count(group, "_attempt", "5min"))
 
     if failed_5m_parts:
-        df["failed_logins_last_5min"]  = pd.concat(failed_5m_parts).reindex(df.index).fillna(0)
+        df["failed_logins_last_5min"] = pd.concat(failed_5m_parts).reindex(df.index).fillna(0)
         df["failed_logins_last_15min"] = pd.concat(failed_15m_parts).reindex(df.index).fillna(0)
-        df["_attempts_5m"]             = pd.concat(velocity_parts).reindex(df.index).fillna(0)
+        df["_attempts_5m"] = pd.concat(velocity_parts).reindex(df.index).fillna(0)
     else:
-        df["failed_logins_last_5min"]  = 0
+        df["failed_logins_last_5min"] = 0
         df["failed_logins_last_15min"] = 0
-        df["_attempts_5m"]             = 0
+        df["_attempts_5m"] = 0
 
     # Login attempt velocity (attempts per minute over 5-min window)
     df["login_attempt_velocity"] = df["_attempts_5m"] / 5.0
@@ -232,6 +233,7 @@ def _rolling_count(group: pd.DataFrame, col: str, window: str) -> pd.Series:
 # Relationship features
 # ---------------------------------------------------------------------------
 
+
 def _add_relationship_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add cross-entity relationship features per source_ip and username.
@@ -240,33 +242,22 @@ def _add_relationship_features(df: pd.DataFrame) -> pd.DataFrame:
     [Capability: cross-source behavioral sequences]
     """
     # Unique usernames per IP
-    uniq_users = (
-        df.groupby("source_ip")["username"]
-        .transform(lambda s: s.nunique())
-    )
+    uniq_users = df.groupby("source_ip")["username"].transform(lambda s: s.nunique())
     df["unique_usernames_per_ip"] = uniq_users
 
     # Unique IPs per username
-    uniq_ips = (
-        df.groupby("username", dropna=False)["source_ip"]
-        .transform(lambda s: s.nunique())
-    )
+    uniq_ips = df.groupby("username", dropna=False)["source_ip"].transform(lambda s: s.nunique())
     df["unique_ips_per_username"] = uniq_ips
 
     # Failure ratio per source_ip
-    ip_total   = df.groupby("source_ip")["success"].transform("count")
-    ip_failure = df.groupby("source_ip")["success"].transform(
-        lambda s: (~s.astype(bool)).sum()
-    )
+    ip_total = df.groupby("source_ip")["success"].transform("count")
+    ip_failure = df.groupby("source_ip")["success"].transform(lambda s: (~s.astype(bool)).sum())
     # [DESIGN CHOICE] pandas 2.0 removed `mode.use_inf_as_na` — replace inf directly
-    ratio = (ip_failure / ip_total.clip(lower=1))
+    ratio = ip_failure / ip_total.clip(lower=1)
     df["failure_ratio"] = ratio.replace([float("inf"), float("-inf")], float("nan")).fillna(0.0)
 
     # Cross-source activity: same source_ip in 2+ source_types
-    cross = (
-        df.groupby("source_ip")["source_type"]
-        .transform(lambda s: s.nunique() >= 2)
-    )
+    cross = df.groupby("source_ip")["source_type"].transform(lambda s: s.nunique() >= 2)
     df["cross_source_activity"] = cross.astype(int)
 
     return df
@@ -275,6 +266,7 @@ def _add_relationship_features(df: pd.DataFrame) -> pd.DataFrame:
 # ---------------------------------------------------------------------------
 # Network flow features
 # ---------------------------------------------------------------------------
+
 
 def _add_network_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -296,18 +288,14 @@ def _add_network_features(df: pd.DataFrame) -> pd.DataFrame:
     # Unique destination ports per source_ip (10-min window approximation)
     port_series = pd.Series(index=net_df.index, dtype=float)
     for ip, grp in net_df.groupby("source_ip"):
-        port_vals = grp["extra"].apply(
-            lambda e: e.get("dst_port", 0) if isinstance(e, dict) else 0
-        )
+        port_vals = grp["extra"].apply(lambda e: e.get("dst_port", 0) if isinstance(e, dict) else 0)
         port_series.loc[grp.index] = float(port_vals.nunique())
     df.loc[net_mask, "unique_dst_ports_per_ip"] = port_series
 
     # Total bytes out per source_ip (30-min window)
     bytes_series = pd.Series(index=net_df.index, dtype=float)
     for ip, grp in net_df.groupby("source_ip"):
-        total = grp["extra"].apply(
-            lambda e: e.get("bytes", 0) if isinstance(e, dict) else 0
-        ).sum()
+        total = grp["extra"].apply(lambda e: e.get("bytes", 0) if isinstance(e, dict) else 0).sum()
         bytes_series.loc[grp.index] = float(total)
     df.loc[net_mask, "total_bytes_out"] = bytes_series
 
@@ -332,6 +320,7 @@ def _add_network_features(df: pd.DataFrame) -> pd.DataFrame:
 # Endpoint features
 # ---------------------------------------------------------------------------
 
+
 def _add_endpoint_features(df: pd.DataFrame) -> pd.DataFrame:
     """
     Add endpoint-specific features from 'endpoint' source events.
@@ -341,7 +330,7 @@ def _add_endpoint_features(df: pd.DataFrame) -> pd.DataFrame:
     ep_mask = df.get("source_type", pd.Series("", index=df.index)) == "endpoint"
 
     df["suspicious_process_count"] = 0.0
-    df["lolbin_usage_count"]       = 0.0
+    df["lolbin_usage_count"] = 0.0
     df["unique_processes_spawned"] = 0.0
 
     if not ep_mask.any():
@@ -381,6 +370,7 @@ def _add_endpoint_features(df: pd.DataFrame) -> pd.DataFrame:
 # ============================================================================
 # Entity timeline builder
 # ============================================================================
+
 
 def build_entity_timeline(
     db_conn: sqlite3.Connection,

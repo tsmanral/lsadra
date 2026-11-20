@@ -140,7 +140,7 @@ app.add_middleware(SecurityHeadersMiddleware)  # G-11: CSP, nosniff, HSTS, ...
 app.add_middleware(
     CORSMiddleware,
     allow_origins=CORS_ALLOWED_ORIGINS,  # §6 #3: env allowlist, empty by default
-    allow_credentials=False,             # agents use header tokens, not cookies
+    allow_credentials=False,  # agents use header tokens, not cookies
     allow_methods=["*"],
     allow_headers=["*"],
 )
@@ -251,8 +251,13 @@ def _login(username: str, password: str, totp_code: Optional[str], ip: str) -> D
 
     def _fail(reason: str, detail: Any = "Invalid credentials.") -> HTTPException:
         login_throttle.record_failure(username, ip)
-        audit.record("auth.login.failure", "failure", target=username, source_ip=ip,
-                     details={"reason": reason})
+        audit.record(
+            "auth.login.failure",
+            "failure",
+            target=username,
+            source_ip=ip,
+            details={"reason": reason},
+        )
         if login_throttle.retry_after(username, ip):
             audit.record("auth.login.lockout", "denied", target=username, source_ip=ip)
         return HTTPException(status_code=401, detail=detail)
@@ -276,23 +281,34 @@ def _login(username: str, password: str, totp_code: Optional[str], ip: str) -> D
             )
         step = totp.verify(user["totp_secret"], totp_code, int(user.get("totp_last_step") or 0))
         if step is None or not claim_totp_step(user["id"], step):
-            raise _fail("bad_totp", {"code": "totp_invalid", "message": "Invalid authenticator code."})
+            raise _fail(
+                "bad_totp", {"code": "totp_invalid", "message": "Invalid authenticator code."}
+            )
     elif config.ADMIN_TOTP == "required" and user.get("role") == "ADMIN":
-        audit.record("auth.login.denied", "denied", target=username, source_ip=ip,
-                     details={"reason": "totp_enrolment_required"})
+        audit.record(
+            "auth.login.denied",
+            "denied",
+            target=username,
+            source_ip=ip,
+            details={"reason": "totp_enrolment_required"},
+        )
         raise HTTPException(
             status_code=403,
             detail={
                 "code": "totp_enrolment_required",
                 "message": "Admin accounts need an authenticator. On the server run: "
-                           "python -m lsadra.security.totp_cli enroll <username>",
+                "python -m lsadra.security.totp_cli enroll <username>",
             },
         )
 
     login_throttle.record_success(username)
-    audit.record("auth.login.success", "success",
-                 actor={"user_id": user["id"], "username": user["username"]},
-                 target=username, source_ip=ip)
+    audit.record(
+        "auth.login.success",
+        "success",
+        actor={"user_id": user["id"], "username": user["username"]},
+        target=username,
+        source_ip=ip,
+    )
     return user
 
 
@@ -315,9 +331,11 @@ async def login(req: LoginRequest, request: Request):
         expires_in=config.JWT_EXPIRATION_MINUTES * 60,
     )
 
+
 class RegisterRequest(BaseModel):
     username: str
     password: str
+
 
 def _create_account(username: str, password: str) -> Optional[Dict[str, str]]:
     """Create the user; None if the username is taken (threadpool: DB + bcrypt).
@@ -496,7 +514,9 @@ async def retrain_models(
 
 
 from lsadra.api.dashboard import router as dashboard_router
+
 app.include_router(dashboard_router, prefix="/api/dashboard")
 
 from lsadra.api.models import router as models_router  # noqa: E402
+
 app.include_router(models_router, prefix="/api/models")

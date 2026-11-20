@@ -39,9 +39,7 @@ class TestShapAggregator:
             {"failures_15m": 0.3},
             {"failures_15m": 0.9},
         ]
-        result = ShapAggregator.aggregate_weighted(
-            shap_dicts, model_weights=[1.0, 3.0]
-        )
+        result = ShapAggregator.aggregate_weighted(shap_dicts, model_weights=[1.0, 3.0])
         # Weighted: (0.3*0.25 + 0.9*0.75) = 0.075 + 0.675 = 0.75
         assert result["failures_15m"] == pytest.approx(0.75, abs=0.01)
 

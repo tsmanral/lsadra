@@ -53,7 +53,9 @@ def test_every_lock_pins_exact_versions_with_hashes():
         entries = _lock_entries(lock)
         assert entries, f"{lock.name} pins nothing"
         for entry in entries:
-            assert re.match(r"^[A-Za-z0-9_.\-\[\],]+==\S+", entry), f"{lock.name}: not pinned: {entry}"
+            assert re.match(r"^[A-Za-z0-9_.\-\[\],]+==\S+", entry), (
+                f"{lock.name}: not pinned: {entry}"
+            )
             assert "--hash=sha256:" in entry, f"{lock.name}: no hash: {entry.split()[0]}"
 
 
@@ -99,7 +101,9 @@ def test_frontend_image_is_digest_pinned():
 
 def test_actions_are_pinned_to_commit_shas():
     for wf in sorted(WORKFLOWS.glob("*.yml")):
-        for ref in re.findall(r"^\s*-?\s*uses:\s*(\S+)", wf.read_text(encoding="utf-8"), flags=re.MULTILINE):
+        for ref in re.findall(
+            r"^\s*-?\s*uses:\s*(\S+)", wf.read_text(encoding="utf-8"), flags=re.MULTILINE
+        ):
             if ref.startswith("./"):
                 continue
             assert re.search(r"@[0-9a-f]{40}$", ref), f"{wf.name}: action not SHA-pinned: {ref}"
@@ -126,7 +130,9 @@ def test_release_is_gated_signed_and_attested():
 def test_ci_installs_dependencies_by_hash():
     ci = (WORKFLOWS / "ci.yml").read_text(encoding="utf-8")
     dev = (ROOT / "requirements-dev.txt").read_text(encoding="utf-8")
-    assert [ln for ln in dev.splitlines() if ln.strip() and not ln.startswith("#")] == ["-r requirements/dev.txt"]
+    assert [ln for ln in dev.splitlines() if ln.strip() and not ln.startswith("#")] == [
+        "-r requirements/dev.txt"
+    ]
     for wf in sorted(WORKFLOWS.glob("*.yml")):
         for cmd in re.findall(r"pip install[^\n]*", wf.read_text(encoding="utf-8")):
             assert "--require-hashes" in cmd, f"{wf.name}: unhashed install: {cmd}"

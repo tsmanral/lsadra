@@ -41,7 +41,10 @@ class TestDatabaseOperations:
 
     def test_insert_and_retrieve_event(self):
         from lsadra.storage.database import (
-            create_user, create_device, insert_event, get_events_since,
+            create_user,
+            create_device,
+            insert_event,
+            get_events_since,
         )
 
         # Create parent records to satisfy FK constraints
@@ -99,7 +102,8 @@ class TestDatabaseOperations:
 
     def test_incident_creation_and_update(self):
         from lsadra.storage.database import (
-            create_user, create_device,
+            create_user,
+            create_device,
             create_incident,
             get_incident,
             update_incident_status,
@@ -111,8 +115,10 @@ class TestDatabaseOperations:
         create_device("d1", "u1", "test-host", "linux", "apikey")
 
         inc_id = create_incident(
-            device_id="d1", source_ip="1.2.3.4",
-            attack_type="Brute Force", severity_label="HIGH",
+            device_id="d1",
+            source_ip="1.2.3.4",
+            attack_type="Brute Force",
+            severity_label="HIGH",
             first_seen="2026-03-15T14:00:00",
         )
         assert inc_id > 0

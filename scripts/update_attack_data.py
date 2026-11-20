@@ -31,7 +31,13 @@ URL = (
     "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/"
     f"enterprise-attack/enterprise-attack-{ATTACK_VERSION}.json"
 )
-OUT = Path(__file__).resolve().parent.parent / "lsadra" / "detection" / "data" / "attack-enterprise.json"
+OUT = (
+    Path(__file__).resolve().parent.parent
+    / "lsadra"
+    / "detection"
+    / "data"
+    / "attack-enterprise.json"
+)
 
 
 def _attack_id(obj: dict) -> str | None:
@@ -44,7 +50,9 @@ def _attack_id(obj: dict) -> str | None:
 def build_table(bundle: dict) -> dict:
     tactics = {}
     techniques = {}
-    ids_by_stix = {o["id"]: _attack_id(o) for o in bundle["objects"] if o.get("type") == "attack-pattern"}
+    ids_by_stix = {
+        o["id"]: _attack_id(o) for o in bundle["objects"] if o.get("type") == "attack-pattern"
+    }
     revoked_by = {
         o["source_ref"]: ids_by_stix.get(o["target_ref"])
         for o in bundle["objects"]

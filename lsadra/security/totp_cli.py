@@ -28,8 +28,11 @@ def warn_if_admin_without_totp() -> int:
     if is_loopback(config.API_HOST):
         return 0
     try:
-        bare = [u["username"] for u in list_users()
-                if u.get("role") == "ADMIN" and not u.get("totp_enabled") and not u.get("disabled")]
+        bare = [
+            u["username"]
+            for u in list_users()
+            if u.get("role") == "ADMIN" and not u.get("totp_enabled") and not u.get("disabled")
+        ]
     except Exception:
         logger.exception("Could not check admin TOTP enrolment")
         return 0
@@ -38,7 +41,9 @@ def warn_if_admin_without_totp() -> int:
             "LSADRA listens on %s and %d admin account(s) have no authenticator: %s. "
             "Enrol with: python -m lsadra.security.totp_cli enroll <username>, "
             "and consider LSADRA_ADMIN_TOTP=required.",
-            config.API_HOST, len(bare), ", ".join(sorted(bare)),
+            config.API_HOST,
+            len(bare),
+            ", ".join(sorted(bare)),
         )
     return len(bare)
 
@@ -65,7 +70,9 @@ def main(argv=None) -> int:
     actor = {"user_id": None, "username": "server-cli"}
     if args.cmd == "status":
         for u in list_users():
-            print(f"{u['username']:<24} {u['role']:<8} totp={'on' if u.get('totp_enabled') else 'off'}")
+            print(
+                f"{u['username']:<24} {u['role']:<8} totp={'on' if u.get('totp_enabled') else 'off'}"
+            )
         return 0
 
     user = get_user_by_username(args.username)
@@ -76,8 +83,9 @@ def main(argv=None) -> int:
     if args.cmd == "remove":
         set_user_totp(user["id"], None, enabled=False)
         bump_token_version(user["id"])
-        audit.record("user.totp.disable", actor=actor, target=user["username"],
-                     details={"via": "server-cli"})
+        audit.record(
+            "user.totp.disable", actor=actor, target=user["username"], details={"via": "server-cli"}
+        )
         print(f"Authenticator removed for {user['username']}; their sessions were ended.")
         return 0
 
@@ -89,8 +97,9 @@ def main(argv=None) -> int:
         print("That code did not match. Nothing was changed.", file=sys.stderr)
         return 1
     set_user_totp(user["id"], secret, enabled=True)
-    audit.record("user.totp.enable", actor=actor, target=user["username"],
-                 details={"via": "server-cli"})
+    audit.record(
+        "user.totp.enable", actor=actor, target=user["username"], details={"via": "server-cli"}
+    )
     print(f"Authenticator enrolled for {user['username']}; their earlier sessions were ended.")
     return 0
 

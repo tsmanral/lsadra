@@ -29,6 +29,7 @@ def client():
     """Create a FastAPI test client."""
     from fastapi.testclient import TestClient
     from server import app
+
     return TestClient(app)
 
 

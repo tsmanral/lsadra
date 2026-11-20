@@ -73,8 +73,16 @@ def test_agent_sudo_pattern_is_linear():
 @pytest.mark.parametrize(
     "line, user, command",
     [
-        (SSH_PREFIX.replace("sshd", "sudo") + "alice.demo : TTY=pts/0 ; COMMAND=/bin/ls -la", "alice.demo", "/bin/ls -la"),
-        (SSH_PREFIX.replace("sshd", "sudo") + "  bob.demo: PWD=/ ; COMMAND=/usr/bin/id", "bob.demo", "/usr/bin/id"),
+        (
+            SSH_PREFIX.replace("sshd", "sudo") + "alice.demo : TTY=pts/0 ; COMMAND=/bin/ls -la",
+            "alice.demo",
+            "/bin/ls -la",
+        ),
+        (
+            SSH_PREFIX.replace("sshd", "sudo") + "  bob.demo: PWD=/ ; COMMAND=/usr/bin/id",
+            "bob.demo",
+            "/usr/bin/id",
+        ),
     ],
 )
 def test_ssh_parser_still_reads_sudo_lines(line, user, command):
@@ -91,7 +99,9 @@ def test_syslog_matchers_keep_their_results():
         "run-parts [x] /etc/cron.hourly"
     )
     assert sp._match_cron("CRON[2001]: (root) no command here") is None
-    assert sp._match_failed_su("su[3003]: FAILED SU (to root) for carol.demo on pts/1") == "carol.demo"
+    assert (
+        sp._match_failed_su("su[3003]: FAILED SU (to root) for carol.demo on pts/1") == "carol.demo"
+    )
     assert sp._match_failed_su("su[3003]: session opened for carol.demo") is None
     assert sp._match_sudo("sudo: carol.demo : TTY=pts/1 ; COMMAND=/bin/true") == "/bin/true"
     assert sp._match_sudo("COMMAND=/bin/true sudo") is None

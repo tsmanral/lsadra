@@ -150,7 +150,9 @@ def training_gate(enforce_cooldown: bool = True) -> Iterator[_GateTicket]:
         try:
             yield ticket
         finally:
-            cooldown = config.RETRAIN_COOLDOWN_SECONDS if ticket.cooldown is None else ticket.cooldown
+            cooldown = (
+                config.RETRAIN_COOLDOWN_SECONDS if ticket.cooldown is None else ticket.cooldown
+            )
             _next_allowed = time.monotonic() + max(0.0, cooldown)
     finally:
         _train_lock.release()
@@ -318,17 +320,19 @@ def _canary_frame(scenario: str) -> Optional[Tuple[pd.DataFrame, Tuple[bool, ...
             continue
         ev = json.loads(line)
         truth = (ev.get("attributes") or {}).get("ground_truth") or {}
-        rows.append({
-            "id": i,
-            "timestamp": ev["timestamp"],
-            "device_id": "canary",
-            "user_id": "canary",
-            "host": ev.get("host", ""),
-            "effective_username": ev.get("effective_username", ""),
-            "source_ip": ev.get("source_ip") or "",
-            "event_type": ev["event_type"],
-            "raw_message": ev.get("raw_message", ""),
-        })
+        rows.append(
+            {
+                "id": i,
+                "timestamp": ev["timestamp"],
+                "device_id": "canary",
+                "user_id": "canary",
+                "host": ev.get("host", ""),
+                "effective_username": ev.get("effective_username", ""),
+                "source_ip": ev.get("source_ip") or "",
+                "event_type": ev["event_type"],
+                "raw_message": ev.get("raw_message", ""),
+            }
+        )
         labels.append(truth.get("label", "benign") != "benign")
     df = build_features(rows)
     if df.empty or len(df) != len(labels):
@@ -369,9 +373,7 @@ def run_canary(
         l2 = ensemble.predict(df)
         l3 = autoencoder.score(df)
         attacks = [i for i, is_attack in enumerate(labels) if is_attack]
-        flagged = sum(
-            1 for i in attacks if l2[i].get("is_anomaly") or l3[i].get("is_ae_anomaly")
-        )
+        flagged = sum(1 for i in attacks if l2[i].get("is_anomaly") or l3[i].get("is_ae_anomaly"))
         recall = flagged / len(attacks) if attacks else 1.0
         ok = recall >= min_recall
         result["scenarios"][name] = {
@@ -485,7 +487,9 @@ def build_model_card(
         "sha256": sha256,
         "trained_at": datetime.now(timezone.utc).isoformat(),
         "trigger": trigger,
-        "features": list(MODEL_FEATURE_NAMES) if desc.get("features") == "model" else list(FEATURE_COLS),
+        "features": list(MODEL_FEATURE_NAMES)
+        if desc.get("features") == "model"
+        else list(FEATURE_COLS),
         "training_data": {
             k: selection.get(k)
             for k in (

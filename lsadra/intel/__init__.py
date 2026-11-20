@@ -27,8 +27,9 @@ TREAT_AS_PUBLIC: tuple = ()
 
 
 def is_public(addr) -> bool:
-    return addr.is_global or any(addr in net for net in TREAT_AS_PUBLIC
-                                 if net.version == addr.version)
+    return addr.is_global or any(
+        addr in net for net in TREAT_AS_PUBLIC if net.version == addr.version
+    )
 
 
 def ip_scope(ip: str) -> Optional[str]:
@@ -55,8 +56,10 @@ def _verdict(feed_hits, abuse, sources_checked) -> Dict[str, str]:
     if abuse and abuse.get("abuse_score", 0) >= 25:
         return {"level": "suspicious", "reason": "AbuseIPDB confidence >= 25"}
     if sources_checked:
-        return {"level": "not_listed",
-                "reason": f"not listed in {len(sources_checked)} enabled source(s)"}
+        return {
+            "level": "not_listed",
+            "reason": f"not listed in {len(sources_checked)} enabled source(s)",
+        }
     return {"level": "unknown", "reason": "no IP reputation source is enabled"}
 
 
@@ -69,24 +72,34 @@ def lookup_ip(ip: str) -> Dict[str, Any]:
     ip = str(ipaddress.ip_address(ip))
     result: Dict[str, Any] = {"ip": ip, "valid": True, "scope": scope}
     if scope != "public":
-        result.update(geo=None, feed_matches=[], abuseipdb=None, sources_checked=[],
-                      verdict={"level": "internal", "reason": f"{scope} address"})
+        result.update(
+            geo=None,
+            feed_matches=[],
+            abuseipdb=None,
+            sources_checked=[],
+            verdict={"level": "internal", "reason": f"{scope} address"},
+        )
         return result
 
-    enabled = [fid for fid in feeds.enabled_feed_ids()
-               if (runtime.get_feed_state(fid) or {}).get("records")]
+    enabled = [
+        fid
+        for fid in feeds.enabled_feed_ids()
+        if (runtime.get_feed_state(fid) or {}).get("records")
+    ]
     hits = []
     for h in runtime.match_ip(ip):
         f = feeds.FEEDS.get(h["feed_id"])
-        hits.append({
-            "feed": h["feed_id"],
-            "name": f.name if f else h["feed_id"],
-            "category": f.category if f else "listed",
-            "indicator": h["value"],
-            "label": h["label"],
-            "first_seen": h["first_seen"],
-            "list_updated": h["changed_at"],
-        })
+        hits.append(
+            {
+                "feed": h["feed_id"],
+                "name": f.name if f else h["feed_id"],
+                "category": f.category if f else "listed",
+                "indicator": h["value"],
+                "label": h["label"],
+                "first_seen": h["first_seen"],
+                "list_updated": h["changed_at"],
+            }
+        )
     abuse = runtime.get_abuse(ip)
     checked = list(enabled)
     if abuse:
@@ -124,8 +137,12 @@ def legacy_view(res: Dict[str, Any]) -> Optional[Dict[str, Any]]:
         return None
     out: Dict[str, Any] = {"ip_address": res["ip"]}
     if abuse:
-        out.update({k: abuse.get(k) for k in
-                    ("abuse_score", "isp", "domain", "total_reports", "last_reported")})
+        out.update(
+            {
+                k: abuse.get(k)
+                for k in ("abuse_score", "isp", "domain", "total_reports", "last_reported")
+            }
+        )
     out["country_code"] = abuse.get("country_code") or g.get("country_code", "")
     out["is_tor"] = bool(abuse.get("is_tor")) or any(h["category"] == "tor_exit" for h in hits)
     out["feed_matches"] = [f"{h['name']}: {h['label']}" for h in hits]

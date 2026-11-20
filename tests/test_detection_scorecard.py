@@ -42,8 +42,9 @@ def test_no_benign_event_alerts_in_any_scenario(card):
     assert card["summary"]["benign_events_alerted"] == 0
 
 
-@pytest.mark.parametrize("scenario", [
-    "ssh_bruteforce", "persistence_new_service", "data_movement_offhours"])
+@pytest.mark.parametrize(
+    "scenario", ["ssh_bruteforce", "persistence_new_service", "data_movement_offhours"]
+)
 def test_every_attack_scenario_is_detected(card, scenario):
     assert card["scenarios"][scenario]["detected"]
 
@@ -64,5 +65,6 @@ def test_injection_corpus_strings_do_not_trigger_rules(card):
 def test_committed_scorecard_is_current(card):
     committed = json.loads((DOCS / "scorecard.json").read_text(encoding="utf-8"))
     assert committed == json.loads(json.dumps(card)), (
-        "docs/detection/scorecard.json is stale: run python scripts/detection_scorecard.py")
+        "docs/detection/scorecard.json is stale: run python scripts/detection_scorecard.py"
+    )
     assert (DOCS / "scorecard.md").read_text(encoding="utf-8") == render_markdown(card)

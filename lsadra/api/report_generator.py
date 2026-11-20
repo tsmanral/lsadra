@@ -46,7 +46,9 @@ def generate_report(
     pdf.cell(0, 20, title, ln=True, align="C")
 
     pdf.set_font("Helvetica", "", 12)
-    pdf.cell(0, 10, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", ln=True, align="C")
+    pdf.cell(
+        0, 10, f"Generated: {datetime.utcnow().strftime('%Y-%m-%d %H:%M UTC')}", ln=True, align="C"
+    )
     pdf.ln(10)
 
     # ── KPI Summary ──────────────────────────────────────────────────────

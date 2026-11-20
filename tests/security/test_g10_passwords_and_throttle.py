@@ -29,10 +29,17 @@ from tests.security._identity_support import (  # noqa: F401 — fixture
 )
 
 
-@pytest.mark.parametrize("bad", [
-    "short", "elevenchars", "a" * 20, "password1234", "Q1W2E3" + "R4T5Y6",  # split so secret scanners skip it
-    "x" * 40 + "é" * 20,
-])
+@pytest.mark.parametrize(
+    "bad",
+    [
+        "short",
+        "elevenchars",
+        "a" * 20,
+        "password1234",
+        "Q1W2E3" + "R4T5Y6",  # split so secret scanners skip it
+        "x" * 40 + "é" * 20,
+    ],
+)
 def test_policy_rejects_weak_passwords(bad):
     with pytest.raises(PasswordPolicyError):
         check_password_policy(bad)
@@ -58,11 +65,17 @@ def test_admin_password_reset_enforces_policy(identity_env):
     make_user("root.demo", role="ADMIN")
     uid = make_user("analyst.demo")
     token = login(client, "root.demo").json()["access_token"]
-    weak = client.post("/api/dashboard/users/password", headers=bearer(token),
-                       json={"user_id": uid, "password": "password1"})
+    weak = client.post(
+        "/api/dashboard/users/password",
+        headers=bearer(token),
+        json={"user_id": uid, "password": "password1"},
+    )
     assert weak.status_code == 422
-    ok = client.post("/api/dashboard/users/password", headers=bearer(token),
-                     json={"user_id": uid, "password": "violet-ember-canyon-09"})
+    ok = client.post(
+        "/api/dashboard/users/password",
+        headers=bearer(token),
+        json={"user_id": uid, "password": "violet-ember-canyon-09"},
+    )
     assert ok.status_code == 200
 
 
@@ -70,22 +83,29 @@ def test_admin_create_user_enforces_policy(identity_env):
     client = identity_env
     make_user("root.demo", role="ADMIN")
     token = login(client, "root.demo").json()["access_token"]
-    weak = client.post("/api/dashboard/users", headers=bearer(token),
-                       json={"username": "new.demo", "password": "password" + "1234"})
+    weak = client.post(
+        "/api/dashboard/users",
+        headers=bearer(token),
+        json={"username": "new.demo", "password": "password" + "1234"},
+    )
     assert weak.status_code == 422
     from lsadra.storage.database import get_user_by_username
 
     assert get_user_by_username("new.demo") is None
-    ok = client.post("/api/dashboard/users", headers=bearer(token),
-                     json={"username": "new.demo", "password": OTHER_STRONG_PASSWORD})
+    ok = client.post(
+        "/api/dashboard/users",
+        headers=bearer(token),
+        json={"username": "new.demo", "password": OTHER_STRONG_PASSWORD},
+    )
     assert ok.status_code == 200, ok.text
 
 
 def test_signup_and_admin_cli_enforce_policy(identity_env, monkeypatch):
     client = identity_env
     monkeypatch.setattr(config, "ALLOW_SIGNUP", True)
-    weak = client.post("/api/auth/register",
-                       json={"username": "self.demo", "password": "password" + "1234"})
+    weak = client.post(
+        "/api/auth/register", json={"username": "self.demo", "password": "password" + "1234"}
+    )
     assert weak.status_code == 422
     from lsadra.admin_cli import create_admin
 

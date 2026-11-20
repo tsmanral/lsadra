@@ -121,9 +121,16 @@ def test_get_events_before_returns_recent_history_for_one_device(seeded):
     assert [e["id"] for e in got] == in_window
     assert old not in [e["id"] for e in got]
     # limit keeps the newest rows, still returned oldest first
-    assert [e["id"] for e in seeded.get_events_before(
-        DEVICE_ID, before_id=batch_start, since="2026-01-15T01:55:00", limit=2)] == in_window[1:]
-    assert seeded.get_events_before(DEVICE_ID, before_id=in_window[0], since="2026-01-15T01:55:00") == []
+    assert [
+        e["id"]
+        for e in seeded.get_events_before(
+            DEVICE_ID, before_id=batch_start, since="2026-01-15T01:55:00", limit=2
+        )
+    ] == in_window[1:]
+    assert (
+        seeded.get_events_before(DEVICE_ID, before_id=in_window[0], since="2026-01-15T01:55:00")
+        == []
+    )
 
 
 def test_get_events_for_user_filters_synthetic_and_orders_newest_first(seeded):
@@ -188,7 +195,9 @@ def _legacy_store(db, device_id, events):
 
 def _stored(db, device_id):
     volatile = {"id", "device_id"}
-    return [{k: v for k, v in e.items() if k not in volatile} for e in db.get_events_since(device_id, 0)]
+    return [
+        {k: v for k, v in e.items() if k not in volatile} for e in db.get_events_since(device_id, 0)
+    ]
 
 
 def test_store_batch_and_touch_matches_the_legacy_two_call_sequence(seeded):
@@ -197,7 +206,9 @@ def test_store_batch_and_touch_matches_the_legacy_two_call_sequence(seeded):
 
     before = datetime.utcnow()
     assert seeded.store_batch_and_touch(DEVICE_ID, batch) == 5
-    assert _legacy_store(seeded, "dev-legacy", [dict(e, device_id="dev-legacy") for e in batch]) == 5
+    assert (
+        _legacy_store(seeded, "dev-legacy", [dict(e, device_id="dev-legacy") for e in batch]) == 5
+    )
 
     assert _stored(seeded, DEVICE_ID) == _stored(seeded, "dev-legacy")
     assert len(_stored(seeded, DEVICE_ID)) == 5

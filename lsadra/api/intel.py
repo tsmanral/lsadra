@@ -90,7 +90,8 @@ def _flagged_ips(user_id: Optional[str], limit: int) -> List[Dict[str, Any]]:
             continue
         info = intel.lookup_ip(r["ip"])
         r["country_code"] = (info.get("geo") or {}).get("country_code") or (
-            (info.get("abuseipdb") or {}).get("country_code") or "")
+            (info.get("abuseipdb") or {}).get("country_code") or ""
+        )
         r["verdict"] = info["verdict"]["level"]
         r["feed_matches"] = len(info.get("feed_matches") or [])
         r["abuse_score"] = (info.get("abuseipdb") or {}).get("abuse_score")
@@ -115,6 +116,7 @@ async def intel_flagged_ips(
 async def intel_feeds_refresh(user: dict = Depends(require_role("ADMIN"))) -> Dict[str, Any]:
     ids = feeds.enabled_feed_ids()
     if not ids:
-        raise HTTPException(status_code=409,
-                            detail="No intel feeds enabled. Set LSADRA_INTEL_FEEDS.")
+        raise HTTPException(
+            status_code=409, detail="No intel feeds enabled. Set LSADRA_INTEL_FEEDS."
+        )
     return {"results": await run_in_threadpool(feeds.update_feeds)}

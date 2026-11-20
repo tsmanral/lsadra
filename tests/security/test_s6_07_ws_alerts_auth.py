@@ -67,11 +67,18 @@ def _bearer(token: str) -> dict:
 
 def _anomaly(owner: str, anomaly_id: int) -> dict:
     return {
-        "anomaly_id": anomaly_id, "incident_id": 7, "event_id": 41,
-        "device_id": "dev-demo-01", "user_id": owner, "source_ip": "203.0.113.9",
-        "severity_label": "HIGH", "severity_score": 0.82,
-        "threat_type": "Brute Force Attack", "mitre_technique": "T1110.001",
-        "created_at": "2026-03-15T14:30:00Z", "narrative": "not streamed",
+        "anomaly_id": anomaly_id,
+        "incident_id": 7,
+        "event_id": 41,
+        "device_id": "dev-demo-01",
+        "user_id": owner,
+        "source_ip": "203.0.113.9",
+        "severity_label": "HIGH",
+        "severity_score": 0.82,
+        "threat_type": "Brute Force Attack",
+        "mitre_technique": "T1110.001",
+        "created_at": "2026-03-15T14:30:00Z",
+        "narrative": "not streamed",
     }
 
 
@@ -136,9 +143,9 @@ def test_plain_ws_rejected_when_tls_required(client):
 
 
 def test_header_token_accepted(client):
-    with client.websocket_connect(PATH, headers=_bearer(
-        create_access_token("u-1", "alice.demo", "VIEWER")
-    )) as ws:
+    with client.websocket_connect(
+        PATH, headers=_bearer(create_access_token("u-1", "alice.demo", "VIEWER"))
+    ) as ws:
         ready = ws.receive_json()
     assert ready["type"] == "ready"
     assert ready["expires_at"] > time.time()
@@ -198,7 +205,9 @@ def test_admin_receives_every_alert(client):
 def test_socket_closes_when_token_expires(client):
     exp = datetime.now(timezone.utc) + timedelta(seconds=2)
     token = jwt.encode(
-        {"sub": "u-1", "role": "ANALYST", "tv": 0, "exp": exp}, JWT_SECRET, algorithm=TOKEN_ALGORITHM
+        {"sub": "u-1", "role": "ANALYST", "tv": 0, "exp": exp},
+        JWT_SECRET,
+        algorithm=TOKEN_ALGORITHM,
     )
     with client.websocket_connect(PATH, headers=_bearer(token)) as ws:
         assert ws.receive_json()["type"] == "ready"
@@ -241,11 +250,13 @@ def test_overflow_closes_socket_with_1013(client):
         ws.receive_json()
         _wait_for_subscribers(1)
         (sub,) = list(alert_hub._subs)
+
         # Fill the queue past its bound on the subscriber's loop in one step,
         # so the sender cannot drain it in between.
         def flood():
             for i in range(alert_hub.queue_size + 1):
                 alert_hub._deliver(sub, alert_message(_anomaly("u-1", i)))
+
         sub.loop.call_soon_threadsafe(flood)
         with pytest.raises(WebSocketDisconnect) as exc:
             while True:

@@ -83,9 +83,7 @@ class TestXForwardedProtoSpoof:
     def test_spoofed_header_from_untrusted_client_is_ignored(self, monkeypatch):
         """CORE REGRESSION: http request + forged 'x-forwarded-proto: https'
         from a client NOT in TRUSTED_PROXY_IPS -> 403, call_next never awaited."""
-        monkeypatch.setattr(
-            tls_middleware, "TRUSTED_PROXY_IPS", frozenset({"10.0.0.5"})
-        )
+        monkeypatch.setattr(tls_middleware, "TRUSTED_PROXY_IPS", frozenset({"10.0.0.5"}))
         request = _FakeRequest(
             scheme="http",
             path=NON_EXEMPT_PATH,
@@ -105,9 +103,7 @@ class TestXForwardedProtoSpoof:
     def test_header_honored_only_from_trusted_proxy(self, monkeypatch):
         """Same forged header, but the direct peer IS a trusted proxy ->
         header honored, scheme becomes 'https', request passes through."""
-        monkeypatch.setattr(
-            tls_middleware, "TRUSTED_PROXY_IPS", frozenset({"10.0.0.5"})
-        )
+        monkeypatch.setattr(tls_middleware, "TRUSTED_PROXY_IPS", frozenset({"10.0.0.5"}))
         request = _FakeRequest(
             scheme="http",
             path=NON_EXEMPT_PATH,

@@ -45,8 +45,12 @@ def main(argv: list[str]) -> int:
         return 0
 
     baseline: dict[str, int] = json.loads(BASELINE.read_text())
-    worse = {code: (baseline.get(code, 0), n) for code, n in counts.items() if n > baseline.get(code, 0)}
-    better = {code: (b, counts.get(code, 0)) for code, b in baseline.items() if counts.get(code, 0) < b}
+    worse = {
+        code: (baseline.get(code, 0), n) for code, n in counts.items() if n > baseline.get(code, 0)
+    }
+    better = {
+        code: (b, counts.get(code, 0)) for code, b in baseline.items() if counts.get(code, 0) < b
+    }
 
     print(f"ruff S findings: {sum(counts.values())} (baseline {sum(baseline.values())})")
     for code, (b, n) in sorted(better.items()):

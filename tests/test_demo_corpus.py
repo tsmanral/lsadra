@@ -89,9 +89,8 @@ def test_events_validate_against_schema(path: Path, validator):
         if not line.strip():
             continue
         errors = sorted(validator.iter_errors(json.loads(line)), key=lambda e: e.path)
-        assert not errors, (
-            f"{path.name}:{lineno}: schema violation — "
-            + "; ".join(f"{list(e.path)}: {e.message}" for e in errors)
+        assert not errors, f"{path.name}:{lineno}: schema violation — " + "; ".join(
+            f"{list(e.path)}: {e.message}" for e in errors
         )
 
 

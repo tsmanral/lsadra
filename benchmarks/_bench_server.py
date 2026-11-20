@@ -28,8 +28,9 @@ def main() -> None:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--port", type=int, required=True)
     parser.add_argument("--data-dir", required=True)
-    parser.add_argument("--trace-file", default=None,
-                        help="write per-request timing records here (_bench_trace.py)")
+    parser.add_argument(
+        "--trace-file", default=None, help="write per-request timing records here (_bench_trace.py)"
+    )
     args = parser.parse_args()
 
     if os.environ.get("LSADRA_DEV_MODE", "").lower() != "true":

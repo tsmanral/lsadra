@@ -32,7 +32,9 @@ _EMPTY_PACKAGES = {f"{__name__}.utils"}
 class _Alias(importlib.abc.MetaPathFinder, importlib.abc.Loader):
     def find_spec(self, fullname, path=None, target=None):
         if fullname in _MOVED or fullname in _EMPTY_PACKAGES:
-            return importlib.machinery.ModuleSpec(fullname, self, is_package=fullname in _EMPTY_PACKAGES)
+            return importlib.machinery.ModuleSpec(
+                fullname, self, is_package=fullname in _EMPTY_PACKAGES
+            )
         return None
 
     def create_module(self, spec):

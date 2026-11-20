@@ -79,8 +79,12 @@ def test_enrolment_flow_needs_a_valid_code_and_ends_old_sessions(identity_env):
     token = login(client).json()["access_token"]
     setup = client.post("/api/auth/totp/setup", headers=bearer(token)).json()
     assert setup["otpauth_uri"].startswith("otpauth://totp/")
-    assert client.post("/api/auth/totp/enable", headers=bearer(token),
-                       json={"code": "000000"}).status_code == 400
+    assert (
+        client.post(
+            "/api/auth/totp/enable", headers=bearer(token), json={"code": "000000"}
+        ).status_code
+        == 400
+    )
     code = totp.code_at(setup["secret"], totp.current_step())
     r = client.post("/api/auth/totp/enable", headers=bearer(token), json={"code": code})
     assert r.status_code == 200

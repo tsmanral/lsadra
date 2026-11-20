@@ -16,22 +16,45 @@ from lsadra.intel import build, bundle, signing
 
 REPO = Path(__file__).resolve().parents[2]
 
-KEV = json.dumps({
-    "catalogVersion": "2099.01.01",
-    "vulnerabilities": [
-        {"cveID": "CVE-2099-0001", "vendorProject": "ExampleCo", "product": "Widget",
-         "vulnerabilityName": "Widget RCE", "dateAdded": "2099-01-01",
-         "dueDate": "2099-01-22", "knownRansomwareCampaignUse": "Known",
-         "shortDescription": "synthetic", "requiredAction": "patch", "cwes": ["CWE-20"]},
-    ],
-}).encode()
-ATTACK = json.dumps({"objects": [
-    {"type": "attack-pattern", "name": "Brute Force",
-     "external_references": [{"source_name": "mitre-attack", "external_id": "T1110",
-                              "url": "https://attack.mitre.org/techniques/T1110"}],
-     "kill_chain_phases": [{"kill_chain_name": "mitre-attack",
-                            "phase_name": "credential-access"}]},
-]}).encode()
+KEV = json.dumps(
+    {
+        "catalogVersion": "2099.01.01",
+        "vulnerabilities": [
+            {
+                "cveID": "CVE-2099-0001",
+                "vendorProject": "ExampleCo",
+                "product": "Widget",
+                "vulnerabilityName": "Widget RCE",
+                "dateAdded": "2099-01-01",
+                "dueDate": "2099-01-22",
+                "knownRansomwareCampaignUse": "Known",
+                "shortDescription": "synthetic",
+                "requiredAction": "patch",
+                "cwes": ["CWE-20"],
+            },
+        ],
+    }
+).encode()
+ATTACK = json.dumps(
+    {
+        "objects": [
+            {
+                "type": "attack-pattern",
+                "name": "Brute Force",
+                "external_references": [
+                    {
+                        "source_name": "mitre-attack",
+                        "external_id": "T1110",
+                        "url": "https://attack.mitre.org/techniques/T1110",
+                    }
+                ],
+                "kill_chain_phases": [
+                    {"kill_chain_name": "mitre-attack", "phase_name": "credential-access"}
+                ],
+            },
+        ]
+    }
+).encode()
 
 
 @pytest.fixture

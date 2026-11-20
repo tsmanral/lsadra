@@ -24,8 +24,11 @@ from tests.fixtures import setup_test_db
 
 REPO_ROOT = Path(__file__).resolve().parents[1]
 API_KEY = "demo-key-not-a-secret"
-BATCH = {"events": [{"schema_version": "1", "timestamp": "2026-03-15T14:30:00Z",
-                     "event_type": "auth_failure"}]}
+BATCH = {
+    "events": [
+        {"schema_version": "1", "timestamp": "2026-03-15T14:30:00Z", "event_type": "auth_failure"}
+    ]
+}
 
 
 @pytest.fixture(autouse=True)
@@ -49,6 +52,7 @@ def _device() -> dict:
 def _client():
     from fastapi.testclient import TestClient
     from server import app
+
     return TestClient(app, raise_server_exceptions=False)
 
 
@@ -76,8 +80,14 @@ def test_size_below_one_is_rejected():
 
 def test_env_size_below_one_refuses_to_boot():
     env = {**os.environ, "LSADRA_DEV_MODE": "true", "LSADRA_DETECTION_QUEUE_SIZE": "0"}
-    proc = subprocess.run([sys.executable, "-c", "import lsadra.config"], cwd=REPO_ROOT,
-                          env=env, capture_output=True, text=True, timeout=60)
+    proc = subprocess.run(
+        [sys.executable, "-c", "import lsadra.config"],
+        cwd=REPO_ROOT,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
+    )
     assert proc.returncode != 0
     assert "LSADRA_DETECTION_QUEUE_SIZE" in proc.stderr
 
@@ -95,8 +105,8 @@ def test_full_queue_refuses_new_devices_but_admits_pending_ones():
     q = DetectionQueue(2)
     _enqueue(q, "a")
     _enqueue(q, "b")
-    assert q.reserve("c") is False          # new device, no slot
-    assert q.reserve("a") is True           # already pending: coalesces, no slot used
+    assert q.reserve("c") is False  # new device, no slot
+    assert q.reserve("a") is True  # already pending: coalesces, no slot used
     q.commit("a")
     assert q.depth == 2 and q.stats["rejected"] == 1
 
@@ -104,7 +114,7 @@ def test_full_queue_refuses_new_devices_but_admits_pending_ones():
 def test_release_returns_an_unused_slot():
     q = DetectionQueue(1)
     assert q.reserve("a")
-    q.release("a")                          # write failed
+    q.release("a")  # write failed
     assert q.depth == 0 and q.reserve("b")  # slot is free again
 
 
@@ -116,10 +126,10 @@ def test_commit_without_reservation_is_a_bug():
 def test_batch_committed_during_a_run_schedules_another_run():
     q = DetectionQueue(1)
     _enqueue(q, "a")
-    assert q.reserve("a")                   # handler for "a" mid-write ...
-    q._take(q._queue.get_nowait())          # ... while the worker takes "a"
-    assert q.reserve("b") is False          # "a" still holds its slot
-    q.commit("a")                           # the write lands: "a" is queued again
+    assert q.reserve("a")  # handler for "a" mid-write ...
+    q._take(q._queue.get_nowait())  # ... while the worker takes "a"
+    assert q.reserve("b") is False  # "a" still holds its slot
+    q.commit("a")  # the write lands: "a" is queued again
     assert q.depth == 1 and q._queue.get_nowait() == "a"
 
 
@@ -188,7 +198,7 @@ def test_worker_survives_an_orchestrator_exception(caplog):
         q.start(run)
         await _until(lambda: q.stats["runs"] == 1 and q.stats["failures"] == 1)
         alive = q.running
-        _enqueue(q, "bad")                   # still accepting and draining afterwards
+        _enqueue(q, "bad")  # still accepting and draining afterwards
         await _until(lambda: q.stats["failures"] == 2)
         await q.stop()
         return alive
@@ -219,7 +229,7 @@ def test_shutdown_cancels_cleanly_and_waits_for_the_in_flight_run():
 
     q, task = asyncio.run(scenario())
     assert task.cancelled() and not q.running
-    assert finished.is_set()                 # the run was not torn down mid-write
+    assert finished.is_set()  # the run was not torn down mid-write
     # A later lifespan (new loop) can start again and drains what is pending.
     seen = []
 
@@ -252,7 +262,7 @@ def test_ingest_enqueues_and_never_runs_detection_inline():
     with patch("lsadra.ingestion.api_ingestion._get_orchestrator") as get_orch:
         response = _client().post("/api/events/batch", json=BATCH, headers=headers)
     assert response.status_code == 200, response.text
-    get_orch.assert_not_called()             # no worker in this client: nothing ran
+    get_orch.assert_not_called()  # no worker in this client: nothing ran
     assert detection_queue.depth == 1
 
 
@@ -288,10 +298,13 @@ def test_handler_returns_while_detection_is_still_running_end_to_end():
     orchestrator.run_for_new_events.assert_called_once_with(device_id=headers["X-Device-Id"])
 
 
-@pytest.mark.parametrize("path,body", [
-    ("/api/events/batch", BATCH),
-    ("/api/events/raw", {"lines": [{"raw_line": "Mar 15 14:30:00 demo-host sshd[1]: test"}]}),
-])
+@pytest.mark.parametrize(
+    "path,body",
+    [
+        ("/api/events/batch", BATCH),
+        ("/api/events/raw", {"lines": [{"raw_line": "Mar 15 14:30:00 demo-host sshd[1]: test"}]}),
+    ],
+)
 def test_full_queue_is_503_with_retry_after_and_nothing_stored(path, body):
     from lsadra.storage.database import get_events_since
 
@@ -299,8 +312,10 @@ def test_full_queue_is_503_with_retry_after_and_nothing_stored(path, body):
     headers = _device()
     full = DetectionQueue(1)
     _enqueue(full, blocker)
-    with patch("lsadra.ingestion.api_ingestion.detection_queue", full), \
-         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as insert:
+    with (
+        patch("lsadra.ingestion.api_ingestion.detection_queue", full),
+        patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as insert,
+    ):
         response = _client().post(path, json=body, headers=headers)
     assert response.status_code == 503
     assert response.headers["Retry-After"] == "5"
@@ -322,9 +337,13 @@ def test_full_queue_still_admits_a_device_already_pending():
 def test_failed_write_releases_the_reservation():
     headers = _device()
     q = DetectionQueue(1)
-    with patch("lsadra.ingestion.api_ingestion.detection_queue", q), \
-         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch",
-               side_effect=RuntimeError("database is locked")):
+    with (
+        patch("lsadra.ingestion.api_ingestion.detection_queue", q),
+        patch(
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch",
+            side_effect=RuntimeError("database is locked"),
+        ),
+    ):
         response = _client().post("/api/events/batch", json=BATCH, headers=headers)
     assert response.status_code == 500
     assert q.depth == 0 and q._slots == {}
@@ -334,10 +353,12 @@ def test_bench_skip_detection_bypasses_the_queue():
     headers = _device()
     full = DetectionQueue(1)
     _enqueue(full, "someone-else")
-    with patch("lsadra.ingestion.api_ingestion.BENCH_SKIP_DETECTION", True), \
-         patch("lsadra.ingestion.api_ingestion.detection_queue", full):
+    with (
+        patch("lsadra.ingestion.api_ingestion.BENCH_SKIP_DETECTION", True),
+        patch("lsadra.ingestion.api_ingestion.detection_queue", full),
+    ):
         response = _client().post("/api/events/batch", json=BATCH, headers=headers)
-    assert response.status_code == 200, response.text   # full queue never consulted
+    assert response.status_code == 200, response.text  # full queue never consulted
     assert full.stats == {"admitted": 1, "coalesced": 0, "rejected": 0, "runs": 0, "failures": 0}
 
 

@@ -13,12 +13,62 @@ SCHEMA = json.loads((ROOT / "docs/contracts/event-schema.v1.json").read_text(enc
 
 # CIS Controls v8.1 Implementation Group 1 safeguards.
 IG1 = {
-    "1.1", "1.2", "2.1", "2.2", "2.3", "3.1", "3.2", "3.3", "3.4", "3.5", "3.6",
-    "4.1", "4.2", "4.3", "4.4", "4.5", "4.6", "4.7", "5.1", "5.2", "5.3", "5.4",
-    "6.1", "6.2", "6.3", "6.4", "6.5", "7.1", "7.2", "7.3", "7.4", "8.1", "8.2",
-    "8.3", "9.1", "9.2", "10.1", "10.2", "10.3", "11.1", "11.2", "11.3", "11.4",
-    "12.1", "14.1", "14.2", "14.3", "14.4", "14.5", "14.6", "14.7", "14.8",
-    "15.1", "17.1", "17.2", "17.3",
+    "1.1",
+    "1.2",
+    "2.1",
+    "2.2",
+    "2.3",
+    "3.1",
+    "3.2",
+    "3.3",
+    "3.4",
+    "3.5",
+    "3.6",
+    "4.1",
+    "4.2",
+    "4.3",
+    "4.4",
+    "4.5",
+    "4.6",
+    "4.7",
+    "5.1",
+    "5.2",
+    "5.3",
+    "5.4",
+    "6.1",
+    "6.2",
+    "6.3",
+    "6.4",
+    "6.5",
+    "7.1",
+    "7.2",
+    "7.3",
+    "7.4",
+    "8.1",
+    "8.2",
+    "8.3",
+    "9.1",
+    "9.2",
+    "10.1",
+    "10.2",
+    "10.3",
+    "11.1",
+    "11.2",
+    "11.3",
+    "11.4",
+    "12.1",
+    "14.1",
+    "14.2",
+    "14.3",
+    "14.4",
+    "14.5",
+    "14.6",
+    "14.7",
+    "14.8",
+    "15.1",
+    "17.1",
+    "17.2",
+    "17.3",
 }
 
 
@@ -64,7 +114,9 @@ def test_shipped_checks_are_well_formed_and_ig1_tagged():
 
 
 def test_only_allow_listed_commands_run():
-    status, detail = posture.evaluate({"type": "command", "argv": ["rm", "-rf", "/"], "pattern": "x"})
+    status, detail = posture.evaluate(
+        {"type": "command", "argv": ["rm", "-rf", "/"], "pattern": "x"}
+    )
     assert status == posture.ERROR
     assert "not allowed" in detail
 
@@ -72,8 +124,18 @@ def test_only_allow_listed_commands_run():
 # ── sshd configuration ────────────────────────────────────────────────────
 
 
-ROOT_LOGIN = {"type": "sshd_option", "key": "PermitRootLogin", "allowed": ["no", "prohibit-password"], "default": "prohibit-password"}
-PASSWORD_AUTH = {"type": "sshd_option", "key": "PasswordAuthentication", "allowed": ["no"], "default": "yes"}
+ROOT_LOGIN = {
+    "type": "sshd_option",
+    "key": "PermitRootLogin",
+    "allowed": ["no", "prohibit-password"],
+    "default": "prohibit-password",
+}
+PASSWORD_AUTH = {
+    "type": "sshd_option",
+    "key": "PasswordAuthentication",
+    "allowed": ["no"],
+    "default": "yes",
+}
 
 
 def test_sshd_check_is_not_applicable_without_an_ssh_server(tmp_path):
@@ -99,7 +161,11 @@ def test_sshd_first_value_wins_and_include_files_come_first(tmp_path):
 
 
 def test_sshd_match_blocks_do_not_count_as_global_settings(tmp_path):
-    _write(tmp_path, "/etc/ssh/sshd_config", "# comment\nMatch User backup.demo\n  PasswordAuthentication no\n")
+    _write(
+        tmp_path,
+        "/etc/ssh/sshd_config",
+        "# comment\nMatch User backup.demo\n  PasswordAuthentication no\n",
+    )
     assert posture.evaluate(PASSWORD_AUTH, str(tmp_path), _no_commands)[0] == posture.FAIL
 
 
@@ -112,9 +178,15 @@ def _shipped(check_id):
 
 def test_extra_uid0_account_fails(tmp_path):
     check = _shipped("lnx-single-uid0")
-    _write(tmp_path, "/etc/passwd", "root:x:0:0:root:/root:/bin/sh\nalice.demo:x:1000:1000::/home/a:/bin/sh\n")
+    _write(
+        tmp_path,
+        "/etc/passwd",
+        "root:x:0:0:root:/root:/bin/sh\nalice.demo:x:1000:1000::/home/a:/bin/sh\n",
+    )
     assert posture.evaluate(check, str(tmp_path), _no_commands)[0] == posture.PASS
-    _write(tmp_path, "/etc/passwd", "root:x:0:0:root:/root:/bin/sh\ntoor.demo:x:0:0::/root:/bin/sh\n")
+    _write(
+        tmp_path, "/etc/passwd", "root:x:0:0:root:/root:/bin/sh\ntoor.demo:x:0:0::/root:/bin/sh\n"
+    )
     assert posture.evaluate(check, str(tmp_path), _no_commands)[0] == posture.FAIL
 
 
@@ -134,7 +206,10 @@ def test_world_readable_shadow_fails(tmp_path, monkeypatch):
 
 def test_firewall_any_of_passes_on_one_active_firewall(tmp_path):
     check = _shipped("lnx-firewall-active")
-    outputs = {("ufw", "status"): "Status: inactive\n", ("systemctl", "is-active", "firewalld"): "active\n"}
+    outputs = {
+        ("ufw", "status"): "Status: inactive\n",
+        ("systemctl", "is-active", "firewalld"): "active\n",
+    }
     run = lambda argv: outputs.get(tuple(argv))  # noqa: E731
     assert posture.evaluate(check, str(tmp_path), run)[0] == posture.PASS
 
@@ -154,7 +229,9 @@ def test_a_broken_check_reports_an_error_instead_of_raising(tmp_path):
     def boom(argv):
         raise OSError("boom")
 
-    assert posture.evaluate(_shipped("lnx-disk-encryption"), str(tmp_path), boom)[0] == posture.ERROR
+    assert (
+        posture.evaluate(_shipped("lnx-disk-encryption"), str(tmp_path), boom)[0] == posture.ERROR
+    )
     assert posture.evaluate({"type": "nope"})[0] == posture.ERROR
 
 

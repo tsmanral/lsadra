@@ -87,8 +87,11 @@ def test_password_change_ends_other_sessions(identity_env):
     client = identity_env
     make_user()
     token = login(client).json()["access_token"]
-    r = client.post("/api/auth/password", headers=bearer(token),
-                    json={"current_password": STRONG_PASSWORD, "new_password": OTHER_STRONG_PASSWORD})
+    r = client.post(
+        "/api/auth/password",
+        headers=bearer(token),
+        json={"current_password": STRONG_PASSWORD, "new_password": OTHER_STRONG_PASSWORD},
+    )
     assert r.status_code == 200
     assert client.get("/api/incidents", headers=bearer(token)).status_code == 401
     assert login(client, password=OTHER_STRONG_PASSWORD).status_code == 200
@@ -165,8 +168,10 @@ def test_key_rotation_overlap_then_expiry(device):
     from lsadra.ingestion.api_ingestion import device_credential_cache
 
     conn = db.get_connection()
-    conn.execute("UPDATE devices SET previous_key_expires_at = ? WHERE id = 'dev-demo-01'",
-                 ((datetime.utcnow() - timedelta(seconds=1)).isoformat(),))
+    conn.execute(
+        "UPDATE devices SET previous_key_expires_at = ? WHERE id = 'dev-demo-01'",
+        ((datetime.utcnow() - timedelta(seconds=1)).isoformat(),),
+    )
     conn.commit()
     conn.close()
     device_credential_cache.invalidate()

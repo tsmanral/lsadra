@@ -68,7 +68,11 @@ class _ContractRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError as exc:
                 errors = [
-                    {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": str(e.get("msg", ""))}
+                    {
+                        "type": e.get("type"),
+                        "loc": list(e.get("loc", ())),
+                        "msg": str(e.get("msg", "")),
+                    }
                     for e in exc.errors()
                 ]
                 raise RequestValidationError(errors) from None
@@ -273,7 +277,9 @@ def _matches_previous_key(device: Dict[str, Any], api_key: str) -> bool:
     return False
 
 
-def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header(...)) -> Dict[str, Any]:
+def _authenticate_device(
+    x_device_id: str = Header(...), x_api_key: str = Header(...)
+) -> Dict[str, Any]:
     """
     Validate the device ID + API key sent in request headers.
 
@@ -330,6 +336,7 @@ def _get_orchestrator():
     global _orchestrator
     if _orchestrator is None:
         from lsadra.detection.detection_orchestrator import DetectionOrchestrator
+
         _orchestrator = DetectionOrchestrator()
     return _orchestrator
 
@@ -394,6 +401,7 @@ def _get_ingest_manager():
     global _ingest_manager
     if _ingest_manager is None:
         from lsadra.ingestion.ingestion_manager import IngestionManager
+
         _ingest_manager = IngestionManager()
     return _ingest_manager
 
@@ -505,11 +513,11 @@ async def ingest_raw_batch(
         status, accepted count, parse error count, per-source breakdown.
     """
     device_id: str = device["id"]
-    user_id:   str = device["user_id"]
+    user_id: str = device["user_id"]
 
     _check_rate_limit(device_id)
 
-    manager  = _get_ingest_manager()
+    manager = _get_ingest_manager()
     accepted = 0
     parse_errors = 0
     source_counts: Dict[str, int] = {}
@@ -529,16 +537,16 @@ async def ingest_raw_batch(
 
             # Map V4 event schema to V3 DB row schema
             db_row = {
-                "timestamp":          event.get("timestamp"),
-                "device_id":          device_id,
-                "user_id":            user_id,
-                "host":               _raw_event_host(event),
+                "timestamp": event.get("timestamp"),
+                "device_id": device_id,
+                "user_id": user_id,
+                "host": _raw_event_host(event),
                 "effective_username": event.get("username") or "",
-                "source_ip":          event.get("source_ip"),
-                "event_type":         event.get("event_type"),
-                "raw_message":        event.get("raw", "")[:MAX_RAW_MESSAGE_LENGTH],
-                "attributes":         event.get("extra", {}),
-                "is_synthetic":       False,
+                "source_ip": event.get("source_ip"),
+                "event_type": event.get("event_type"),
+                "raw_message": event.get("raw", "")[:MAX_RAW_MESSAGE_LENGTH],
+                "attributes": event.get("extra", {}),
+                "is_synthetic": False,
             }
             db_rows.append(db_row)
             accepted += 1
@@ -554,7 +562,10 @@ async def ingest_raw_batch(
         await _store_reserved(device_id, db_rows, detect)
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
-            accepted, device_id, parse_errors, source_counts,
+            accepted,
+            device_id,
+            parse_errors,
+            source_counts,
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
@@ -562,8 +573,8 @@ async def ingest_raw_batch(
         detection_queue.commit(device_id)
 
     return {
-        "status":       "ok",
-        "accepted":     accepted,
+        "status": "ok",
+        "accepted": accepted,
         "parse_errors": parse_errors,
         "source_breakdown": source_counts,
     }

@@ -36,7 +36,9 @@ class StatisticalBaselineModel:
     def __init__(self, sigma: float = STATISTICAL_BASELINE_SIGMA):
         self.sigma = sigma
         # Keyed by (user_id, device_id) → dict of feature → (mean, std, n)
-        self._profiles: Dict[Tuple[str, str], Dict[str, Tuple[float, float, int]]] = defaultdict(dict)
+        self._profiles: Dict[Tuple[str, str], Dict[str, Tuple[float, float, int]]] = defaultdict(
+            dict
+        )
 
     # ── training ──────────────────────────────────────────────────────────
 
@@ -87,10 +89,12 @@ class StatisticalBaselineModel:
                     z_scores.append(z)
 
             z_max = max(z_scores) if z_scores else 0.0
-            results.append({
-                "z_max": z_max,
-                "is_baseline_anomaly": z_max > self.sigma,
-            })
+            results.append(
+                {
+                    "z_max": z_max,
+                    "is_baseline_anomaly": z_max > self.sigma,
+                }
+            )
 
         return results
 
@@ -109,7 +113,12 @@ class StatisticalBaselineModel:
                 mean, std, n = profile[feat]
                 n_new = n + 1
                 new_mean = mean + (val - mean) / n_new
-                new_std = np.sqrt(((n - 1) * std ** 2 + (val - mean) * (val - new_mean)) / max(n_new - 1, 1)) + 1e-9
+                new_std = (
+                    np.sqrt(
+                        ((n - 1) * std**2 + (val - mean) * (val - new_mean)) / max(n_new - 1, 1)
+                    )
+                    + 1e-9
+                )
                 profile[feat] = (new_mean, new_std, n_new)
             else:
                 profile[feat] = (val, 1e-9, 1)

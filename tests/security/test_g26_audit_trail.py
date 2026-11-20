@@ -112,7 +112,10 @@ def test_admin_grant_is_audited_and_alerted(identity_env):
     make_user("root.demo", role="ADMIN")
     target = make_user("analyst.demo")
     token = login(client, "root.demo").json()["access_token"]
-    client.post("/api/dashboard/users/role", headers=bearer(token),
-                json={"user_id": target, "role": "ADMIN"})
+    client.post(
+        "/api/dashboard/users/role",
+        headers=bearer(token),
+        json={"user_id": target, "role": "ADMIN"},
+    )
     assert {"user.role.change", "user.role.grant_admin"} <= set(_actions())
     assert any(a.get("mitre_technique") == "T1098" for a in db.get_recent_anomalies(50))

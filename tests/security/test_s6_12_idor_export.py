@@ -30,6 +30,7 @@ def client():
     """Create a FastAPI test client."""
     from fastapi.testclient import TestClient
     from server import app
+
     return TestClient(app)
 
 
@@ -52,14 +53,18 @@ class TestExportIdorScoping:
         report generator patched. Returns (response, kpis_mock, incidents_mock,
         anomalies_mock) so callers can inspect how each was invoked.
         """
-        with patch("lsadra.api.dashboard.get_dashboard_kpis",
-                   return_value={}) as kpis_mock, \
-             patch("lsadra.api.dashboard.get_dashboard_open_incidents",
-                   return_value=[]) as incidents_mock, \
-             patch("lsadra.api.dashboard.get_dashboard_recent_anomalies",
-                   return_value=[]) as anomalies_mock, \
-             patch("lsadra.api.dashboard.generate_report",
-                   return_value=b"%PDF-1.4 test") as report_mock:
+        with (
+            patch("lsadra.api.dashboard.get_dashboard_kpis", return_value={}) as kpis_mock,
+            patch(
+                "lsadra.api.dashboard.get_dashboard_open_incidents", return_value=[]
+            ) as incidents_mock,
+            patch(
+                "lsadra.api.dashboard.get_dashboard_recent_anomalies", return_value=[]
+            ) as anomalies_mock,
+            patch(
+                "lsadra.api.dashboard.generate_report", return_value=b"%PDF-1.4 test"
+            ) as report_mock,
+        ):
             response = client.get(
                 "/api/dashboard/export",
                 headers={"Authorization": f"Bearer {token}"},
@@ -71,8 +76,7 @@ class TestExportIdorScoping:
         """A non-admin's report must query only their own user_id."""
         token = _make_token("analyst-1", "analyst", "ANALYST")
 
-        response, kpis_mock, incidents_mock, anomalies_mock = \
-            self._patched_export(client, token)
+        response, kpis_mock, incidents_mock, anomalies_mock = self._patched_export(client, token)
 
         assert response.status_code == 200
         assert response.headers["content-type"] == "application/pdf"
@@ -88,8 +92,7 @@ class TestExportIdorScoping:
         """VIEWER is also non-admin and must be scoped identically."""
         token = _make_token("viewer-1", "viewer", "VIEWER")
 
-        response, kpis_mock, incidents_mock, anomalies_mock = \
-            self._patched_export(client, token)
+        response, kpis_mock, incidents_mock, anomalies_mock = self._patched_export(client, token)
 
         assert response.status_code == 200
         assert kpis_mock.call_args.kwargs["user_id"] == "viewer-1"
@@ -100,8 +103,7 @@ class TestExportIdorScoping:
         """An ADMIN caller must propagate user_id=None (unscoped, sees all)."""
         token = _make_token("admin-1", "admin", "ADMIN")
 
-        response, kpis_mock, incidents_mock, anomalies_mock = \
-            self._patched_export(client, token)
+        response, kpis_mock, incidents_mock, anomalies_mock = self._patched_export(client, token)
 
         assert response.status_code == 200
         assert kpis_mock.call_args.kwargs["user_id"] is None

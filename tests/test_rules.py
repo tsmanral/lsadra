@@ -34,73 +34,123 @@ def row(**kw):
 CASES = {
     "lsadra-auth-credential-stuffing": (
         [row(event_type="auth_failure", failures_15m=12, unique_users_15m=6)],
-        [row(event_type="auth_failure", failures_15m=12, unique_users_15m=2),
-         row(event_type="auth_success", failures_15m=12, unique_users_15m=6),
-         row(event_type="auth_failure", failures_15m=3, unique_users_15m=6)],
+        [
+            row(event_type="auth_failure", failures_15m=12, unique_users_15m=2),
+            row(event_type="auth_success", failures_15m=12, unique_users_15m=6),
+            row(event_type="auth_failure", failures_15m=3, unique_users_15m=6),
+        ],
     ),
     "lsadra-auth-brute-force": (
-        [row(event_type="auth_failure", failures_15m=9),
-         row(event_type="auth_failure", failed_logins_last_5min=6, failures_15m=6),
-         row(event_type="auth_failure", failed_logins_last_5min=20, failures_15m=20)],
-        [row(event_type="auth_failure", failures_15m=3, failed_logins_last_5min=3),
-         row(event_type="process_exec", failures_15m=30, failed_logins_last_5min=30)],
+        [
+            row(event_type="auth_failure", failures_15m=9),
+            row(event_type="auth_failure", failed_logins_last_5min=6, failures_15m=6),
+            row(event_type="auth_failure", failed_logins_last_5min=20, failures_15m=20),
+        ],
+        [
+            row(event_type="auth_failure", failures_15m=3, failed_logins_last_5min=3),
+            row(event_type="process_exec", failures_15m=30, failed_logins_last_5min=30),
+        ],
     ),
     "lsadra-auth-low-and-slow": (
-        [row(event_type="auth_failure", failures_15m=7, failure_ratio_15m=1.0,
-             login_attempts_last_5min=2)],
-        [row(event_type="auth_failure", failures_15m=7, failure_ratio_15m=0.5,
-             login_attempts_last_5min=2),
-         row(event_type="auth_failure", failures_15m=7, failure_ratio_15m=1.0,
-             login_attempts_last_5min=6),
-         row(event_type="auth_failure", failures_15m=40, failure_ratio_15m=1.0)],
+        [
+            row(
+                event_type="auth_failure",
+                failures_15m=7,
+                failure_ratio_15m=1.0,
+                login_attempts_last_5min=2,
+            )
+        ],
+        [
+            row(
+                event_type="auth_failure",
+                failures_15m=7,
+                failure_ratio_15m=0.5,
+                login_attempts_last_5min=2,
+            ),
+            row(
+                event_type="auth_failure",
+                failures_15m=7,
+                failure_ratio_15m=1.0,
+                login_attempts_last_5min=6,
+            ),
+            row(event_type="auth_failure", failures_15m=40, failure_ratio_15m=1.0),
+        ],
     ),
     "lsadra-auth-success-after-failures": (
         [row(event_type="auth_success", failures_15m=6, successes_15m=1)],
-        [row(event_type="auth_success", failures_15m=1, successes_15m=1),
-         row(event_type="auth_failure", failures_15m=6)],
+        [
+            row(event_type="auth_success", failures_15m=1, successes_15m=1),
+            row(event_type="auth_failure", failures_15m=6),
+        ],
     ),
     "lsadra-auth-off-hours-access": (
         [row(event_type="auth_success", successes_15m=1, is_off_hours=1, failures_15m=0)],
-        [row(event_type="auth_success", successes_15m=1, is_off_hours=0),
-         row(event_type="process_exec", successes_15m=1, is_off_hours=1)],
+        [
+            row(event_type="auth_success", successes_15m=1, is_off_hours=0),
+            row(event_type="process_exec", successes_15m=1, is_off_hours=1),
+        ],
     ),
     "lsadra-net-port-scan": (
-        [row(event_type="network_flow", unique_dst_ports_10min=20),
-         row(event_type="firewall_deny", unique_dst_ports_10min=80)],
-        [row(event_type="network_flow", unique_dst_ports_10min=4),
-         row(event_type="auth_failure", unique_dst_ports_10min=80)],
+        [
+            row(event_type="network_flow", unique_dst_ports_10min=20),
+            row(event_type="firewall_deny", unique_dst_ports_10min=80),
+        ],
+        [
+            row(event_type="network_flow", unique_dst_ports_10min=4),
+            row(event_type="auth_failure", unique_dst_ports_10min=80),
+        ],
     ),
     "lsadra-net-large-outbound-transfer": (
         [row(event_type="network_flow", bytes_out_to_dest_30min=50e6, dest_ip="203.0.113.9")],
-        [row(event_type="network_flow", bytes_out_to_dest_30min=2e6),
-         row(event_type="file_access", bytes_out_to_dest_30min=50e6)],
+        [
+            row(event_type="network_flow", bytes_out_to_dest_30min=2e6),
+            row(event_type="file_access", bytes_out_to_dest_30min=50e6),
+        ],
     ),
     "lsadra-file-hidden-staging-dir": (
-        [row(event_type="process_exec", artifact_path="/var/tmp/.stage",
-             artifact_in_hidden_dir=1)],
-        [row(event_type="process_exec", artifact_path="/home/bob.demo/.cache/x",
-             artifact_in_hidden_dir=1),
-         row(event_type="process_exec", artifact_path="/var/tmp/stage", artifact_in_hidden_dir=0)],
+        [row(event_type="process_exec", artifact_path="/var/tmp/.stage", artifact_in_hidden_dir=1)],
+        [
+            row(
+                event_type="process_exec",
+                artifact_path="/home/bob.demo/.cache/x",
+                artifact_in_hidden_dir=1,
+            ),
+            row(
+                event_type="process_exec", artifact_path="/var/tmp/stage", artifact_in_hidden_dir=0
+            ),
+        ],
     ),
     "lsadra-proc-encoded-powershell": (
         [row(event_type="process_exec", encoded_command=1)],
-        [row(event_type="process_exec", encoded_command=0),
-         row(event_type="network_flow", encoded_command=1)],
+        [
+            row(event_type="process_exec", encoded_command=0),
+            row(event_type="network_flow", encoded_command=1),
+        ],
     ),
     "lsadra-proc-lolbin-proxy-execution": (
-        [row(event_type="process_exec", known_lolbin=1, suspicious_cmdline=1),
-         row(event_type="process_exec", known_lolbin=1, unusual_parent=1)],
-        [row(event_type="process_exec", known_lolbin=0, suspicious_cmdline=1),
-         row(event_type="network_flow", known_lolbin=1, suspicious_cmdline=1)],
+        [
+            row(event_type="process_exec", known_lolbin=1, suspicious_cmdline=1),
+            row(event_type="process_exec", known_lolbin=1, unusual_parent=1),
+        ],
+        [
+            row(event_type="process_exec", known_lolbin=0, suspicious_cmdline=1),
+            row(event_type="network_flow", known_lolbin=1, suspicious_cmdline=1),
+        ],
     ),
     "lsadra-proc-suspicious-cmdline": (
         [row(event_type="process_exec", suspicious_cmdline=1)],
         [row(event_type="process_exec", suspicious_cmdline=0)],
     ),
     "lsadra-persist-service-install": (
-        [row(event_type="service_install", artifact_path="C:\\Windows\\Temp\\x.exe",
-             artifact_in_user_writable_dir=1, windows_artifact=1),
-         row(event_type="service_install", artifact_path="/usr/lib/systemd/x.service")],
+        [
+            row(
+                event_type="service_install",
+                artifact_path="C:\\Windows\\Temp\\x.exe",
+                artifact_in_user_writable_dir=1,
+                windows_artifact=1,
+            ),
+            row(event_type="service_install", artifact_path="/usr/lib/systemd/x.service"),
+        ],
         [row(event_type="service_start"), row(event_type="registry_set")],
     ),
     "lsadra-persist-service-registry": (
@@ -175,7 +225,9 @@ def test_levels_and_alerting():
 def test_best_match_prefers_higher_level():
     m = evaluate(row(event_type="auth_failure", failures_15m=20, unique_users_15m=8))
     assert [x.rule.id for x in m][:2] == [
-        "lsadra-auth-credential-stuffing", "lsadra-auth-brute-force"]
+        "lsadra-auth-credential-stuffing",
+        "lsadra-auth-brute-force",
+    ]
 
 
 def test_cross_source_activity_raises_one_level():
@@ -202,8 +254,9 @@ def test_removed_demo_rules_stay_removed():
     """A single sudo or one failed SSH password is not an alert on its own."""
     assert best_match(row(event_type="sudo_exec")) is None
     assert best_match(row(event_type="sudo_command")) is None
-    one_failure = best_match(row(event_type="ssh_failed_password", canonical_event_type="auth_failure",
-                                 failures_15m=1))
+    one_failure = best_match(
+        row(event_type="ssh_failed_password", canonical_event_type="auth_failure", failures_15m=1)
+    )
     assert one_failure is None
 
 

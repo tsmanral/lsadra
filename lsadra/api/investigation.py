@@ -127,11 +127,11 @@ def _incident_detail(incident_id: int, uid: Optional[str]) -> Optional[Dict[str,
         "alert_total": total_alerts,
         "alerts_truncated": total_alerts > len(alerts),
         "entities": {
-            "source_ips": _distinct([incident.get("source_ip")] + [a.get("source_ip") for a in alerts]),
-            "users": _distinct(a.get("effective_username") for a in alerts),
-            "hosts": _distinct(
-                [incident.get("device_hostname")] + [a.get("host") for a in alerts]
+            "source_ips": _distinct(
+                [incident.get("source_ip")] + [a.get("source_ip") for a in alerts]
             ),
+            "users": _distinct(a.get("effective_username") for a in alerts),
+            "hosts": _distinct([incident.get("device_hostname")] + [a.get("host") for a in alerts]),
             "mitre_techniques": techniques,
         },
         "playbook": playbook,
@@ -239,10 +239,15 @@ def _entity(q: str, uid: Optional[str]) -> Optional[Dict[str, Any]]:
 
     kind = _classify(q, alerts, bool(device_row))
     scores = [a["severity_score"] for a in alerts if a.get("severity_score") is not None]
-    times = sorted(_distinct([a.get("created_at") for a in alerts] + [e.get("timestamp") for e in raw_events]))
+    times = sorted(
+        _distinct([a.get("created_at") for a in alerts] + [e.get("timestamp") for e in raw_events])
+    )
 
     hosts = _distinct([a.get("host") for a in alerts] + [e.get("host") for e in raw_events])
-    users = _distinct([a.get("effective_username") for a in alerts] + [e.get("effective_username") for e in raw_events])
+    users = _distinct(
+        [a.get("effective_username") for a in alerts]
+        + [e.get("effective_username") for e in raw_events]
+    )
     ips = _distinct([a.get("source_ip") for a in alerts] + [e.get("source_ip") for e in raw_events])
     relationships = (
         [{"type": "Host", "target": h} for h in hosts if h != q]
@@ -376,7 +381,9 @@ def _record_feedback(req: FeedbackRequest, uid: Optional[str]) -> bool:
 
 
 @router.post("/feedback", status_code=201)
-async def api_record_feedback(req: FeedbackRequest, user: dict = Depends(require_role("ADMIN", "ANALYST"))):
+async def api_record_feedback(
+    req: FeedbackRequest, user: dict = Depends(require_role("ADMIN", "ANALYST"))
+):
     if not await run_in_threadpool(_record_feedback, req, _scope(user)):
         raise HTTPException(status_code=404, detail="Alert not found.")
     return {"status": "ok", "alert_id": req.alert_id, "label": req.label}

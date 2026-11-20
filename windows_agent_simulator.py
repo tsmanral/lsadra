@@ -27,7 +27,7 @@ print("\n1. Starting FastAPI Server in the background...")
 server_proc = subprocess.Popen(
     [sys.executable, "-m", "uvicorn", "server:app"],
     stdout=subprocess.DEVNULL,
-    stderr=subprocess.DEVNULL
+    stderr=subprocess.DEVNULL,
 )
 
 # Give the server 4 seconds to bind to port 8000
@@ -50,6 +50,7 @@ print("\n2. Looking up a user to generate a registration token...")
 try:
     from lsadra.storage.database import init_db, get_connection
     from lsadra.onboarding.token_manager import generate_token
+
     init_db()
 
     conn = get_connection()
@@ -63,6 +64,7 @@ try:
         from lsadra.auth import hash_password
         from lsadra.storage.database import create_user
         import uuid
+
         admin_id = str(uuid.uuid4())
         create_user(admin_id, "admin", hash_password("admin"), "ADMIN")
         print("   ✅ Created user 'admin' (password: 'admin', role: ADMIN)")
@@ -79,11 +81,10 @@ except Exception as e:
 
 print("\n3. Registering 'Test-Windows-VM' with the API...")
 try:
-    resp = requests.post(f"{SERVER_URL}/api/devices/register", json={
-        "token": token,
-        "hostname": "Test-Windows-VM",
-        "os_type": "windows"
-    })
+    resp = requests.post(
+        f"{SERVER_URL}/api/devices/register",
+        json={"token": token, "hostname": "Test-Windows-VM", "os_type": "windows"},
+    )
 
     if resp.status_code != 200:
         print(f"   API Error ({resp.status_code}): {resp.text}")
@@ -91,8 +92,8 @@ try:
         exit(1)
 
     device_data = resp.json()
-    device_id = device_data['device_id']
-    api_key = device_data['api_key']
+    device_id = device_data["device_id"]
+    api_key = device_data["api_key"]
     print(f"   ✅ Device registered: {device_id[:8]}...")
 except Exception as e:
     print(f"Failed to communicate with API at {SERVER_URL}: {e}")
@@ -117,22 +118,31 @@ with open("agent_config.yml", "w") as f:
     f.write(config_yaml)
 
 with open("dummy_auth.log", "w") as f:
-    f.write("Mar 20 20:00:00 Test-PC sshd[123]: Accepted publickey for auth_user from 192.168.1.50 port 5555\n")
+    f.write(
+        "Mar 20 20:00:00 Test-PC sshd[123]: Accepted publickey for auth_user from 192.168.1.50 port 5555\n"
+    )
+
 
 # Start heartbeat thread
 def send_heartbeats():
     """Background thread that sends periodic heartbeats."""
     while True:
         try:
-            requests.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": device_id, "X-Api-Key": api_key}, json={
-                "device_id": device_id,
-                "cpu_pct": 25.0,
-                "mem_pct": 45.0,
-                "agent_version": "3.0.0",
-            }, timeout=5)
+            requests.post(
+                f"{SERVER_URL}/heartbeat",
+                headers={"X-Device-Id": device_id, "X-Api-Key": api_key},
+                json={
+                    "device_id": device_id,
+                    "cpu_pct": 25.0,
+                    "mem_pct": 45.0,
+                    "agent_version": "3.0.0",
+                },
+                timeout=5,
+            )
         except Exception:
             pass
         time.sleep(30)
+
 
 heartbeat_thread = threading.Thread(target=send_heartbeats, daemon=True)
 heartbeat_thread.start()
@@ -148,11 +158,9 @@ print(f"👉 API docs:  {SERVER_URL}/docs")
 print("=" * 70)
 
 try:
-    subprocess.run([
-        sys.executable,
-        "-m", "lsadra.endpoint_agent.linux_agent",
-        "--config", "agent_config.yml"
-    ])
+    subprocess.run(
+        [sys.executable, "-m", "lsadra.endpoint_agent.linux_agent", "--config", "agent_config.yml"]
+    )
 except KeyboardInterrupt:
     pass
 finally:

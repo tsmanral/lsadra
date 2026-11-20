@@ -89,7 +89,11 @@ def _model_accepts(event: Any) -> bool:
 def _corpus_events() -> List[Tuple[str, List[Dict[str, Any]]]]:
     out = []
     for path in sorted(CORPUS_DIR.glob("*.jsonl")):
-        events = [json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()]
+        events = [
+            json.loads(line)
+            for line in path.read_text(encoding="utf-8").splitlines()
+            if line.strip()
+        ]
         out.append((path.stem, events))
     return out
 
@@ -112,12 +116,14 @@ def _attrs_of_exact_size(total_bytes: int) -> Dict[str, str]:
 def _with(**changes: Any) -> Callable[[Dict[str, Any]], None]:
     def mutate(event: Dict[str, Any]) -> None:
         event.update(changes)
+
     return mutate
 
 
 def _without(field: str) -> Callable[[Dict[str, Any]], None]:
     def mutate(event: Dict[str, Any]) -> None:
         event.pop(field)
+
     return mutate
 
 
@@ -139,7 +145,12 @@ MUTATIONS: List[Tuple[str, str, Callable[[Dict[str, Any]], None], bool]] = [
     ("unknown-field", "severity", _with(severity="HIGH"), True),
     ("host-too-long", "host", _with(host="h" * 256), True),
     ("host-null", "host", _with(host=None), True),
-    ("effective_username-too-long", "effective_username", _with(effective_username="u" * 129), True),
+    (
+        "effective_username-too-long",
+        "effective_username",
+        _with(effective_username="u" * 129),
+        True,
+    ),
     ("source_ip-hostname", "source_ip", _with(source_ip="attacker.demo"), True),
     ("source_ip-empty", "source_ip", _with(source_ip=""), True),
     ("source_ip-ipv6-zone", "source_ip", _with(source_ip="fe80::1%eth0"), True),
@@ -150,8 +161,18 @@ MUTATIONS: List[Tuple[str, str, Callable[[Dict[str, Any]], None], bool]] = [
     ("attributes-not-object", "attributes", _with(attributes=["a", "b"]), True),
     ("attributes-33-keys", "attributes", _with(attributes={f"k{i}": i for i in range(33)}), True),
     ("attributes-string-value-1025", "attributes", _with(attributes={"cmd": "c" * 1025}), True),
-    ("attributes-nested-value-over-1024", "attributes", _with(attributes={"ports": list(range(300))}), False),
-    ("attributes-total-8193-bytes", "attributes", _with(attributes=_attrs_of_exact_size(8193)), False),
+    (
+        "attributes-nested-value-over-1024",
+        "attributes",
+        _with(attributes={"ports": list(range(300))}),
+        False,
+    ),
+    (
+        "attributes-total-8193-bytes",
+        "attributes",
+        _with(attributes=_attrs_of_exact_size(8193)),
+        False,
+    ),
 ]
 
 # Boundary inputs that MUST be accepted by both sides (guards off-by-one tightening).
@@ -162,7 +183,12 @@ ACCEPTED: List[Tuple[str, Callable[[Dict[str, Any]], None]]] = [
     ("source_ip-null", _with(source_ip=None)),
     ("source_ip-ipv6", _with(source_ip="2001:db8::45")),
     ("source_ip-ipv4-mapped-ipv6", _with(source_ip="::ffff:192.0.2.45")),
-    ("only-required-fields", lambda e: [e.pop(k) for k in list(e) if k not in {"schema_version", "timestamp", "event_type"}]),
+    (
+        "only-required-fields",
+        lambda e: [
+            e.pop(k) for k in list(e) if k not in {"schema_version", "timestamp", "event_type"}
+        ],
+    ),
     ("host-255", _with(host="h" * 255)),
     ("effective_username-128", _with(effective_username="u" * 128)),
     ("event_type-64", _with(event_type="e" * 64)),
@@ -252,7 +278,9 @@ def test_model_json_schema_matches_contract():
 # ── 3. differential behaviour: schema and model agree ──────────────────────
 
 
-@pytest.mark.parametrize("case_id,field,mutate,schema_rejects", MUTATIONS, ids=[m[0] for m in MUTATIONS])
+@pytest.mark.parametrize(
+    "case_id,field,mutate,schema_rejects", MUTATIONS, ids=[m[0] for m in MUTATIONS]
+)
 def test_mutation_rejected_by_model_and_schema(case_id, field, mutate, schema_rejects):
     event = _mutated(mutate)
     assert not _model_accepts(event), f"{case_id}: model accepted a contract violation"
@@ -264,7 +292,9 @@ def test_mutation_rejected_by_model_and_schema(case_id, field, mutate, schema_re
 @pytest.mark.parametrize("case_id,mutate", ACCEPTED, ids=[a[0] for a in ACCEPTED])
 def test_boundary_accepted_by_model_and_schema(case_id, mutate):
     event = _mutated(mutate)
-    assert _schema_accepts(event), f"{case_id}: schema rejected {list(VALIDATOR.iter_errors(event))}"
+    assert _schema_accepts(event), (
+        f"{case_id}: schema rejected {list(VALIDATOR.iter_errors(event))}"
+    )
     assert _model_accepts(event), f"{case_id}: model rejected a valid event"
 
 
@@ -296,11 +326,17 @@ def test_corpus_ingests_through_http(client, device_headers, no_detection):
     assert all(row["timestamp"].endswith("+00:00") for row in rows)
 
 
-@pytest.mark.parametrize("case_id,field,mutate,schema_rejects", MUTATIONS, ids=[m[0] for m in MUTATIONS])
-def test_mutated_event_is_422_naming_field(client, device_headers, no_detection, case_id, field, mutate, schema_rejects):
+@pytest.mark.parametrize(
+    "case_id,field,mutate,schema_rejects", MUTATIONS, ids=[m[0] for m in MUTATIONS]
+)
+def test_mutated_event_is_422_naming_field(
+    client, device_headers, no_detection, case_id, field, mutate, schema_rejects
+):
     event = _mutated(mutate)
     with patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as insert:
-        r = client.post("/api/events/batch", json={"events": [BASE_EVENT, event]}, headers=device_headers)
+        r = client.post(
+            "/api/events/batch", json={"events": [BASE_EVENT, event]}, headers=device_headers
+        )
     locs = _error_locs(r) if r.status_code == 422 else []
     print(f"{case_id}: HTTP {r.status_code} loc={locs[:1]}")
     assert r.status_code == 422, r.text[:500]
@@ -342,17 +378,30 @@ def test_batch_envelope_is_422(client, device_headers, body, expected_loc):
         b"[]",
         b"null",
         b'{"events": [' * 5000,  # pathologically deep nesting
-        ('{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", '
-         '"event_type": "x", "attributes": {"n": ' + "9" * 5000 + "}}]}").encode(),  # int > str-conversion limit
-        ('{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", '
-         '"event_type": "x", "attributes": {"n": ' + "[" * 3000 + "]" * 3000 + "}}]}").encode(),  # deep attribute value
+        (
+            '{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", '
+            '"event_type": "x", "attributes": {"n": ' + "9" * 5000 + "}}]}"
+        ).encode(),  # int > str-conversion limit
+        (
+            '{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", '
+            '"event_type": "x", "attributes": {"n": ' + "[" * 3000 + "]" * 3000 + "}}]}"
+        ).encode(),  # deep attribute value
         ('{"events": ' + "[" * 3000 + "]" * 3000 + "}").encode(),  # deep, well-formed, wrong type
         b'{"events": [{"schema_version": "1", "timestamp": "9999-12-31T23:59:59-23:59", "event_type": "x"}]}',
         b'{"events": [{"schema_version": "1", "timestamp": "2026-01-15T02:01:12Z", "event_type": "x", '
         b'"host": "demo\\ud800"}]}',  # lone surrogate
     ],
-    ids=["invalid-json", "top-level-array", "null", "deep-nesting", "huge-int", "deep-attribute",
-         "deep-events", "utc-overflow", "lone-surrogate"],
+    ids=[
+        "invalid-json",
+        "top-level-array",
+        "null",
+        "deep-nesting",
+        "huge-int",
+        "deep-attribute",
+        "deep-events",
+        "utc-overflow",
+        "lone-surrogate",
+    ],
 )
 def test_malformed_body_is_4xx_never_5xx(client, device_headers, no_detection, raw_body):
     headers = {**device_headers, "Content-Type": "application/json"}
@@ -381,8 +430,10 @@ def test_raw_line_contract_is_422(client, device_headers, line, expected_loc):
 
 @pytest.mark.parametrize("hint", ["ssh", "syslog", "windows", "network", "endpoint", None])
 def test_raw_accepts_documented_hints(client, device_headers, no_detection, hint):
-    line = {"raw_line": "Jan 15 02:01:12 demo-host-07 sshd[18402]: Failed password for alice.demo "
-                        "from 192.0.2.45 port 51422 ssh2"}
+    line = {
+        "raw_line": "Jan 15 02:01:12 demo-host-07 sshd[18402]: Failed password for alice.demo "
+        "from 192.0.2.45 port 51422 ssh2"
+    }
     if hint is not None:
         line["source_hint"] = hint
     r = client.post("/api/events/raw", json={"lines": [line]}, headers=device_headers)
@@ -392,16 +443,27 @@ def test_raw_accepts_documented_hints(client, device_headers, no_detection, hint
 @pytest.mark.parametrize(
     "raw_line,hint",
     [
-        ("Jan 15 02:01:12 demo-host-07 sshd[18402]: Failed password for alice.demo from 192.0.2.45 port 51422 ssh2", "ssh"),
-        ("Jan 15 02:01:12 demo-host-07 sudo[999]: alice.demo : TTY=pts/0 ; PWD=/home ; USER=root ; COMMAND=/bin/true", "syslog"),
+        (
+            "Jan 15 02:01:12 demo-host-07 sshd[18402]: Failed password for alice.demo from 192.0.2.45 port 51422 ssh2",
+            "ssh",
+        ),
+        (
+            "Jan 15 02:01:12 demo-host-07 sudo[999]: alice.demo : TTY=pts/0 ; PWD=/home ; USER=root ; COMMAND=/bin/true",
+            "syslog",
+        ),
     ],
     ids=["ssh", "syslog"],
 )
-def test_raw_host_is_log_hostname_not_device_id(client, device_headers, no_detection, raw_line, hint):
+def test_raw_host_is_log_hostname_not_device_id(
+    client, device_headers, no_detection, raw_line, hint
+):
     from lsadra.storage.database import get_events_since
 
-    r = client.post("/api/events/raw", json={"lines": [{"raw_line": raw_line, "source_hint": hint}]},
-                    headers=device_headers)
+    r = client.post(
+        "/api/events/raw",
+        json={"lines": [{"raw_line": raw_line, "source_hint": hint}]},
+        headers=device_headers,
+    )
     assert r.status_code == 200 and r.json()["accepted"] == 1, r.text[:300]
     (row,) = get_events_since(device_headers["X-Device-Id"], after_id=0)
     assert row["device_id"] == device_headers["X-Device-Id"]
@@ -431,7 +493,8 @@ def _producer_events() -> List[Tuple[str, Dict[str, Any]]]:
         "Jan 15 02:01:12 demo-host-01 sshd[18402]: Failed password for alice.demo from gw.demo port 51422 ssh2",
         "2026-01-15T02:01:12.123+01:00 demo-host-01 sshd[18402]: Failed password for alice.demo from 192.0.2.45 port 1 ssh2",
         "2026-01-15T02:01:12 demo-host-01 sshd[18402]: Failed password for alice.demo from 192.0.2.45 port 1 ssh2",
-        "Jan 15 02:01:12 demo-host-01 sudo[999]: alice.demo : TTY=pts/0 ; COMMAND=/bin/" + "x" * 5000,
+        "Jan 15 02:01:12 demo-host-01 sudo[999]: alice.demo : TTY=pts/0 ; COMMAND=/bin/"
+        + "x" * 5000,
     ]:
         ev = _parse_line(line)
         assert ev is not None, line
@@ -440,13 +503,28 @@ def _producer_events() -> List[Tuple[str, Dict[str, Any]]]:
     make_event = _load_function(
         REPO_ROOT / "fleet_simulator.py",
         "make_event",
-        {"datetime": datetime, "timezone": timezone, "timedelta": timedelta, "random": random,
-         "NORMAL_USERS": ["alice.demo"]},
+        {
+            "datetime": datetime,
+            "timezone": timezone,
+            "timedelta": timedelta,
+            "random": random,
+            "NORMAL_USERS": ["alice.demo"],
+        },
     )
     device = {"hostname": "demo-host-02"}
     events.append(("fleet_simulator:default", make_event(device)))
-    events.append(("fleet_simulator:attack", make_event(device, "auth_failure", "alice.demo", "198.51.100.7",
-                                                       datetime(2026, 1, 15, tzinfo=timezone.utc))))
+    events.append(
+        (
+            "fleet_simulator:attack",
+            make_event(
+                device,
+                "auth_failure",
+                "alice.demo",
+                "198.51.100.7",
+                datetime(2026, 1, 15, tzinfo=timezone.utc),
+            ),
+        )
+    )
 
     sys.path.insert(0, str(REPO_ROOT / "scripts"))
     from seed_demo import time_shift, to_ingest_payload  # noqa: E402
@@ -462,7 +540,9 @@ def test_producer_events_satisfy_contract():
     assert len(events) >= 10
     for name, event in events:
         assert event.get("schema_version") == "1", name
-        assert _schema_accepts(event), f"{name}: {[e.message for e in VALIDATOR.iter_errors(event)]}"
+        assert _schema_accepts(event), (
+            f"{name}: {[e.message for e in VALIDATOR.iter_errors(event)]}"
+        )
         assert _model_accepts(event), name
 
 
@@ -491,13 +571,22 @@ def test_linux_agent_sends_a_valid_batch_and_drops_on_422():
         return _Ok()
 
     with patch.object(linux_agent.urllib.request, "urlopen", side_effect=_capture):
-        assert linux_agent._send_batch(events, "http://core.demo", "/api/events/batch", "dev", "key")
+        assert linux_agent._send_batch(
+            events, "http://core.demo", "/api/events/batch", "dev", "key"
+        )
     EventBatch.model_validate(json.loads(sent[0]))  # raises on any contract violation
 
-    rejected = urllib.error.HTTPError("http://core.demo", 422, "Unprocessable", {}, io.BytesIO(b"{}"))
-    with patch.object(linux_agent.urllib.request, "urlopen", side_effect=rejected) as urlopen, \
-            patch.object(linux_agent.time, "sleep") as sleep:
-        assert linux_agent._send_batch(events, "http://core.demo", "/api/events/batch", "dev", "key") is False
+    rejected = urllib.error.HTTPError(
+        "http://core.demo", 422, "Unprocessable", {}, io.BytesIO(b"{}")
+    )
+    with (
+        patch.object(linux_agent.urllib.request, "urlopen", side_effect=rejected) as urlopen,
+        patch.object(linux_agent.time, "sleep") as sleep,
+    ):
+        assert (
+            linux_agent._send_batch(events, "http://core.demo", "/api/events/batch", "dev", "key")
+            is False
+        )
     assert urlopen.call_count == 1 and not sleep.called
 
 
