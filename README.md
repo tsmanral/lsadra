@@ -633,7 +633,7 @@ Distributed under the **GNU Affero General Public License v3.0**. See [LICENSE](
 [![Repo Size](https://img.shields.io/github/repo-size/tsmanral/lsadra?style=flat-square)](https://github.com/tsmanral/lsadra)
 [![Container Image](https://img.shields.io/badge/GHCR-lsadra-2496ED?style=flat-square&logo=docker&logoColor=white)](https://github.com/tsmanral/lsadra/pkgs/container/lsadra)
 
-**Current release: v5.0.0.** Active development. This section is kept current: if it disagrees with the code, the code is right and the README is a bug. <!-- x-release-please-version -->
+**Current release: v6.0.0.** Active development. This section is kept current: if it disagrees with the code, the code is right and the README is a bug. <!-- x-release-please-version -->
 
 **Where the project is now**
 
