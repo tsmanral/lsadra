@@ -24,7 +24,6 @@
   "packages": {
     ".": {
       "package-name": "lsadra",
-      "release-as": "6.0.0",
       "changelog-path": "CHANGELOG.md",
       "extra-files": [
         { "type": "generic", "path": "README.md" }
