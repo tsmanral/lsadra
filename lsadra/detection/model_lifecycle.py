@@ -305,13 +305,18 @@ def describe_frame(df: pd.DataFrame) -> Dict[str, Any]:
 
 # ── canary gate ──────────────────────────────────────────────────────────
 
+# Copies of the labelled demo corpus (demo/corpus/), shipped inside the package
+# so an installed or bundled server can run the canary without a checkout.
+# tests/test_model_lifecycle.py keeps them identical to demo/corpus/.
+CANARY_DIR = Path(__file__).resolve().parent / "canary"
+
 
 @lru_cache(maxsize=8)
 def _canary_frame(scenario: str) -> Optional[Tuple[pd.DataFrame, Tuple[bool, ...]]]:
     """Feature rows and attack labels for one demo-corpus scenario (cached)."""
     from lsadra.features.feature_extractor import build_features
 
-    path = Path(config.PROJECT_ROOT) / "demo" / "corpus" / f"{scenario}.jsonl"
+    path = CANARY_DIR / f"{scenario}.jsonl"
     if not path.is_file():
         return None
     rows, labels = [], []

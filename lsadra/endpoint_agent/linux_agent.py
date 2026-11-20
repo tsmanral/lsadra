@@ -58,11 +58,14 @@ MAX_BUFFERED_EVENTS = 1000
 
 
 # ── Configuration Loader ─────────────────────────────────────────────────
+AGENT_API_KEY_ENV = "LSADRA_AGENT_API_KEY"
+
+
 def load_config(p: str) -> Dict[str, Any]:
     cfg = DEFAULT_CONFIG.copy()
     if not os.path.exists(p):
         logger.warning("Config %s not found, using defaults.", p)
-        return cfg
+        return _apply_env_overrides(cfg)
 
     # Minimal YAML-ish parser to avoid external dependencies like PyYAML
     loaded = {}
@@ -78,6 +81,18 @@ def load_config(p: str) -> Dict[str, Any]:
     if "log_paths" in loaded:
         loaded["log_paths"] = _parse_path_list(loaded["log_paths"])
     cfg.update(loaded)
+    return _apply_env_overrides(cfg)
+
+
+def _apply_env_overrides(cfg: Dict[str, Any]) -> Dict[str, Any]:
+    """Let LSADRA_AGENT_API_KEY supply the key instead of the config file.
+
+    Launchers that start the agent themselves (the Windows simulator, service
+    managers with a secret store) can then keep the key out of files on disk.
+    """
+    env_key = os.environ.get(AGENT_API_KEY_ENV, "")
+    if env_key:
+        cfg["api_key"] = env_key
     return cfg
 
 

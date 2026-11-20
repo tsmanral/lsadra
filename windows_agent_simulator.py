@@ -100,12 +100,13 @@ except Exception as e:
     server_proc.kill()
     exit(1)
 
+# The API key is handed to the agent through LSADRA_AGENT_API_KEY when it is
+# started below, so it is never written to agent_config.yml on disk.
 print("\n4. Creating agent_config.yml and dummy_auth.log...")
 config_yaml = f"""server_url: "{SERVER_URL}"
 collector_endpoint: "/api/events/batch"
 heartbeat_endpoint: "/heartbeat"
 device_id: "{device_id}"
-api_key: "{api_key}"
 log_paths:
   - "dummy_auth.log"
 batch_size: 1
@@ -159,7 +160,8 @@ print("=" * 70)
 
 try:
     subprocess.run(
-        [sys.executable, "-m", "lsadra.endpoint_agent.linux_agent", "--config", "agent_config.yml"]
+        [sys.executable, "-m", "lsadra.endpoint_agent.linux_agent", "--config", "agent_config.yml"],
+        env={**os.environ, "LSADRA_AGENT_API_KEY": api_key},
     )
 except KeyboardInterrupt:
     pass
