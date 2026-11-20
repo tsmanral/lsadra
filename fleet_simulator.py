@@ -61,16 +61,24 @@ except Exception:
 # ── Step 2: Wipe DB for fresh start ──────────────────────────────────────
 print("\n2. Cleaning database for a fresh run...")
 from lsadra.storage.database import init_db, get_connection
+
 init_db()
 
 conn = get_connection()
 cur = conn.cursor()
 cur.execute("PRAGMA foreign_keys=OFF")
 for table in [
-    "anomalies", "incidents", "normalized_events",
-    "device_heartbeats", "metrics_5min", "model_registry",
-    "feature_drift", "threat_intel_cache", "ip_geolocation",
-    "devices", "onboarding_tokens",
+    "anomalies",
+    "incidents",
+    "normalized_events",
+    "device_heartbeats",
+    "metrics_5min",
+    "model_registry",
+    "feature_drift",
+    "threat_intel_cache",
+    "ip_geolocation",
+    "devices",
+    "onboarding_tokens",
 ]:
     try:
         cur.execute(f"DELETE FROM {table}")
@@ -85,6 +93,7 @@ row = cur.fetchone()
 if not row:
     from lsadra.auth import hash_password
     from lsadra.storage.database import create_user
+
     admin_id = str(uuid.uuid4())
     create_user(admin_id, "admin", hash_password("admin"), "ADMIN")
     user_id = admin_id
@@ -100,18 +109,23 @@ from lsadra.onboarding.token_manager import generate_token
 devices = []
 for profile in DEVICE_PROFILES:
     token = generate_token(user_id)  # Each device needs its own single-use token
-    resp = requests.post(f"{SERVER_URL}/api/devices/register", json={
-        "token": token,
-        "hostname": profile["hostname"],
-        "os_type": profile["os_type"],
-    })
+    resp = requests.post(
+        f"{SERVER_URL}/api/devices/register",
+        json={
+            "token": token,
+            "hostname": profile["hostname"],
+            "os_type": profile["os_type"],
+        },
+    )
     if resp.status_code == 200:
         data = resp.json()
-        devices.append({
-            "device_id": data["device_id"],
-            "api_key": data["api_key"],
-            "hostname": profile["hostname"],
-        })
+        devices.append(
+            {
+                "device_id": data["device_id"],
+                "api_key": data["api_key"],
+                "hostname": profile["hostname"],
+            }
+        )
         print(f"   ✅ {profile['hostname']} ({data['device_id'][:8]}...)")
     else:
         print(f"   ❌ {profile['hostname']}: {resp.text}")
@@ -122,6 +136,7 @@ if not devices:
 
 
 # ── Helper: send events via the API ──────────────────────────────────────
+
 
 def send_events(device, events):
     """Send a list of event dicts to the API for a specific device."""
@@ -205,6 +220,7 @@ for device in devices:
 print("\n6. Forcing metrics aggregation...")
 try:
     from lsadra.storage.metrics_aggregator import run as run_metrics
+
     run_metrics()
     print("   ✅ Metrics aggregated for Analytics tab")
 except Exception as e:
@@ -232,15 +248,21 @@ def heartbeat_loop():
     while True:
         for d in devices:
             try:
-                requests.post(f"{SERVER_URL}/heartbeat", headers={"X-Device-Id": d["device_id"], "X-Api-Key": d["api_key"]}, json={
-                    "device_id": d["device_id"],
-                    "cpu_pct": round(random.uniform(10, 85), 1),
-                    "mem_pct": round(random.uniform(20, 95), 1),
-                    "agent_version": "3.0.0",
-                }, timeout=3)
+                requests.post(
+                    f"{SERVER_URL}/heartbeat",
+                    headers={"X-Device-Id": d["device_id"], "X-Api-Key": d["api_key"]},
+                    json={
+                        "device_id": d["device_id"],
+                        "cpu_pct": round(random.uniform(10, 85), 1),
+                        "mem_pct": round(random.uniform(20, 95), 1),
+                        "agent_version": "3.0.0",
+                    },
+                    timeout=3,
+                )
             except Exception:
                 pass
         time.sleep(15)
+
 
 hb_thread = threading.Thread(target=heartbeat_loop, daemon=True)
 hb_thread.start()
@@ -269,11 +291,13 @@ def live_traffic(device):
             # Re-aggregate metrics after attack
             try:
                 from lsadra.storage.metrics_aggregator import run as run_metrics
+
                 run_metrics()
             except Exception:
                 pass
 
             time.sleep(random.uniform(20, 40))
+
 
 print("\n🔥 Starting live traffic across all devices...")
 for d in devices:

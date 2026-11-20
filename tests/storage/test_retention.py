@@ -62,8 +62,13 @@ def test_cleanup_old_data_deletes_old_rows_across_tables_and_returns_event_count
     sql("UPDATE sigma_matches SET created_at=?", (OLD,))
     seeded.insert_sigma_matches([{"event_id": 2, "device_id": DEVICE_ID, "sigma_matches": [hit]}])
 
-    risk = {"entity_type": "host", "entity": "h", "source": "rule", "base_score": 4.0,
-            "event_time": OLD}
+    risk = {
+        "entity_type": "host",
+        "entity": "h",
+        "source": "rule",
+        "base_score": 4.0,
+        "event_time": OLD,
+    }
     seeded.insert_risk_events([risk])
     sql("UPDATE risk_events SET created_at=?", (OLD,))
     seeded.insert_risk_events([risk])
@@ -321,4 +326,3 @@ def test_alert_tier_never_expires_before_the_raw_tier(monkeypatch):
     now = datetime(2026, 6, 1)
     cutoffs = database._retention_cutoffs(now)
     assert cutoffs["alert"] == cutoffs["raw"] == (now - timedelta(days=90)).isoformat()
-

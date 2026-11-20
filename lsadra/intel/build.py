@@ -25,10 +25,11 @@ from typing import Any, Dict, Iterable, List, Optional, Tuple
 from lsadra.intel import bundle, signing
 
 KEV_URL = (
-    "https://raw.githubusercontent.com/cisagov/kev-data/main/"
-    "known_exploited_vulnerabilities.json"
+    "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json"
 )
-ATTACK_INDEX_URL = "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/index.json"
+ATTACK_INDEX_URL = (
+    "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/index.json"
+)
 
 SCHEMA = """
 CREATE TABLE meta (key TEXT PRIMARY KEY, value TEXT NOT NULL);
@@ -74,18 +75,20 @@ def parse_kev(raw: bytes) -> Tuple[str, List[Tuple]]:
         cve = str(v.get("cveID", "")).strip().upper()
         if not cve.startswith("CVE-"):
             continue
-        rows.append((
-            cve,
-            v.get("vendorProject", ""),
-            v.get("product", ""),
-            v.get("vulnerabilityName", ""),
-            v.get("dateAdded", ""),
-            v.get("dueDate", ""),
-            v.get("knownRansomwareCampaignUse", ""),
-            v.get("shortDescription", ""),
-            v.get("requiredAction", ""),
-            ",".join(v.get("cwes") or []),
-        ))
+        rows.append(
+            (
+                cve,
+                v.get("vendorProject", ""),
+                v.get("product", ""),
+                v.get("vulnerabilityName", ""),
+                v.get("dateAdded", ""),
+                v.get("dueDate", ""),
+                v.get("knownRansomwareCampaignUse", ""),
+                v.get("shortDescription", ""),
+                v.get("requiredAction", ""),
+                ",".join(v.get("cwes") or []),
+            )
+        )
     rows.sort(key=lambda r: r[0])
     return str(data.get("catalogVersion", "")), rows
 
@@ -130,8 +133,9 @@ def latest_attack_version(index_raw: bytes) -> Tuple[str, str]:
 # ── Build ────────────────────────────────────────────────────────────────
 
 
-def write_sqlite(path: Path, kev_rows: Iterable[Tuple], attack_rows: Iterable[Tuple],
-                 meta: Dict[str, str]) -> None:
+def write_sqlite(
+    path: Path, kev_rows: Iterable[Tuple], attack_rows: Iterable[Tuple], meta: Dict[str, str]
+) -> None:
     if path.exists():
         path.unlink()
     conn = sqlite3.connect(path)
@@ -177,7 +181,9 @@ def build(
             old.unlink()
     sqlite_path = out_dir / name
     write_sqlite(
-        sqlite_path, kev_rows, attack_rows,
+        sqlite_path,
+        kev_rows,
+        attack_rows,
         {"schema": "1", "kev_version": kev_version, "attack_version": attack_version or ""},
     )
 
@@ -225,8 +231,9 @@ def sign_dir(out_dir: Path, private_key_b64: str) -> str:
     """Sign out_dir/manifest.json; return the key id used."""
     key = signing.load_private_key(private_key_b64)
     manifest_bytes = (out_dir / bundle.MANIFEST_NAME).read_bytes()
-    (out_dir / bundle.SIGNATURE_NAME).write_text(signing.sign(manifest_bytes, key),
-                                                  encoding="utf-8")
+    (out_dir / bundle.SIGNATURE_NAME).write_text(
+        signing.sign(manifest_bytes, key), encoding="utf-8"
+    )
     return signing.key_id_for(key.public_key())
 
 
@@ -236,6 +243,8 @@ def upstream_unchanged(new_manifest: Dict[str, Any], old_manifest_text: str) -> 
         old = json.loads(old_manifest_text)
     except ValueError:
         return False
+
     def hashes(m):
         return {s["id"]: s.get("upstream_sha256") for s in m.get("sources", [])}
+
     return hashes(old) == hashes(new_manifest)

@@ -176,8 +176,10 @@ def status() -> Dict[str, Any]:
         "signed_by": vb.key_id,
         "location": "override" if vb.directory != PACKAGED_DIR else "packaged",
         "sources": [
-            {k: s.get(k) for k in ("id", "name", "version", "records", "license", "url",
-                                     "retrieved_at")}
+            {
+                k: s.get(k)
+                for k in ("id", "name", "version", "records", "license", "url", "retrieved_at")
+            }
             for s in m.get("sources", [])
         ],
     }
@@ -241,9 +243,7 @@ def lookup_technique(technique_id: str) -> Optional[Dict[str, Any]]:
     if conn is None:
         return None
     try:
-        r = conn.execute(
-            "SELECT * FROM attack_technique WHERE technique_id = ?", (tid,)
-        ).fetchone()
+        r = conn.execute("SELECT * FROM attack_technique WHERE technique_id = ?", (tid,)).fetchone()
         if not r:
             return None
         d = dict(r)

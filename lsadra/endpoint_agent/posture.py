@@ -207,7 +207,9 @@ def _check_file_regex(check: Dict[str, Any], root: str, _run: CommandRunner) -> 
         return NOT_APPLICABLE, f"{check['path']} not present"
     found = re.search(check["pattern"], text, re.MULTILINE) is not None
     want = check.get("expect", "match") == "match"
-    return (PASS if found == want else FAIL), f"pattern {'found' if found else 'not found'} in {check['path']}"
+    return (
+        PASS if found == want else FAIL
+    ), f"pattern {'found' if found else 'not found'} in {check['path']}"
 
 
 def _mode_of(path: str) -> int:
@@ -232,7 +234,9 @@ def _check_command(check: Dict[str, Any], _root: str, run: CommandRunner) -> Res
     if out is None:
         return NOT_APPLICABLE, f"{argv[0]} not installed"
     found = re.search(check["pattern"], out, re.MULTILINE) is not None
-    return (PASS if found else FAIL), f"`{' '.join(argv)}` {'matched' if found else 'did not match'}"
+    return (
+        PASS if found else FAIL
+    ), f"`{' '.join(argv)}` {'matched' if found else 'did not match'}"
 
 
 def _check_any_of(check: Dict[str, Any], root: str, run: CommandRunner) -> Result:
@@ -325,7 +329,9 @@ def main() -> None:
     results = run_all()
     width = max(len(r["id"]) for r in results)
     for r in results:
-        print(f"{r['status'].upper():<15} {r['id']:<{width}}  CIS {','.join(r['cis']):<8} {r['title']}")
+        print(
+            f"{r['status'].upper():<15} {r['id']:<{width}}  CIS {','.join(r['cis']):<8} {r['title']}"
+        )
         print(f"{'':<15} {'':<{width}}  {r['detail']}")
     failed = sum(r["status"] == FAIL for r in results)
     print(f"\n{len(results)} checks, {failed} failed")

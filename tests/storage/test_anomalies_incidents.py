@@ -107,23 +107,39 @@ def test_insert_anomaly_returns_id_and_round_trips(seeded):
 
 def test_insert_anomaly_stores_rule_attribution(seeded):
     event_id = seeded.insert_event(make_event())
-    seeded.insert_anomaly(_anomaly(
-        event_id=event_id, mitre_technique="T1110.001", rule_id="lsadra-auth-brute-force",
-        rule_version=2, mitre_tactics=["Credential Access"],
-    ))
+    seeded.insert_anomaly(
+        _anomaly(
+            event_id=event_id,
+            mitre_technique="T1110.001",
+            rule_id="lsadra-auth-brute-force",
+            rule_version=2,
+            mitre_tactics=["Credential Access"],
+        )
+    )
     [a] = seeded.get_anomalies_for_device(DEVICE_ID)
     assert a["rule_id"] == "lsadra-auth-brute-force" and a["rule_version"] == 2
     assert json.loads(a["mitre_tactics"]) == ["Credential Access"]
 
 
 def test_sigma_matches_round_trip(seeded):
-    hit = {"rule_id": "lsadra-cron", "title": "Cron File Written", "level": "medium",
-           "techniques": ["T1053.003"], "tactics": ["Execution", "Persistence"],
-           "source": "lsadra", "correlation": False}
+    hit = {
+        "rule_id": "lsadra-cron",
+        "title": "Cron File Written",
+        "level": "medium",
+        "techniques": ["T1053.003"],
+        "tactics": ["Execution", "Persistence"],
+        "source": "lsadra",
+        "correlation": False,
+    }
     spray = dict(hit, rule_id="lsadra-spray", level="high", correlation=True)
     results = [
-        {"event_id": 7, "device_id": DEVICE_ID, "sigma_mode": "shadow",
-         "created_at": "2026-01-15T02:00:00+00:00", "sigma_matches": [hit, spray]},
+        {
+            "event_id": 7,
+            "device_id": DEVICE_ID,
+            "sigma_mode": "shadow",
+            "created_at": "2026-01-15T02:00:00+00:00",
+            "sigma_matches": [hit, spray],
+        },
         {"event_id": 8, "device_id": "other-device", "sigma_matches": [hit]},
         {"event_id": 9, "device_id": DEVICE_ID, "sigma_matches": []},
     ]
@@ -132,7 +148,10 @@ def test_sigma_matches_round_trip(seeded):
     got = seeded.get_sigma_matches(DEVICE_ID)
     assert [g["rule_id"] for g in got] == ["lsadra-spray", "lsadra-cron"]
     assert got[0]["correlation"] is True and got[1]["correlation"] is False
-    assert got[1]["techniques"] == ["T1053.003"] and got[1]["tactics"] == ["Execution", "Persistence"]
+    assert got[1]["techniques"] == ["T1053.003"] and got[1]["tactics"] == [
+        "Execution",
+        "Persistence",
+    ]
     assert got[1]["mode"] == "shadow" and got[1]["event_time"] == "2026-01-15T02:00:00+00:00"
     assert len(seeded.get_sigma_matches()) == 3
     assert len(seeded.get_sigma_matches(limit=1)) == 1

@@ -93,6 +93,7 @@ def iso_utc(ts: datetime) -> str:
 
 # ── signals ─────────────────────────────────────────────────────────────────
 
+
 def entities_of(result: Dict[str, Any]) -> List[Tuple[str, str]]:
     """
     The (entity_type, entity) pairs a detection result belongs to.
@@ -118,28 +119,45 @@ def signals_of(result: Dict[str, Any]) -> List[Dict[str, Any]]:
     for hit in result.get("rule_hits") or []:
         points = LEVEL_POINTS.get(str(hit.get("level")), 0.0)
         if points > 0:
-            signals.append({
-                "source": "rule", "rule_id": hit.get("rule_id"), "title": hit.get("title", ""),
-                "level": hit.get("level"), "technique_id": hit.get("technique"),
-                "tactics": list(hit.get("tactics") or []), "base_score": points,
-            })
+            signals.append(
+                {
+                    "source": "rule",
+                    "rule_id": hit.get("rule_id"),
+                    "title": hit.get("title", ""),
+                    "level": hit.get("level"),
+                    "technique_id": hit.get("technique"),
+                    "tactics": list(hit.get("tactics") or []),
+                    "base_score": points,
+                }
+            )
     for hit in result.get("sigma_matches") or []:
         points = LEVEL_POINTS.get(str(hit.get("level")), 0.0)
         if points > 0:
             techniques = list(hit.get("techniques") or [])
-            signals.append({
-                "source": "sigma", "rule_id": f"sigma:{hit.get('rule_id')}",
-                "title": hit.get("title", ""), "level": hit.get("level"),
-                "technique_id": techniques[0] if techniques else None,
-                "tactics": list(hit.get("tactics") or []), "base_score": points,
-            })
+            signals.append(
+                {
+                    "source": "sigma",
+                    "rule_id": f"sigma:{hit.get('rule_id')}",
+                    "title": hit.get("title", ""),
+                    "level": hit.get("level"),
+                    "technique_id": techniques[0] if techniques else None,
+                    "tactics": list(hit.get("tactics") or []),
+                    "base_score": points,
+                }
+            )
     if result.get("is_anomaly") and not signals:
         label = str(result.get("severity_label") or "LOW")
-        signals.append({
-            "source": "anomaly", "rule_id": None, "title": "Unmapped anomaly",
-            "level": label.lower(), "technique_id": None, "tactics": [],
-            "base_score": ANOMALY_POINTS.get(label, ANOMALY_POINTS["LOW"]),
-        })
+        signals.append(
+            {
+                "source": "anomaly",
+                "rule_id": None,
+                "title": "Unmapped anomaly",
+                "level": label.lower(),
+                "technique_id": None,
+                "tactics": [],
+                "base_score": ANOMALY_POINTS.get(label, ANOMALY_POINTS["LOW"]),
+            }
+        )
     return signals
 
 
@@ -153,16 +171,23 @@ def risk_rows(results: Iterable[Dict[str, Any]]) -> List[Dict[str, Any]]:
         when = iso_utc(parse_time(res.get("created_at")))
         for etype, entity in entities_of(res):
             for sig in signals:
-                rows.append(dict(
-                    sig, entity_type=etype, entity=entity,
-                    device_id=str(res.get("device_id") or ""),
-                    user_id=str(res.get("user_id") or "") or None,
-                    event_id=res.get("event_id"), event_time=when, result_index=idx,
-                ))
+                rows.append(
+                    dict(
+                        sig,
+                        entity_type=etype,
+                        entity=entity,
+                        device_id=str(res.get("device_id") or ""),
+                        user_id=str(res.get("user_id") or "") or None,
+                        event_id=res.get("event_id"),
+                        event_time=when,
+                        result_index=idx,
+                    )
+                )
     return rows
 
 
 # ── scoring ─────────────────────────────────────────────────────────────────
+
 
 def score_entity(
     events: List[Dict[str, Any]],
@@ -192,14 +217,23 @@ def score_entity(
     # event, only its strongest signal adds points (all of them add tactics).
     strongest: Dict[Any, Tuple[datetime, Dict[str, Any]]] = {}
     for n, (t, e) in enumerate(timed):
-        ev_key = ("event", e.get("device_id"), e["event_id"]) if e.get("event_id") is not None \
+        ev_key = (
+            ("event", e.get("device_id"), e["event_id"])
+            if e.get("event_id") is not None
             else ("row", n)
-        if ev_key not in strongest or float(e["base_score"]) > float(strongest[ev_key][1]["base_score"]):
+        )
+        if ev_key not in strongest or float(e["base_score"]) > float(
+            strongest[ev_key][1]["base_score"]
+        ):
             strongest[ev_key] = (t, e)
 
     best: Dict[Tuple[str, str, int], Tuple[datetime, Dict[str, Any]]] = {}
     for t, e in strongest.values():
-        key = (e["source"], str(e.get("rule_id") or e.get("title")), int(t.timestamp()) // DEDUP_SECONDS)
+        key = (
+            e["source"],
+            str(e.get("rule_id") or e.get("title")),
+            int(t.timestamp()) // DEDUP_SECONDS,
+        )
         if key not in best or float(e["base_score"]) > float(best[key][1]["base_score"]):
             best[key] = (t, e)
 
@@ -239,6 +273,7 @@ def case_narrative(etype: str, entity: str, card: Dict[str, Any]) -> str:
 
 # ── recording ───────────────────────────────────────────────────────────────
 
+
 def record(results: List[Dict[str, Any]], mode: str) -> List[Dict[str, Any]]:
     """
     Store the batch's risk signals, rescore every entity they touch, and open
@@ -277,8 +312,11 @@ def record(results: List[Dict[str, Any]], mode: str) -> List[Dict[str, Any]]:
         etype, entity = key
         now = parse_time(newest[key])
         since = iso_utc(now - timedelta(days=RISK_WINDOW_DAYS))
-        card = score_entity(get_risk_events(etype, entity, since=since),
-                            weight=get_asset_weight(etype, entity), now=now)
+        card = score_entity(
+            get_risk_events(etype, entity, since=since),
+            weight=get_asset_weight(etype, entity),
+            now=now,
+        )
         for res in results:
             if (etype, entity) in entities_of(res):
                 res.setdefault("risk_scores", {})[etype] = card["score"]
@@ -287,15 +325,25 @@ def record(results: List[Dict[str, Any]], mode: str) -> List[Dict[str, Any]]:
         device_id, user_id = owner[key]
         case = get_open_risk_notable(etype, entity)
         if case:
-            update_risk_notable(case["id"], card["score"], card["tactics"], card["signals"],
-                                card["last_seen"])
+            update_risk_notable(
+                case["id"], card["score"], card["tactics"], card["signals"], card["last_seen"]
+            )
             continue
         case_id = create_risk_notable(
-            etype, entity, device_id, user_id, card["score"], card["tactics"],
-            card["signals"], mode, card["first_seen"], card["last_seen"],
+            etype,
+            entity,
+            device_id,
+            user_id,
+            card["score"],
+            card["tactics"],
+            card["signals"],
+            mode,
+            card["first_seen"],
+            card["last_seen"],
         )
-        opened.append({"id": case_id, "entity_type": etype, "entity": entity,
-                       "result_index": idx, **card})
+        opened.append(
+            {"id": case_id, "entity_type": etype, "entity": entity, "result_index": idx, **card}
+        )
     return opened
 
 
@@ -309,15 +357,17 @@ def raise_case_alerts(results: List[Dict[str, Any]], opened: List[Dict[str, Any]
         if res.get("is_anomaly"):
             continue  # already an alert; the case is linked above
         score, label = apply_rule_floor(
-            float(res.get("severity_score") or 0.0), str(res.get("severity_label") or "LOW"),
-            "HIGH")
-        res.update({
-            "is_anomaly": True,
-            "threat_type": RISK_THREAT_TYPE,
-            "attack_type": RISK_THREAT_TYPE,
-            "severity_score": score,
-            "severity_label": label,
-            "rule_id": f"risk:{case['entity_type']}",
-            "mitre_tactics": case["tactics"],
-            "narrative": case_narrative(case["entity_type"], case["entity"], case),
-        })
+            float(res.get("severity_score") or 0.0), str(res.get("severity_label") or "LOW"), "HIGH"
+        )
+        res.update(
+            {
+                "is_anomaly": True,
+                "threat_type": RISK_THREAT_TYPE,
+                "attack_type": RISK_THREAT_TYPE,
+                "severity_score": score,
+                "severity_label": label,
+                "rule_id": f"risk:{case['entity_type']}",
+                "mitre_tactics": case["tactics"],
+                "narrative": case_narrative(case["entity_type"], case["entity"], case),
+            }
+        )

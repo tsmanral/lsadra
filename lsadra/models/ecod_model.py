@@ -36,8 +36,8 @@ class ECODModel:
     def __init__(self, target_fpr: float = 0.001) -> None:
         self.target_fpr = target_fpr
         self.n: int = 0
-        self.values: List[np.ndarray] = []   # per feature: sorted distinct values
-        self.cum: List[np.ndarray] = []      # per feature: count of training values <= values[k]
+        self.values: List[np.ndarray] = []  # per feature: sorted distinct values
+        self.cum: List[np.ndarray] = []  # per feature: count of training values <= values[k]
         self.skew_sign: np.ndarray = np.zeros(0)
         self.threshold: Optional[float] = None
         self.features: List[str] = list(MODEL_FEATURE_NAMES)
@@ -66,7 +66,7 @@ class ECODModel:
             self.cum.append(cum.astype(float))
         mu, sd = X.mean(axis=0), X.std(axis=0)
         safe = np.where(sd > 0, sd, 1.0)
-        skew = np.where(sd > 0, ((X - mu) ** 3).mean(axis=0) / safe ** 3, 0.0)
+        skew = np.where(sd > 0, ((X - mu) ** 3).mean(axis=0) / safe**3, 0.0)
         self.skew_sign = np.sign(skew)
         train_scores = self.score(X)
         self.threshold = float(np.quantile(train_scores, 1.0 - self.target_fpr))

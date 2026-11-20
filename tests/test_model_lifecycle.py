@@ -45,18 +45,20 @@ def _corpus_events(stem, device_id="dev-a", user_id="user-a", repeat=1, shift_da
             ev = json.loads(line)
             ts = datetime.fromisoformat(ev["timestamp"].replace("Z", "+00:00"))
             ts = ts + timedelta(days=shift_days + r)
-            out.append({
-                "timestamp": ts.isoformat(),
-                "device_id": device_id,
-                "user_id": user_id,
-                "host": ev.get("host", ""),
-                "effective_username": ev.get("effective_username", ""),
-                "source_ip": ev.get("source_ip") or "",
-                "event_type": ev["event_type"],
-                "raw_message": ev.get("raw_message", ""),
-                "attributes": "{}",
-                "is_synthetic": True,
-            })
+            out.append(
+                {
+                    "timestamp": ts.isoformat(),
+                    "device_id": device_id,
+                    "user_id": user_id,
+                    "host": ev.get("host", ""),
+                    "effective_username": ev.get("effective_username", ""),
+                    "source_ip": ev.get("source_ip") or "",
+                    "event_type": ev["event_type"],
+                    "raw_message": ev.get("raw_message", ""),
+                    "attributes": "{}",
+                    "is_synthetic": True,
+                }
+            )
     return out
 
 
@@ -109,13 +111,20 @@ def test_seeded_demo_corpus_trains_a_model():
     for f in sorted(CORPUS.glob("*.jsonl")):
         for line in f.read_text(encoding="utf-8").splitlines():
             ev = json.loads(line)
-            rows.append({
-                "timestamp": ev["timestamp"], "device_id": "dev-a", "user_id": "user-a",
-                "host": ev.get("host", ""), "effective_username": ev.get("effective_username", ""),
-                "source_ip": ev.get("source_ip") or "", "event_type": ev["event_type"],
-                "raw_message": ev.get("raw_message", ""), "attributes": ev.get("attributes", {}),
-                "is_synthetic": True,
-            })
+            rows.append(
+                {
+                    "timestamp": ev["timestamp"],
+                    "device_id": "dev-a",
+                    "user_id": "user-a",
+                    "host": ev.get("host", ""),
+                    "effective_username": ev.get("effective_username", ""),
+                    "source_ip": ev.get("source_ip") or "",
+                    "event_type": ev["event_type"],
+                    "raw_message": ev.get("raw_message", ""),
+                    "attributes": ev.get("attributes", {}),
+                    "is_synthetic": True,
+                }
+            )
     rows.sort(key=lambda r: r["timestamp"])
     _store_events(rows)
 
@@ -158,26 +167,42 @@ def test_training_selection_drops_anomalies_and_open_incidents():
     base = datetime(2026, 1, 15, 2, 0, tzinfo=timezone.utc)
     rows = []
     for i in range(30):
-        rows.append({
-            "timestamp": (base + timedelta(minutes=i)).isoformat(),
-            "device_id": "dev-a", "user_id": "user-a", "host": "demo-host-01",
-            "effective_username": "alice.demo",
-            "source_ip": "198.51.100.7" if 10 <= i < 15 else "192.0.2.45",
-            "event_type": "auth_success", "raw_message": "synthetic", "attributes": "{}",
-        })
+        rows.append(
+            {
+                "timestamp": (base + timedelta(minutes=i)).isoformat(),
+                "device_id": "dev-a",
+                "user_id": "user-a",
+                "host": "demo-host-01",
+                "effective_username": "alice.demo",
+                "source_ip": "198.51.100.7" if 10 <= i < 15 else "192.0.2.45",
+                "event_type": "auth_success",
+                "raw_message": "synthetic",
+                "attributes": "{}",
+            }
+        )
     _store_events(rows)
     conn = get_connection()
     ids = [r[0] for r in conn.execute("SELECT id FROM normalized_events ORDER BY id")]
     conn.close()
 
     # event #3 is an anomaly; events 10-14 sit inside an open incident window
-    insert_anomaly({"event_id": ids[3], "device_id": "dev-a", "is_anomaly": True,
-                    "severity_score": 0.5, "severity_label": "MEDIUM"})
-    inc = create_incident("dev-a", "198.51.100.7", "Brute Force", "HIGH",
-                          (base + timedelta(minutes=10)).isoformat())
+    insert_anomaly(
+        {
+            "event_id": ids[3],
+            "device_id": "dev-a",
+            "is_anomaly": True,
+            "severity_score": 0.5,
+            "severity_label": "MEDIUM",
+        }
+    )
+    inc = create_incident(
+        "dev-a", "198.51.100.7", "Brute Force", "HIGH", (base + timedelta(minutes=10)).isoformat()
+    )
     conn = get_connection()
-    conn.execute("UPDATE incidents SET last_seen = ? WHERE id = ?",
-                 ((base + timedelta(minutes=14)).isoformat(), inc))
+    conn.execute(
+        "UPDATE incidents SET last_seen = ? WHERE id = ?",
+        ((base + timedelta(minutes=14)).isoformat(), inc),
+    )
     conn.commit()
     conn.close()
 
@@ -441,12 +466,19 @@ def test_scheduled_drift_uses_stored_reference(monkeypatch):
     now = datetime.now(timezone.utc)
     burst = []
     for i in range(200):
-        burst.append({
-            "timestamp": (now - timedelta(minutes=200 - i) / 4).isoformat(),
-            "device_id": "dev-a", "user_id": "user-a", "host": "demo-host-01",
-            "effective_username": f"user{i % 40}.demo", "source_ip": "203.0.113.9",
-            "event_type": "auth_failure", "raw_message": "synthetic", "attributes": "{}",
-        })
+        burst.append(
+            {
+                "timestamp": (now - timedelta(minutes=200 - i) / 4).isoformat(),
+                "device_id": "dev-a",
+                "user_id": "user-a",
+                "host": "demo-host-01",
+                "effective_username": f"user{i % 40}.demo",
+                "source_ip": "203.0.113.9",
+                "event_type": "auth_failure",
+                "raw_message": "synthetic",
+                "attributes": "{}",
+            }
+        )
     _store_events(burst)
 
     drifted = drift_detector.run()

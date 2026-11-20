@@ -39,10 +39,7 @@ def extract_temporal_features(df: pd.DataFrame) -> pd.DataFrame:
     df = df.sort_values("timestamp")
     if "source_ip" in df.columns:
         df["time_since_last_event_ip"] = (
-            df.groupby("source_ip")["timestamp"]
-            .diff()
-            .dt.total_seconds()
-            .fillna(0)
+            df.groupby("source_ip")["timestamp"].diff().dt.total_seconds().fillna(0)
         )
 
     return df

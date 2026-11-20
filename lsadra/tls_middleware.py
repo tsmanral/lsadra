@@ -45,9 +45,7 @@ class TLSEnforcementMiddleware(BaseHTTPMiddleware):
                 )
                 return JSONResponse(
                     status_code=403,
-                    content={
-                        "detail": "TLS is required. Use HTTPS to access this endpoint."
-                    },
+                    content={"detail": "TLS is required. Use HTTPS to access this endpoint."},
                 )
 
         response = await call_next(request)

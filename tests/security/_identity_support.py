@@ -15,15 +15,18 @@ STRONG_PASSWORD = "-".join(["plum", "orbit", "canvas", "77"])
 OTHER_STRONG_PASSWORD = "-".join(["harbor", "lantern", "quartz", "42"])
 
 
-def make_user(username: str = "analyst.demo", role: str = "ANALYST",
-              password: str = STRONG_PASSWORD) -> str:
+def make_user(
+    username: str = "analyst.demo", role: str = "ANALYST", password: str = STRONG_PASSWORD
+) -> str:
     uid = f"usr-{uuid.uuid4().hex[:8]}"
     create_user(uid, username, hash_password(password), role)
     return uid
 
 
 def login(client, username: str = "analyst.demo", password: str = STRONG_PASSWORD, **extra):
-    return client.post("/api/auth/login", json={"username": username, "password": password, **extra})
+    return client.post(
+        "/api/auth/login", json={"username": username, "password": password, **extra}
+    )
 
 
 def bearer(token: str) -> dict:

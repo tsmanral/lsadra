@@ -72,15 +72,34 @@ class Feed:
 FEEDS: Dict[str, Feed] = {
     f.feed_id: f
     for f in (
-        Feed("feodo", "abuse.ch Feodo Tracker",
-             "https://feodotracker.abuse.ch/downloads/ipblocklist.json",
-             _parse_feodo, "botnet_c2"),
-        Feed("spamhaus_drop_v4", "Spamhaus DROP (IPv4)",
-             "https://www.spamhaus.org/drop/drop_v4.json", _parse_spamhaus, "hijacked_netblock"),
-        Feed("spamhaus_drop_v6", "Spamhaus DROP (IPv6)",
-             "https://www.spamhaus.org/drop/drop_v6.json", _parse_spamhaus, "hijacked_netblock"),
-        Feed("tor_exits", "Tor exit nodes",
-             "https://check.torproject.org/torbulkexitlist", _parse_tor, "tor_exit"),
+        Feed(
+            "feodo",
+            "abuse.ch Feodo Tracker",
+            "https://feodotracker.abuse.ch/downloads/ipblocklist.json",
+            _parse_feodo,
+            "botnet_c2",
+        ),
+        Feed(
+            "spamhaus_drop_v4",
+            "Spamhaus DROP (IPv4)",
+            "https://www.spamhaus.org/drop/drop_v4.json",
+            _parse_spamhaus,
+            "hijacked_netblock",
+        ),
+        Feed(
+            "spamhaus_drop_v6",
+            "Spamhaus DROP (IPv6)",
+            "https://www.spamhaus.org/drop/drop_v6.json",
+            _parse_spamhaus,
+            "hijacked_netblock",
+        ),
+        Feed(
+            "tor_exits",
+            "Tor exit nodes",
+            "https://check.torproject.org/torbulkexitlist",
+            _parse_tor,
+            "tor_exit",
+        ),
     )
 }
 
@@ -125,8 +144,11 @@ def update_feed(feed: Feed, client) -> Dict[str, object]:
         if not entries:
             raise ValueError("feed returned no indicators; keeping the previous copy")
         n = runtime.replace_feed(
-            feed.feed_id, feed.url, entries,
-            etag=r.headers.get("ETag", ""), last_modified=r.headers.get("Last-Modified", ""),
+            feed.feed_id,
+            feed.url,
+            entries,
+            etag=r.headers.get("ETag", ""),
+            last_modified=r.headers.get("Last-Modified", ""),
         )
         return {"feed": feed.feed_id, "status": "ok", "records": n}
     except Exception as exc:  # network, HTTP, or parse failure: keep the old data
@@ -135,8 +157,9 @@ def update_feed(feed: Feed, client) -> Dict[str, object]:
         return {"feed": feed.feed_id, "status": "error", "error": str(exc)[:300]}
 
 
-def update_feeds(names: Optional[Iterable[str]] = None, client=None,
-                 only_if_due: bool = False) -> List[Dict[str, object]]:
+def update_feeds(
+    names: Optional[Iterable[str]] = None, client=None, only_if_due: bool = False
+) -> List[Dict[str, object]]:
     """Update every enabled feed (or ``names``). Returns one result per feed."""
     from lsadra.config import INTEL_FEED_REFRESH_HOURS
 
@@ -185,8 +208,11 @@ async def query_abuseipdb(ip: str, client=None) -> Optional[dict]:
     try:
         r = await client.get(
             "https://api.abuseipdb.com/api/v2/check",
-            headers={"Key": ABUSEIPDB_API_KEY, "Accept": "application/json",
-                     "User-Agent": USER_AGENT},
+            headers={
+                "Key": ABUSEIPDB_API_KEY,
+                "Accept": "application/json",
+                "User-Agent": USER_AGENT,
+            },
             params={"ipAddress": ip, "maxAgeInDays": "90"},
         )
         r.raise_for_status()

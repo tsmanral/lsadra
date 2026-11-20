@@ -337,6 +337,7 @@ CI runs these on every pull request across Ubuntu, Windows and macOS. Run them b
 | Security regression gate | `python -m pytest tests/security/ -q` | 0 failures | ~10 s |
 | Full backend suite | `python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q` | 0 failures | ~1 min |
 | Lint | `ruff check .` (ruff comes with `requirements.txt`) | `All checks passed!` | seconds |
+| Format | `ruff format --check .` (run `ruff format .` to fix) | `… files already formatted` | seconds |
 | Dashboard type check + build | `cd frontend && npm ci && npm run build` | `✓ built` | ~1 min |
 | Dashboard lint | `cd frontend && npm run lint` | CI fails only if errors exceed the recorded baseline | seconds |
 
@@ -567,6 +568,7 @@ docs/               Documentation tree
   security/         Data inventory, incident runbook, SSDF and CRA position, release security review
 fuzz/               Atheris fuzz target and seeds, run by ClusterFuzzLite (.clusterfuzzlite/) on parser PRs
 datasets/           Synthetic SSH log generator for local experimentation
+.git-blame-ignore-revs  Formatting-only commits for `git blame` to skip
 .devcontainer/      Dev container for VS Code / Codespaces (Python 3.12, Node 24, dev mode)
 .github/workflows/  CI matrix (Python and Rust collectors), desktop app build, DCO, commitlint, strict docs build, release-please (release PR) + release (signed + attested) + release dry run, secret scanning, dependency audits, CodeQL, zizmor, Scorecard, label sync, intel bundle refresh, Discord notifications
 .github/ISSUE_TEMPLATE/  Bug and feature issue forms; security reports are routed to private reporting
@@ -601,6 +603,7 @@ Contributions are welcome. Read the [Contributing Guide](CONTRIBUTING.md) for th
    python tests/test_v4_smoke.py          # expect 27/27
    python -m pytest tests/security/ -q    # expect 0 failures
    ruff check .
+   ruff format --check .
    ```
 3. Sign off your commits (`git commit -s`). This project uses the [DCO](https://developercertificate.org/) rather than a CLA, and it is enforced: the DCO check is a required status check, so an unsigned commit blocks the merge. See [CONTRIBUTING.md](CONTRIBUTING.md#sign-off-dco).
 4. Open a **pull request** against `main` with a clear description. Use Conventional Commit subjects (`feat:`, `fix:`, `docs:`, ...).

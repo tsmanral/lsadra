@@ -69,7 +69,9 @@ def score_at_fpr(records: List[Dict[str, Any]], key: str, fpr: float) -> Dict[st
             "positive_events": len(rows),
             "event_tpr": _rate(ev_hits, len(rows)),
             "instances": len(instances),
-            "instance_tpr": _rate(sum(1 for v in inst_out.values() if v["detected"]), len(instances)),
+            "instance_tpr": _rate(
+                sum(1 for v in inst_out.values() if v["detected"]), len(instances)
+            ),
             "instance_detail": inst_out,
         }
 
@@ -107,8 +109,11 @@ def verdict_metrics(records: List[Dict[str, Any]], host_days: int) -> Dict[str, 
                 "positive_events": len(rows),
                 "event_tpr": _rate(sum(1 for r in rows if r["is_anomaly"]), len(rows)),
                 "instance_tpr": _rate(
-                    sum(1 for inst in {r["instance"] for r in rows}
-                        if any(r["is_anomaly"] for r in rows if r["instance"] == inst)),
+                    sum(
+                        1
+                        for inst in {r["instance"] for r in rows}
+                        if any(r["is_anomaly"] for r in rows if r["instance"] == inst)
+                    ),
                     len({r["instance"] for r in rows}),
                 ),
             }
@@ -124,8 +129,9 @@ def verdict_metrics(records: List[Dict[str, Any]], host_days: int) -> Dict[str, 
     }
 
 
-def summarize(records: Iterable[Dict[str, Any]], score_keys: List[str], fprs: List[float],
-              host_days: int) -> Dict[str, Any]:
+def summarize(
+    records: Iterable[Dict[str, Any]], score_keys: List[str], fprs: List[float], host_days: int
+) -> Dict[str, Any]:
     records = list(records)
     counts = Counter(r["role"] for r in records)
     return {
@@ -134,8 +140,7 @@ def summarize(records: Iterable[Dict[str, Any]], score_keys: List[str], fprs: Li
         "host_days": host_days,
         "deployed_verdict": verdict_metrics(records, host_days),
         "scores": {
-            key: {f"{f:g}": score_at_fpr(records, key, f) for f in fprs}
-            for key in score_keys
+            key: {f"{f:g}": score_at_fpr(records, key, f) for f in fprs} for key in score_keys
         },
         "alerts_per_host_day_at_fpr": {
             f"{f:g}": round(f * counts.get("negative", 0) / host_days, 2) if host_days else None

@@ -54,9 +54,7 @@ class IncidentManager:
         created_at = anomaly.get("created_at", datetime.utcnow().isoformat())
 
         # Calculate window boundary
-        window_start = (
-            datetime.utcnow() - timedelta(minutes=self.window_minutes)
-        ).isoformat()
+        window_start = (datetime.utcnow() - timedelta(minutes=self.window_minutes)).isoformat()
 
         # Try to find an existing open incident
         existing = get_open_incident(
@@ -71,7 +69,10 @@ class IncidentManager:
             update_incident_last_seen(incident_id, created_at)
             logger.info(
                 "Anomaly %d linked to existing incident %d (%s from %s)",
-                anomaly_id, incident_id, attack_type, source_ip,
+                anomaly_id,
+                incident_id,
+                attack_type,
+                source_ip,
             )
         else:
             # [V4 DEMO ENHANCEMENT] — Auto-assign playbooks based on attack type
@@ -92,7 +93,10 @@ class IncidentManager:
             )
             logger.info(
                 "New incident %d created: %s from %s on device %s",
-                incident_id, attack_type, source_ip, device_id,
+                incident_id,
+                attack_type,
+                source_ip,
+                device_id,
             )
 
         # Link the anomaly row to the incident

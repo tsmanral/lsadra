@@ -60,10 +60,17 @@ def _authorize(request: Request, token: str, username: str = "") -> str:
         raise HTTPException(status_code=403, detail="First-run setup is off on this server.")
     peer = request.client.host if request.client else ""
     if not is_loopback(peer):
-        raise HTTPException(status_code=403, detail="First-run setup is only open to this computer.")
+        raise HTTPException(
+            status_code=403, detail="First-run setup is only open to this computer."
+        )
     if not hmac.compare_digest(token.encode(), config.SETUP_TOKEN.encode()):
-        audit.record("setup.admin", "denied", target=username or None, source_ip=peer,
-                     details={"reason": "bad_token"})
+        audit.record(
+            "setup.admin",
+            "denied",
+            target=username or None,
+            source_ip=peer,
+            details={"reason": "bad_token"},
+        )
         raise HTTPException(status_code=403, detail="The setup token is not valid.")
     return peer
 
@@ -81,15 +88,25 @@ def _create_first_admin(username: str, password: str, peer: str) -> Dict[str, An
 
     with _create_lock:
         if _admin_exists():
-            audit.record("setup.admin", "denied", target=username, source_ip=peer,
-                         details={"reason": "admin_exists"})
+            audit.record(
+                "setup.admin",
+                "denied",
+                target=username,
+                source_ip=peer,
+                details={"reason": "admin_exists"},
+            )
             raise HTTPException(status_code=409, detail="An admin account already exists.")
         if get_user_by_username(username):
             raise HTTPException(status_code=409, detail="That username is taken.")
         user_id = str(uuid.uuid4())
         create_user(user_id, username, hash_password(password), "ADMIN")
-    audit.record("setup.admin", "success", actor={"user_id": user_id, "username": username},
-                 target=username, source_ip=peer)
+    audit.record(
+        "setup.admin",
+        "success",
+        actor={"user_id": user_id, "username": username},
+        target=username,
+        source_ip=peer,
+    )
     return {"status": "ok", "user_id": user_id, "username": username, "role": "ADMIN"}
 
 

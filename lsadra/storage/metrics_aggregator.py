@@ -94,7 +94,9 @@ def run() -> int:
         if count:
             logger.info(
                 "Metrics aggregation: %d device windows processed for %s → %s",
-                count, ws, we,
+                count,
+                ws,
+                we,
             )
         return count
 

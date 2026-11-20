@@ -36,8 +36,11 @@ def main(argv=None) -> int:
     sub.add_parser("geo-update")
     b = sub.add_parser("build")
     b.add_argument("--out", required=True)
-    b.add_argument("--if-changed", action="store_true",
-                   help="exit 3 without writing when upstream data is unchanged")
+    b.add_argument(
+        "--if-changed",
+        action="store_true",
+        help="exit 3 without writing when upstream data is unchanged",
+    )
     s = sub.add_parser("sign")
     s.add_argument("dir")
     sub.add_parser("keygen")
@@ -119,9 +122,11 @@ def main(argv=None) -> int:
         key_id, priv, pub = signing.generate_keypair()
         print(f"key_id:      {key_id}", file=sys.stderr)
         print(f"public_key:  {pub}", file=sys.stderr)
-        print("Add the public key to lsadra/intel/trusted_keys.json; store the private key "
-              "(stdout) as the LSADRA_INTEL_SIGNING_KEY secret. Never commit it.",
-              file=sys.stderr)
+        print(
+            "Add the public key to lsadra/intel/trusted_keys.json; store the private key "
+            "(stdout) as the LSADRA_INTEL_SIGNING_KEY secret. Never commit it.",
+            file=sys.stderr,
+        )
         print(priv)
         return 0
     return 2

@@ -23,8 +23,15 @@ import bench_metrics as metrics  # noqa: E402
 
 
 def _rec(role, score, technique=None, instance=None):
-    return {"role": role, "technique": technique, "instance": instance, "s": score,
-            "is_anomaly": score > 0.5, "mitre_technique": technique, "scored": True}
+    return {
+        "role": role,
+        "technique": technique,
+        "instance": instance,
+        "s": score,
+        "is_anomaly": score > 0.5,
+        "mitre_technique": technique,
+        "scored": True,
+    }
 
 
 class TestMetrics:
@@ -45,8 +52,12 @@ class TestMetrics:
 
     def test_per_technique_and_instance_rates(self):
         recs = [_rec("negative", i / 1000) for i in range(1000)]
-        recs += [_rec("positive", 2.0, "T1110.001", "i1"), _rec("positive", 0.0, "T1110.001", "i1"),
-                 _rec("positive", 0.0, "T1053.005", "i2"), _rec("context", 5.0)]
+        recs += [
+            _rec("positive", 2.0, "T1110.001", "i1"),
+            _rec("positive", 0.0, "T1110.001", "i1"),
+            _rec("positive", 0.0, "T1053.005", "i2"),
+            _rec("context", 5.0),
+        ]
         out = metrics.score_at_fpr(recs, "s", 0.01)
         assert out["techniques"]["T1110.001"]["event_tpr"] == 0.5
         assert out["techniques"]["T1110.001"]["instance_tpr"] == 1.0
@@ -107,8 +118,13 @@ class TestWindowsAdapters:
     def test_dataset_labels_positive_and_context(self, tmp_path):
         p = tmp_path / "x.log"
         p.write_text(_SPLUNK, encoding="utf-8")
-        entry = {"id": "t/x", "source": "test", "format": "splunk_wineventlog",
-                 "technique": "T1543.003", "positive_event_types": ["service_install"]}
+        entry = {
+            "id": "t/x",
+            "source": "test",
+            "format": "splunk_wineventlog",
+            "technique": "T1543.003",
+            "positive_event_types": ["service_install"],
+        }
         evs = bench_events.load_windows_dataset(entry, p)
         assert [e.role for e in evs] == ["context", "positive"]
         assert evs[1].instance == "t/x"
@@ -139,19 +155,40 @@ def test_end_to_end_tiny_run(tmp_path):
     import run_detection_bench
 
     out = tmp_path / "bench.json"
-    rc = run_detection_bench.main([
-        "--hosts", "2", "--days", "2", "--train-days", "1", "--datasets", "demo",
-        "--configs", "production", "retrained-full", "--workers", "1",
-        "--cache-dir", str(tmp_path / "cache"), "--output", str(out),
-    ])
+    rc = run_detection_bench.main(
+        [
+            "--hosts",
+            "2",
+            "--days",
+            "2",
+            "--train-days",
+            "1",
+            "--datasets",
+            "demo",
+            "--configs",
+            "production",
+            "retrained-full",
+            "--workers",
+            "1",
+            "--cache-dir",
+            str(tmp_path / "cache"),
+            "--output",
+            str(out),
+        ]
+    )
     assert rc == 0
     report = json.loads(out.read_text(encoding="utf-8"))
     assert report["schema"] == "lsadra-detection-bench/1"
     assert set(report["results"]) == {"production", "retrained-full"}
     for res in report["results"].values():
         assert res["events"]["positive"] > 0 and res["events"]["negative"] > 0
-        assert set(res["scores"]) == {"severity_score", "layer1_z", "layer2_ensemble", "layer3_autoencoder",
-                                      "shadow_ecod"}
+        assert set(res["scores"]) == {
+            "severity_score",
+            "layer1_z",
+            "layer2_ensemble",
+            "layer3_autoencoder",
+            "shadow_ecod",
+        }
         for by_fpr in res["scores"].values():
             assert set(by_fpr) == {"0.01", "0.001"}
             for v in by_fpr.values():
@@ -177,9 +214,19 @@ class TestChallengers:
     def test_feature_matrix_is_fixed_width(self):
         import challengers
 
-        rows = [{"id": 1, "timestamp": "2026-01-15T02:00:01.000000+00:00", "device_id": "d",
-                 "user_id": "u", "host": "h", "effective_username": "alice.demo",
-                 "source_ip": "198.51.100.37", "event_type": "auth_failure", "raw_message": ""}]
+        rows = [
+            {
+                "id": 1,
+                "timestamp": "2026-01-15T02:00:01.000000+00:00",
+                "device_id": "d",
+                "user_id": "u",
+                "host": "h",
+                "effective_username": "alice.demo",
+                "source_ip": "198.51.100.37",
+                "event_type": "auth_failure",
+                "raw_message": "",
+            }
+        ]
         from lsadra.features.feature_extractor import build_features
 
         X = challengers.feature_matrix(build_features(rows))
@@ -203,11 +250,27 @@ class TestChallengers:
         import run_detection_bench
 
         out = tmp_path / "bench.json"
-        rc = run_detection_bench.main([
-            "--hosts", "2", "--days", "2", "--train-days", "1", "--datasets", "demo",
-            "--configs", "retrained-full", "--workers", "1", "--challengers",
-            "--cache-dir", str(tmp_path / "cache"), "--output", str(out),
-        ])
+        rc = run_detection_bench.main(
+            [
+                "--hosts",
+                "2",
+                "--days",
+                "2",
+                "--train-days",
+                "1",
+                "--datasets",
+                "demo",
+                "--configs",
+                "retrained-full",
+                "--workers",
+                "1",
+                "--challengers",
+                "--cache-dir",
+                str(tmp_path / "cache"),
+                "--output",
+                str(out),
+            ]
+        )
         assert rc == 0
         res = json.loads(out.read_text(encoding="utf-8"))["results"]["retrained-full"]
         for key in ("ch_iforest", "ch_ecod", "ch_unsup", "ch_lgbm"):
@@ -224,4 +287,6 @@ def test_product_ecod_matches_the_bench_challenger():
     rng = np.random.default_rng(3)
     X = np.round(rng.normal(size=(600, len(challengers.feature_names()))), 2)
     probe = np.round(rng.normal(scale=2.0, size=(50, X.shape[1])), 2)
-    np.testing.assert_allclose(ECODModel().fit(X).score(probe), challengers.ECOD().fit(X).score(probe))
+    np.testing.assert_allclose(
+        ECODModel().fit(X).score(probe), challengers.ECOD().fit(X).score(probe)
+    )

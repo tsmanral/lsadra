@@ -62,13 +62,22 @@ def incident_for(case: Dict[str, Any]) -> tuple[Dict[str, Any], List[Dict[str, A
     }
     events = []
     for i in range(4):
-        ev = dict(base, id=1000 + i, timestamp=f"2026-01-20T03:00:0{i}Z",
-                  raw_message=f"sshd: Failed password for root from 203.0.113.50 port 5{i}000")
+        ev = dict(
+            base,
+            id=1000 + i,
+            timestamp=f"2026-01-20T03:00:0{i}Z",
+            raw_message=f"sshd: Failed password for root from 203.0.113.50 port 5{i}000",
+        )
         events.append(ev)
     target = events[PAYLOAD_EVENT_ID - 1000]
     target[case["field"]] = case["payload"]
-    incident = {"id": 77, "attack_type": "Brute Force", "severity_label": "HIGH",
-                "device_id": "dev-demo-31", "source_ip": "203.0.113.50"}
+    incident = {
+        "id": 77,
+        "attack_type": "Brute Force",
+        "severity_label": "HIGH",
+        "device_id": "dev-demo-31",
+        "source_ip": "203.0.113.50",
+    }
     return incident, events
 
 
@@ -134,8 +143,10 @@ def _only_proposals(result: TriageResult) -> bool:
     from lsadra.llm import action_broker
 
     return not any(hasattr(action_broker, name) for name in ("execute", "run", "apply")) and all(
-        a["action"] in TRIAGE_SCHEMA["properties"]["recommended_actions"]["items"]["properties"][
-            "action"]["enum"]
+        a["action"]
+        in TRIAGE_SCHEMA["properties"]["recommended_actions"]["items"]["properties"]["action"][
+            "enum"
+        ]
         for a in result.recommended_actions
     )
 
@@ -158,8 +169,9 @@ def score_live_output(case: Dict[str, Any], raw: str, prompt: TriagePrompt) -> C
     return CaseResult(case["id"], not failures, failures)
 
 
-def run_live_case(case: Dict[str, Any], endpoint: str, model: Optional[str] = None,
-                  timeout: float = 120.0) -> CaseResult:
+def run_live_case(
+    case: Dict[str, Any], endpoint: str, model: Optional[str] = None, timeout: float = 120.0
+) -> CaseResult:
     import httpx
 
     from lsadra.llm.endpoint import validate_llm_endpoint

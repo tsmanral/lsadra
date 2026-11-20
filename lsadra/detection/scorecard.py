@@ -73,16 +73,18 @@ def score_scenario(events: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
             gt = truth.get(int(row["id"]), {})
             matches = evaluate(row)
             best = matches[0] if matches else None
-            out.append({
-                "id": int(row["id"]),
-                "label": gt.get("label", "benign"),
-                "truth_technique": gt.get("attack_technique"),
-                "alert": bool(best and best.raises_alert),
-                "best_rule": best.rule.id if best else None,
-                "best_level": best.level if best else None,
-                "technique": best.technique.id if best else None,
-                "matches": [m.rule.id for m in matches],
-            })
+            out.append(
+                {
+                    "id": int(row["id"]),
+                    "label": gt.get("label", "benign"),
+                    "truth_technique": gt.get("attack_technique"),
+                    "alert": bool(best and best.raises_alert),
+                    "best_rule": best.rule.id if best else None,
+                    "best_level": best.level if best else None,
+                    "technique": best.technique.id if best else None,
+                    "matches": [m.rule.id for m in matches],
+                }
+            )
     return sorted(out, key=lambda r: r["id"])
 
 
@@ -107,8 +109,9 @@ def score_sigma(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
             if df.empty:
                 continue
             rows = build_rule_features(df).to_dict(orient="records")
-            truth = {ev["id"]: ev.get("attributes", {}).get("ground_truth", {})
-                     for ev in device_events}
+            truth = {
+                ev["id"]: ev.get("attributes", {}).get("ground_truth", {}) for ev in device_events
+            }
             for row, hits in zip(rows, engine.evaluate_frame(rows)):
                 label = truth.get(int(row["id"]), {}).get("label", "benign")
                 alerting = [h for h in hits if h.raises_alert]
@@ -118,15 +121,25 @@ def score_sigma(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
                 attack_hit += bool(alerting) and is_attack
                 benign_hit += bool(alerting) and not is_attack
                 for h in hits:
-                    entry = fired.setdefault(h.rule_id, {
-                        "title": h.title, "level": h.level, "source": h.source,
-                        "techniques": list(h.technique_ids), "attack_events": 0,
-                        "benign_events": 0, "scenarios": set()})
+                    entry = fired.setdefault(
+                        h.rule_id,
+                        {
+                            "title": h.title,
+                            "level": h.level,
+                            "source": h.source,
+                            "techniques": list(h.technique_ids),
+                            "attack_events": 0,
+                            "benign_events": 0,
+                            "scenarios": set(),
+                        },
+                    )
                     entry["attack_events" if is_attack else "benign_events"] += 1
                     entry["scenarios"].add(path.stem)
         scenarios[path.stem] = {
-            "attack_events": attack, "attack_events_matched": attack_hit,
-            "benign_events": benign, "benign_events_matched": benign_hit,
+            "attack_events": attack,
+            "attack_events_matched": attack_hit,
+            "benign_events": benign,
+            "benign_events_matched": benign_hit,
             "detection_scenario": path.stem not in NON_DETECTION_SCENARIOS,
         }
     for entry in fired.values():
@@ -175,31 +188,52 @@ def score_risk(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
                 continue
             rows = build_rule_features(df).to_dict(orient="records")
             for row, hits in zip(rows, engine.evaluate_frame(rows)):
-                results.append({
-                    "event_id": int(row["id"]), "device_id": row.get("device_id"),
-                    "host": row.get("host"), "effective_username": row.get("effective_username"),
-                    "event_type": row.get("canonical_event_type"),
-                    "created_at": str(row.get("timestamp")),
-                    "rule_hits": [{"rule_id": m.rule.id, "title": m.rule.title, "level": m.level,
-                                   "technique": m.technique.id, "tactics": m.tactics}
-                                  for m in evaluate(row)],
-                    "sigma_matches": [h.as_dict() for h in hits],
-                })
+                results.append(
+                    {
+                        "event_id": int(row["id"]),
+                        "device_id": row.get("device_id"),
+                        "host": row.get("host"),
+                        "effective_username": row.get("effective_username"),
+                        "event_type": row.get("canonical_event_type"),
+                        "created_at": str(row.get("timestamp")),
+                        "rule_hits": [
+                            {
+                                "rule_id": m.rule.id,
+                                "title": m.rule.title,
+                                "level": m.level,
+                                "technique": m.technique.id,
+                                "tactics": m.tactics,
+                            }
+                            for m in evaluate(row)
+                        ],
+                        "sigma_matches": [h.as_dict() for h in hits],
+                    }
+                )
         by_entity: Dict[tuple, List[Dict[str, Any]]] = defaultdict(list)
         for r in risk_rows(results):
             by_entity[(r["entity_type"], r["entity"])].append(r)
         best: Dict[str, Any] = {"host": 0.0, "user": 0.0}
         cases: List[Dict[str, Any]] = []
         for (etype, entity), events in sorted(by_entity.items()):
-            card = score_entity(events, window_days=DEFAULT_WINDOW_DAYS,
-                                half_life_hours=DEFAULT_HALF_LIFE_HOURS)
+            card = score_entity(
+                events, window_days=DEFAULT_WINDOW_DAYS, half_life_hours=DEFAULT_HALF_LIFE_HOURS
+            )
             best[etype] = max(best[etype], card["score"])
             if card["score"] >= DEFAULT_THRESHOLD:
-                cases.append({"entity_type": etype, "entity": entity, "score": card["score"],
-                              "tactics": card["tactics"]})
-        out[path.stem] = {"max_host_score": best["host"], "max_user_score": best["user"],
-                          "cases": cases,
-                          "detection_scenario": path.stem not in NON_DETECTION_SCENARIOS}
+                cases.append(
+                    {
+                        "entity_type": etype,
+                        "entity": entity,
+                        "score": card["score"],
+                        "tactics": card["tactics"],
+                    }
+                )
+        out[path.stem] = {
+            "max_host_score": best["host"],
+            "max_user_score": best["user"],
+            "cases": cases,
+            "detection_scenario": path.stem not in NON_DETECTION_SCENARIOS,
+        }
     return {"threshold": DEFAULT_THRESHOLD, "scenarios": out}
 
 
@@ -207,8 +241,12 @@ def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
     """Score every corpus file and every rule. Pure function of corpus + rules."""
     scenarios: Dict[str, Any] = {}
     per_rule: Dict[str, Dict[str, Any]] = {
-        rid: {"alerts_on_attack_events": 0, "alerts_on_benign_events": 0,
-              "label_only_matches": 0, "scenarios": set()}
+        rid: {
+            "alerts_on_attack_events": 0,
+            "alerts_on_benign_events": 0,
+            "label_only_matches": 0,
+            "scenarios": set(),
+        }
         for rid in RULES
     }
     for path in sorted(corpus_dir.glob("*.jsonl")):
@@ -224,7 +262,8 @@ def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
             "attack_events_alerted": len(detected),
             "benign_events_alerted": sum(r["alert"] for r in benign),
             "technique_named_correctly": sum(
-                _same_technique(r["technique"] or "", r["truth_technique"]) for r in detected),
+                _same_technique(r["technique"] or "", r["truth_technique"]) for r in detected
+            ),
             "detected": bool(detected),
             "detection_scenario": name not in NON_DETECTION_SCENARIOS,
         }
@@ -247,10 +286,14 @@ def build_scorecard(corpus_dir: Path = CORPUS_DIR) -> Dict[str, Any]:
         stats = per_rule[rid]
         tech = get_technique(rule.technique_ids[0])
         rules_out[rid] = {
-            "title": rule.title, "version": rule.version, "status": rule.status,
-            "level": rule.level, "techniques": list(rule.technique_ids),
+            "title": rule.title,
+            "version": rule.version,
+            "status": rule.status,
+            "level": rule.level,
+            "techniques": list(rule.technique_ids),
             "tactics": [t.name for t in tech.tactics] if tech else [],
-            "evaluated_by": rule.evaluated_by, "corpus_scenario": rule.scenario,
+            "evaluated_by": rule.evaluated_by,
+            "corpus_scenario": rule.scenario,
             "alerts_on_attack_events": stats["alerts_on_attack_events"],
             "alerts_on_benign_events": stats["alerts_on_benign_events"],
             "label_only_matches": stats["label_only_matches"],
@@ -371,8 +414,10 @@ def render_markdown(card: Dict[str, Any]) -> str:
                 f"{', '.join(f'`{x}`' for x in r['scenarios'])} |"
             )
         lines.append("")
-        lines.append("Sigma rules not listed did not match any corpus event; "
-                     "`tests/test_sigma_engine.py` covers them with curated events.")
+        lines.append(
+            "Sigma rules not listed did not match any corpus event; "
+            "`tests/test_sigma_engine.py` covers them with curated events."
+        )
     rk = card.get("risk")
     if rk:
         lines += [
@@ -388,11 +433,17 @@ def render_markdown(card: Dict[str, Any]) -> str:
         ]
         for name, sc in rk["scenarios"].items():
             note = "" if sc["detection_scenario"] else " (R8 fixture)"
-            cases = "; ".join(
-                f"{c['entity_type']} `{c['entity']}` {c['score']:.0f}: {' -> '.join(c['tactics'])}"
-                for c in sc["cases"]) or "none"
-            lines.append(f"| `{name}`{note} | {sc['max_host_score']:.1f} | "
-                         f"{sc['max_user_score']:.1f} | {cases} |")
+            cases = (
+                "; ".join(
+                    f"{c['entity_type']} `{c['entity']}` {c['score']:.0f}: {' -> '.join(c['tactics'])}"
+                    for c in sc["cases"]
+                )
+                or "none"
+            )
+            lines.append(
+                f"| `{name}`{note} | {sc['max_host_score']:.1f} | "
+                f"{sc['max_user_score']:.1f} | {cases} |"
+            )
     return "\n".join(lines) + "\n"
 
 

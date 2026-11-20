@@ -74,7 +74,11 @@ class WindowsLogonParser:
         if event_id not in WindowsLogonParser.SUPPORTED_EVENT_IDS:
             return None
 
-        time_created_el = root.find(".//{%s}System/{%s}TimeCreated" % (ns, ns)) if ns else root.find(".//System/TimeCreated")
+        time_created_el = (
+            root.find(".//{%s}System/{%s}TimeCreated" % (ns, ns))
+            if ns
+            else root.find(".//System/TimeCreated")
+        )
         ts_raw = time_created_el.get("SystemTime", "") if time_created_el is not None else ""
         try:
             ts = datetime.fromisoformat(ts_raw.replace("Z", "+00:00"))

@@ -328,7 +328,9 @@ def test_rekeyed_device_mid_refresh_rejects_old_key(device, clock, refresher):
 
 def test_ttl_zero_disables_the_cache(device, monkeypatch, checkpw_calls):
     monkeypatch.setattr(
-        api_ingestion, "device_credential_cache", VerifiedCredentialCache(ttl_seconds=0, max_entries=100)
+        api_ingestion,
+        "device_credential_cache",
+        VerifiedCredentialCache(ttl_seconds=0, max_entries=100),
     )
     _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)
     _authenticate_device(x_device_id=device, x_api_key=_CORRECT_KEY)

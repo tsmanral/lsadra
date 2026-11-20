@@ -57,7 +57,9 @@ SUMMARY_MAX = 16000
 
 
 def _load() -> List[Dict[str, Any]]:
-    return [json.loads(line) for line in CORPUS.read_text(encoding="utf-8").splitlines() if line.strip()]
+    return [
+        json.loads(line) for line in CORPUS.read_text(encoding="utf-8").splitlines() if line.strip()
+    ]
 
 
 EVENTS = _load()
@@ -102,13 +104,17 @@ def hostile_strings(value: Any) -> List[str]:
 
 
 def _needs_neutralising(s: str) -> bool:
-    return any(c in MARKDOWN_SPECIALS or unicodedata.category(c) in {"Cc", "Cf", "Cs"} for c in s) or (
-        unicodedata.normalize("NFKC", s) != s
-    )
+    return any(
+        c in MARKDOWN_SPECIALS or unicodedata.category(c) in {"Cc", "Cf", "Cs"} for c in s
+    ) or (unicodedata.normalize("NFKC", s) != s)
 
 
 def assert_inert(out: str, inputs: Any, reference: str) -> None:
-    bad = [hex(ord(c)) for c in out if c != "\n" and unicodedata.category(c) in {"Cc", "Cf", "Cs", "Cn"}]
+    bad = [
+        hex(ord(c))
+        for c in out
+        if c != "\n" and unicodedata.category(c) in {"Cc", "Cf", "Cs", "Cn"}
+    ]
     assert not bad, f"control/format characters survived: {bad}"
     for s in hostile_strings(inputs):
         if len(s) >= 3 and _needs_neutralising(s):
@@ -145,7 +151,9 @@ def alert_inputs(event: Dict[str, Any], rule_type: str):
         "reason": event["raw_message"],
         "mitre_id": event["event_type"],
         "ip": event["source_ip"],
-        "affected_users": ",".join([event["effective_username"], event["host"], event["event_type"]]),
+        "affected_users": ",".join(
+            [event["effective_username"], event["host"], event["event_type"]]
+        ),
     }
     timeline = [
         {"timestamp": event["timestamp"] + event["event_type"]},
@@ -177,7 +185,10 @@ def summary_inputs(events: List[Dict[str, Any]]):
         "last_seen": events[-1]["host"],
         "anomaly_count": first["event_type"],
     }
-    threat_intel = {"abuse_score": 90, "country_code": first["host"]}  # score is numeric in the TI cache
+    threat_intel = {
+        "abuse_score": 90,
+        "country_code": first["host"],
+    }  # score is numeric in the TI cache
     past = [{"attack_type": e["event_type"]} for e in events]
     return first["host"], incident, timeline_of(events), past, threat_intel
 
@@ -261,9 +272,13 @@ def test_timeline_text_over_whole_corpus():
 
 
 def test_fallback_paths_are_sanitised():
-    payload = next(e for e in EVENTS if "\n" in e["raw_message"] and "`" in e["raw_message"])["raw_message"]
+    payload = next(e for e in EVENTS if "\n" in e["raw_message"] and "`" in e["raw_message"])[
+        "raw_message"
+    ]
     # Force the dispatcher to raise (non-numeric count) so the fallback string is used.
-    out = nb.generate_alert_narrative({"failed_logins_last_5min": "x"}, {"type": "BRUTE_FORCE", "reason": payload})
+    out = nb.generate_alert_narrative(
+        {"failed_logins_last_5min": "x"}, {"type": "BRUTE_FORCE", "reason": payload}
+    )
     assert out.startswith("Narrative unavailable: ")
     assert payload not in out and "\n" not in out
     assert skeleton(out) == []
@@ -275,7 +290,11 @@ def test_fallback_paths_are_sanitised():
 
 
 def test_oversize_fields_are_capped_with_marker():
-    big_user = next(e for e in EVENTS if len(e["effective_username"]) == 128 and e["effective_username"][0] == "a")
+    big_user = next(
+        e
+        for e in EVENTS
+        if len(e["effective_username"]) == 128 and e["effective_username"][0] == "a"
+    )
     out = nb.NarrativeBuilder.build(
         threat_type="Brute Force Attack",
         mitre_id="T1110.001",
@@ -284,8 +303,12 @@ def test_oversize_fields_are_capped_with_marker():
     assert big_user["effective_username"] not in out
     assert TRUNCATION_MARKER in out
 
-    big_raw = next(e for e in EVENTS if len(e["raw_message"]) == 4096 and e["raw_message"].startswith("sshd"))
-    out = nb.generate_alert_narrative({"source_ip": "192.0.2.24"}, {"type": "UNMAPPED", "reason": big_raw["raw_message"]})
+    big_raw = next(
+        e for e in EVENTS if len(e["raw_message"]) == 4096 and e["raw_message"].startswith("sshd")
+    )
+    out = nb.generate_alert_narrative(
+        {"source_ip": "192.0.2.24"}, {"type": "UNMAPPED", "reason": big_raw["raw_message"]}
+    )
     assert len(out) <= 200 + MAX_TEXT + len(TRUNCATION_MARKER)
     assert TRUNCATION_MARKER in out
 
@@ -293,7 +316,11 @@ def test_oversize_fields_are_capped_with_marker():
 def test_benign_narratives_are_unchanged_by_the_shield():
     """Plain values pass through untouched — the shield only bites on hostile input."""
     out = nb.generate_alert_narrative(
-        {"source_ip": "198.51.100.37", "failed_logins_last_5min": 18, "login_attempt_velocity": 3.6},
+        {
+            "source_ip": "198.51.100.37",
+            "failed_logins_last_5min": 18,
+            "login_attempt_velocity": 3.6,
+        },
         {"type": "BRUTE_FORCE"},
     )
     assert out.startswith("IP 198.51.100.37 performed 18 failed login attempts")
@@ -303,7 +330,14 @@ def test_benign_narratives_are_unchanged_by_the_shield():
 
 # Calls whose result is sanitised, numeric, or a template built by this module
 # (whose own interpolations this test also checks).
-_SAFE_CALLS = {"clean_field", "clean_list", "len", "int", "format_timeline_text", "get_shap_narrative_fragment"}
+_SAFE_CALLS = {
+    "clean_field",
+    "clean_list",
+    "len",
+    "int",
+    "format_timeline_text",
+    "get_shap_narrative_fragment",
+}
 # Names/expressions built only from template constants — reviewed; extending
 # either set is a security-review decision, not a test fix.
 _TEMPLATE_INTERNAL = {"sev_emoji", "advice", "badge", "explanation", "lines", "r"}
@@ -350,7 +384,11 @@ def test_every_interpolation_site_goes_through_the_shield():
             if not isinstance(node, ast.FormattedValue):
                 continue
             v = node.value
-            if node.format_spec is not None or _is_safe_expr(v) or ast.unparse(v) in _TEMPLATE_INTERNAL_EXPRS:
+            if (
+                node.format_spec is not None
+                or _is_safe_expr(v)
+                or ast.unparse(v) in _TEMPLATE_INTERNAL_EXPRS
+            ):
                 continue
             if isinstance(v, ast.Name):
                 if v.id in _TEMPLATE_INTERNAL:

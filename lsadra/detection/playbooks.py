@@ -40,7 +40,7 @@ _PLAYBOOKS: Dict[str, Dict[str, Any]] = {
             {
                 "label": "Remove the privileged group memberships",
                 "description": "Take the account out of every group it was added to without approval.",
-                "command": "Remove-ADGroupMember -Identity \"Domain Admins\" -Members <USERNAME>",
+                "command": 'Remove-ADGroupMember -Identity "Domain Admins" -Members <USERNAME>',
             },
             {
                 "label": "Reset the password and end sessions",
@@ -61,7 +61,7 @@ _PLAYBOOKS: Dict[str, Dict[str, Any]] = {
             {
                 "label": "Check for a successful login from the source",
                 "description": "A success after many failures means the account may be compromised.",
-                "command": "grep \"Accepted\" /var/log/auth.log | grep <SOURCE_IP>",
+                "command": 'grep "Accepted" /var/log/auth.log | grep <SOURCE_IP>',
             },
             {
                 "label": "Block the source address",

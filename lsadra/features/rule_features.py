@@ -56,27 +56,37 @@ RULE_FEATURE_COLS: List[str] = [
 # ── endpoint signals (shared with the endpoint parser) ─────────────────────
 
 KNOWN_LOLBINS = {
-    "certutil", "mshta", "wscript", "cscript", "regsvr32",
-    "rundll32", "msiexec", "installutil", "regasm", "regsvcs",
+    "certutil",
+    "mshta",
+    "wscript",
+    "cscript",
+    "regsvr32",
+    "rundll32",
+    "msiexec",
+    "installutil",
+    "regasm",
+    "regsvcs",
 }
 
 SUSPICIOUS_PARENTS: Dict[str, set] = {
-    "winword.exe":  {"cmd.exe", "powershell.exe", "wscript.exe", "cscript.exe"},
-    "excel.exe":    {"cmd.exe", "powershell.exe", "wscript.exe"},
-    "outlook.exe":  {"cmd.exe", "powershell.exe"},
+    "winword.exe": {"cmd.exe", "powershell.exe", "wscript.exe", "cscript.exe"},
+    "excel.exe": {"cmd.exe", "powershell.exe", "wscript.exe"},
+    "outlook.exe": {"cmd.exe", "powershell.exe"},
     "iexplore.exe": {"cmd.exe", "powershell.exe"},
-    "msedge.exe":   {"cmd.exe", "powershell.exe"},
-    "chrome.exe":   {"cmd.exe", "powershell.exe"},
+    "msedge.exe": {"cmd.exe", "powershell.exe"},
+    "chrome.exe": {"cmd.exe", "powershell.exe"},
 }
 
 _SUSPICIOUS_CMDLINE_RE = re.compile(
-    "|".join([
-        r"frombase64string",                            # inline base64 decode
-        r"(?:wget|curl|invoke-webrequest|iwr)\s+http",  # download cradle
-        r"\\temp\\.*\.(?:exe|ps1|bat|vbs)",             # execution from temp
-        r"/tmp/.*\.(?:sh|py|pl|elf)",                   # Linux /tmp execution
-        r"certutil.*-(?:decode|urlcache)",              # certutil abuse
-    ]),
+    "|".join(
+        [
+            r"frombase64string",  # inline base64 decode
+            r"(?:wget|curl|invoke-webrequest|iwr)\s+http",  # download cradle
+            r"\\temp\\.*\.(?:exe|ps1|bat|vbs)",  # execution from temp
+            r"/tmp/.*\.(?:sh|py|pl|elf)",  # Linux /tmp execution
+            r"certutil.*-(?:decode|urlcache)",  # certutil abuse
+        ]
+    ),
     re.IGNORECASE,
 )
 _ENCODED_RE = re.compile(r"\s-(?:e|en|enc|encodedcommand|ec)\s", re.IGNORECASE)
@@ -148,16 +158,29 @@ def endpoint_signals(event_type: str, attrs: Dict[str, Any]) -> Dict[str, Any]:
     if suspicious is None:
         suspicious = bool(cmdline and _SUSPICIOUS_CMDLINE_RE.search(cmdline))
     encoded = _num(attrs.get("encoded_command_len")) > 0 or bool(
-        cmdline and proc_base.startswith(("powershell", "pwsh")) and _ENCODED_RE.search(cmdline + " ")
+        cmdline
+        and proc_base.startswith(("powershell", "pwsh"))
+        and _ENCODED_RE.search(cmdline + " ")
     )
     unusual_parent = attrs.get("unusual_parent")
     if unusual_parent is None:
         unusual_parent = proc_base in SUSPICIOUS_PARENTS.get(_basename(parent), set())
 
-    artifact = str(_first(
-        attrs, "image_path", "task_command", "new_value", "dropped_path",
-        "staging_dir", "archive_path", "target_path", "file_path", "path",
-    ) or "")
+    artifact = str(
+        _first(
+            attrs,
+            "image_path",
+            "task_command",
+            "new_value",
+            "dropped_path",
+            "staging_dir",
+            "archive_path",
+            "target_path",
+            "file_path",
+            "path",
+        )
+        or ""
+    )
     registry_key = str(attrs.get("registry_key") or "")
     return {
         "known_lolbin": int(bool(lolbin)),
@@ -166,17 +189,21 @@ def endpoint_signals(event_type: str, attrs: Dict[str, Any]) -> Dict[str, Any]:
         "unusual_parent": int(bool(unusual_parent)),
         "artifact_path": artifact[:512],
         "artifact_in_user_writable_dir": int(bool(artifact and _USER_WRITABLE_RE.search(artifact))),
-        "artifact_in_hidden_dir": int(bool(
-            artifact and artifact.startswith("/") and _HIDDEN_DIR_RE.search(artifact)
-        )),
-        "windows_artifact": int("\\" in artifact or artifact.lower().endswith(".exe")
-                                or bool(registry_key)),
-        "registry_autostart_key": int(bool(registry_key and _AUTOSTART_KEY_RE.search(registry_key))),
+        "artifact_in_hidden_dir": int(
+            bool(artifact and artifact.startswith("/") and _HIDDEN_DIR_RE.search(artifact))
+        ),
+        "windows_artifact": int(
+            "\\" in artifact or artifact.lower().endswith(".exe") or bool(registry_key)
+        ),
+        "registry_autostart_key": int(
+            bool(registry_key and _AUTOSTART_KEY_RE.search(registry_key))
+        ),
         "registry_service_key": int(bool(registry_key and _SERVICE_KEY_RE.search(registry_key))),
     }
 
 
 # ── sliding windows ────────────────────────────────────────────────────────
+
 
 class _CountWindow:
     """Count of events per key within a trailing time window."""
@@ -273,8 +300,12 @@ def build_rule_features(df: pd.DataFrame) -> pd.DataFrame:
         f["dest_is_global"] = int(_is_global(dest_ip)) if dest_ip else 0
 
         if pd.isna(t):
-            for k in ("failed_logins_last_5min", "login_attempts_last_5min",
-                      "unique_dst_ports_10min", "bytes_out_to_dest_30min"):
+            for k in (
+                "failed_logins_last_5min",
+                "login_attempts_last_5min",
+                "unique_dst_ports_10min",
+                "bytes_out_to_dest_30min",
+            ):
                 f[k] = 0.0
             f["login_attempt_velocity"] = 0.0
             f["cross_source_activity"] = 0

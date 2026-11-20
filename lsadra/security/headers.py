@@ -82,10 +82,12 @@ class SecurityHeadersMiddleware:
                 if path.startswith("/api/"):
                     extra.append((b"cache-control", b"no-store"))
                 if https:
-                    extra.append((
-                        b"strict-transport-security",
-                        f"max-age={config.HSTS_MAX_AGE_SECONDS}; includeSubDomains".encode(),
-                    ))
+                    extra.append(
+                        (
+                            b"strict-transport-security",
+                            f"max-age={config.HSTS_MAX_AGE_SECONDS}; includeSubDomains".encode(),
+                        )
+                    )
                 extra.append((b"x-request-id", request_id.encode()))
                 headers.extend((k, v) for k, v in extra if k not in present)
                 message = {**message, "headers": headers}
@@ -98,8 +100,13 @@ def install_error_handlers(app: FastAPI) -> None:
     @app.exception_handler(Exception)
     async def _unhandled(request: Request, exc: Exception):  # pragma: no cover - exercised in tests
         request_id = getattr(request.state, "request_id", None) or uuid.uuid4().hex
-        logger.error("Unhandled error [request %s] on %s %s", request_id, request.method,
-                     request.url.path, exc_info=exc)
+        logger.error(
+            "Unhandled error [request %s] on %s %s",
+            request_id,
+            request.method,
+            request.url.path,
+            exc_info=exc,
+        )
         return JSONResponse(
             status_code=500,
             content={"detail": "Internal server error.", "request_id": request_id},

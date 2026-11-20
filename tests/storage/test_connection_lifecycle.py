@@ -75,18 +75,46 @@ CALLS = {
     "get_watermark": (DEVICE_ID,),
     "set_watermark": (DEVICE_ID, 1),
     "insert_anomaly": ({"device_id": DEVICE_ID},),
-    "insert_sigma_matches": ([{"event_id": 1, "device_id": DEVICE_ID, "sigma_matches": [
-        {"rule_id": "r", "title": "t", "level": "high", "source": "lsadra"}]}],),
+    "insert_sigma_matches": (
+        [
+            {
+                "event_id": 1,
+                "device_id": DEVICE_ID,
+                "sigma_matches": [
+                    {"rule_id": "r", "title": "t", "level": "high", "source": "lsadra"}
+                ],
+            }
+        ],
+    ),
     "get_sigma_matches": (DEVICE_ID,),
-    "insert_risk_events": ([{"entity_type": "host", "entity": "h", "source": "rule",
-                             "base_score": 1.0, "event_time": "2026-01-01T00:00:00"}],),
+    "insert_risk_events": (
+        [
+            {
+                "entity_type": "host",
+                "entity": "h",
+                "source": "rule",
+                "base_score": 1.0,
+                "event_time": "2026-01-01T00:00:00",
+            }
+        ],
+    ),
     "get_risk_events": ("host", "h"),
     "get_risk_entities": (),
     "get_asset_weight": ("host", "h"),
     "set_asset_weight": ("host", "h", 2.0),
     "get_open_risk_notable": ("host", "h"),
-    "create_risk_notable": ("host", "h", DEVICE_ID, USER_ID, 80.0, [], 1, "shadow",
-                            "2026-01-01T00:00:00", "2026-01-01T00:00:00"),
+    "create_risk_notable": (
+        "host",
+        "h",
+        DEVICE_ID,
+        USER_ID,
+        80.0,
+        [],
+        1,
+        "shadow",
+        "2026-01-01T00:00:00",
+        "2026-01-01T00:00:00",
+    ),
     "update_risk_notable": (1, 80.0, [], 1, "2026-01-01T00:00:00"),
     "set_risk_notable_status": (1, "CLOSED"),
     "get_risk_notables": (),

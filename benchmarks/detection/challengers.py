@@ -38,11 +38,22 @@ logger = logging.getLogger(__name__)
 CHALLENGER_KEYS = ["ch_iforest", "ch_ecod", "ch_unsup", "ch_lgbm"]
 
 _NUMERIC_RULE_COLS = [
-    "failed_logins_last_5min", "login_attempts_last_5min", "login_attempt_velocity",
-    "unique_dst_ports_10min", "bytes_out_to_dest_30min", "dest_is_global",
-    "cross_source_activity", "known_lolbin", "suspicious_cmdline", "encoded_command",
-    "unusual_parent", "artifact_in_user_writable_dir", "artifact_in_hidden_dir",
-    "windows_artifact", "registry_autostart_key", "registry_service_key",
+    "failed_logins_last_5min",
+    "login_attempts_last_5min",
+    "login_attempt_velocity",
+    "unique_dst_ports_10min",
+    "bytes_out_to_dest_30min",
+    "dest_is_global",
+    "cross_source_activity",
+    "known_lolbin",
+    "suspicious_cmdline",
+    "encoded_command",
+    "unusual_parent",
+    "artifact_in_user_writable_dir",
+    "artifact_in_hidden_dir",
+    "windows_artifact",
+    "registry_autostart_key",
+    "registry_service_key",
 ]
 
 
@@ -61,10 +72,12 @@ def feature_matrix(df: pd.DataFrame) -> np.ndarray:
     if df.empty:
         return np.zeros((0, len(feature_names())), dtype=np.float32)
     rf = build_rule_features(df.reset_index(drop=True))
-    cols = [pd.to_numeric(rf[c], errors="coerce").fillna(0.0).astype(float).to_numpy()
-            for c in list(FEATURE_COLS) + _NUMERIC_RULE_COLS]
+    cols = [
+        pd.to_numeric(rf[c], errors="coerce").fillna(0.0).astype(float).to_numpy()
+        for c in list(FEATURE_COLS) + _NUMERIC_RULE_COLS
+    ]
     et = rf["canonical_event_type"].astype(str).to_numpy()
-    for name in feature_names()[len(cols):]:
+    for name in feature_names()[len(cols) :]:
         cols.append((et == name[3:]).astype(float))
     return np.column_stack(cols).astype(np.float32)
 
@@ -119,7 +132,10 @@ def _iforest_onnx(X_train: np.ndarray, seed: int):
 
     probe = X_train[: min(200, len(X_train))]
     diff = float(np.max(np.abs(score(probe) - (-model.decision_function(probe)))))
-    return score, {"onnx_bytes": len(onx.SerializeToString()), "max_abs_diff_vs_sklearn": round(diff, 6)}
+    return score, {
+        "onnx_bytes": len(onx.SerializeToString()),
+        "max_abs_diff_vs_sklearn": round(diff, 6),
+    }
 
 
 def _rank_normalise(train_scores: np.ndarray, scores: np.ndarray) -> np.ndarray:
@@ -134,9 +150,17 @@ def _lgbm(seed: int):
     import lightgbm as lgb
 
     return lgb.LGBMClassifier(
-        n_estimators=200, learning_rate=0.05, num_leaves=31, min_child_samples=10,
-        subsample=0.8, subsample_freq=1, colsample_bytree=0.8,
-        class_weight="balanced", random_state=seed, verbose=-1, n_jobs=1,
+        n_estimators=200,
+        learning_rate=0.05,
+        num_leaves=31,
+        min_child_samples=10,
+        subsample=0.8,
+        subsample_freq=1,
+        colsample_bytree=0.8,
+        class_weight="balanced",
+        random_state=seed,
+        verbose=-1,
+        n_jobs=1,
     )
 
 
@@ -173,9 +197,14 @@ def score_challengers(
         ecod = ECOD().fit(X_fit)
         s_ec = ecod.score(X_te)
     if "ch_unsup" in keys:
-        s_un = 0.5 * (_rank_normalise(if_score(X_fit), s_if) + _rank_normalise(ecod.score(X_fit), s_ec))
-    for k, arr in (("ch_iforest", locals().get("s_if")), ("ch_ecod", locals().get("s_ec")),
-                   ("ch_unsup", locals().get("s_un"))):
+        s_un = 0.5 * (
+            _rank_normalise(if_score(X_fit), s_if) + _rank_normalise(ecod.score(X_fit), s_ec)
+        )
+    for k, arr in (
+        ("ch_iforest", locals().get("s_if")),
+        ("ch_ecod", locals().get("s_ec")),
+        ("ch_unsup", locals().get("s_un")),
+    ):
         if k in keys and arr is not None:
             for i, v in zip(te_ids, arr):
                 out[i][k] = float(v)

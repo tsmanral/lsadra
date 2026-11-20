@@ -26,22 +26,63 @@ REPO = Path(__file__).resolve().parent.parent
 # OCSF 1.9 classes the list may use (uid -> name); 0 is the Base Event.
 OCSF_CLASSES = {
     0: "Base Event",
-    1001: "File System Activity", 1005: "Module Activity", 1006: "Scheduled Job Activity",
-    1007: "Process Activity", 1008: "Event Log Activity", 1009: "Script Activity",
-    3001: "Account Change", 3002: "Authentication", 3006: "Group Management",
-    4001: "Network Activity", 4003: "DNS Activity", 5019: "Device Config State Change",
-    201002: "Registry Value Activity", 201004: "Windows Service Activity",
+    1001: "File System Activity",
+    1005: "Module Activity",
+    1006: "Scheduled Job Activity",
+    1007: "Process Activity",
+    1008: "Event Log Activity",
+    1009: "Script Activity",
+    3001: "Account Change",
+    3002: "Authentication",
+    3006: "Group Management",
+    4001: "Network Activity",
+    4003: "DNS Activity",
+    5019: "Device Config State Change",
+    201002: "Registry Value Activity",
+    201004: "Windows Service Activity",
 }
 # ECS 9.x allowed values for event.category and event.type.
 ECS_CATEGORIES = {
-    "api", "authentication", "configuration", "database", "driver", "email", "file", "host",
-    "iam", "intrusion_detection", "library", "malware", "network", "package", "process",
-    "registry", "session", "threat", "vulnerability", "web",
+    "api",
+    "authentication",
+    "configuration",
+    "database",
+    "driver",
+    "email",
+    "file",
+    "host",
+    "iam",
+    "intrusion_detection",
+    "library",
+    "malware",
+    "network",
+    "package",
+    "process",
+    "registry",
+    "session",
+    "threat",
+    "vulnerability",
+    "web",
 }
 ECS_TYPES = {
-    "access", "admin", "allowed", "change", "connection", "creation", "deletion", "denied",
-    "device", "end", "error", "group", "indicator", "info", "installation", "protocol",
-    "start", "user",
+    "access",
+    "admin",
+    "allowed",
+    "change",
+    "connection",
+    "creation",
+    "deletion",
+    "denied",
+    "device",
+    "end",
+    "error",
+    "group",
+    "indicator",
+    "info",
+    "installation",
+    "protocol",
+    "start",
+    "user",
 }
 
 
@@ -70,19 +111,22 @@ def test_aliases_resolve_to_canonical_types():
         assert canonical_event_type(alias) == target
 
 
-@pytest.mark.parametrize("raw,expected", [
-    ("ssh_failed_password", "auth_failure"),
-    ("ssh_failed_publickey", "auth_failure"),
-    ("ssh_accepted_publickey", "auth_success"),
-    ("windows_logon_failure", "auth_failure"),
-    ("process_create", "process_exec"),
-    ("connection", "network_flow"),
-    ("  AUTH_FAILURE ", "auth_failure"),
-    ("syslog_event", OTHER),
-    ("made_up_type", OTHER),
-    (None, OTHER),
-    (42, OTHER),
-])
+@pytest.mark.parametrize(
+    "raw,expected",
+    [
+        ("ssh_failed_password", "auth_failure"),
+        ("ssh_failed_publickey", "auth_failure"),
+        ("ssh_accepted_publickey", "auth_success"),
+        ("windows_logon_failure", "auth_failure"),
+        ("process_create", "process_exec"),
+        ("connection", "network_flow"),
+        ("  AUTH_FAILURE ", "auth_failure"),
+        ("syslog_event", OTHER),
+        ("made_up_type", OTHER),
+        (None, OTHER),
+        (42, OTHER),
+    ],
+)
 def test_canonical_event_type(raw, expected):
     assert canonical_event_type(raw) == expected
 
@@ -93,10 +137,17 @@ def test_outcome_dependent_alias_needs_the_outcome():
     assert canonical_event_type("login_attempt") == OTHER
 
 
-@pytest.mark.parametrize("lookalike", [
-    "auth​_failure", "auth⁧_failure⁩", "auth_failure\U000e0041",
-    "auth_failure|---|---", "auth_failure\x1b[2J", "process_exec‮",
-])
+@pytest.mark.parametrize(
+    "lookalike",
+    [
+        "auth​_failure",
+        "auth⁧_failure⁩",
+        "auth_failure\U000e0041",
+        "auth_failure|---|---",
+        "auth_failure\x1b[2J",
+        "process_exec‮",
+    ],
+)
 def test_lookalike_strings_do_not_resolve(lookalike):
     """Injection-corpus strings must not count as real events (or failures)."""
     assert canonical_event_type(lookalike) == OTHER
@@ -127,10 +178,18 @@ def test_rules_key_only_on_canonical_types():
 # ── in-repo producers emit canonical names ─────────────────────────────────
 
 RAW_LINES = [
-    ("Jan 15 02:01:12 demo-host-01 sshd[18402]: Failed password for alice.demo "
-     "from 192.0.2.45 port 51422 ssh2", "ssh", "auth_failure"),
-    ("Jan 15 02:01:12 demo-host-01 sshd[18402]: Accepted publickey for alice.demo "
-     "from 192.0.2.45 port 51422 ssh2", "ssh", "auth_success"),
+    (
+        "Jan 15 02:01:12 demo-host-01 sshd[18402]: Failed password for alice.demo "
+        "from 192.0.2.45 port 51422 ssh2",
+        "ssh",
+        "auth_failure",
+    ),
+    (
+        "Jan 15 02:01:12 demo-host-01 sshd[18402]: Accepted publickey for alice.demo "
+        "from 192.0.2.45 port 51422 ssh2",
+        "ssh",
+        "auth_success",
+    ),
     ("4625|2026-01-15T02:01:12|bob.demo|192.0.2.4|demo-host|x", "windows", "auth_failure"),
     ("4624|2026-01-15T02:01:12|bob.demo|192.0.2.4|demo-host|x", "windows", "auth_success"),
     ("7045|2026-01-15T02:01:12|bob.demo|192.0.2.4|demo-host|x", "windows", "service_install"),
@@ -169,10 +228,16 @@ def test_v3_ssh_parser_emits_canonical_names():
     from lsadra.ingestion.parsers_linux import LinuxSSHParser
 
     parser = LinuxSSHParser()
-    failed = parser.parse("Jan 15 02:01:12 demo-host-01 sshd[1]: Failed password for bob.demo "
-                          "from 192.0.2.4 port 2222 ssh2", device_id="d")
-    sudo = parser.parse("Jan 15 02:01:12 demo-host-01 sudo[2]: bob.demo : TTY=pts/0 ; PWD=/ ; "
-                        "USER=root ; COMMAND=/usr/bin/id", device_id="d")
+    failed = parser.parse(
+        "Jan 15 02:01:12 demo-host-01 sshd[1]: Failed password for bob.demo "
+        "from 192.0.2.4 port 2222 ssh2",
+        device_id="d",
+    )
+    sudo = parser.parse(
+        "Jan 15 02:01:12 demo-host-01 sudo[2]: bob.demo : TTY=pts/0 ; PWD=/ ; "
+        "USER=root ; COMMAND=/usr/bin/id",
+        device_id="d",
+    )
     assert failed["event_type"] == "auth_failure"
     assert failed["attributes"]["auth_method"] == "password"
     assert sudo["event_type"] == "sudo_exec"

@@ -24,7 +24,9 @@ def propose_actions(incident_id: int, triage: TriageResult, source: str = "llm")
 
     ids = []
     for act in triage.recommended_actions:
-        if act["action"] not in ALLOWED_ACTIONS:  # validated already; never trust twice-removed input
+        if (
+            act["action"] not in ALLOWED_ACTIONS
+        ):  # validated already; never trust twice-removed input
             continue
         ids.append(
             insert_proposed_action(
@@ -39,7 +41,9 @@ def propose_actions(incident_id: int, triage: TriageResult, source: str = "llm")
     return ids
 
 
-def list_proposals(incident_id: Optional[int] = None, status: Optional[str] = None) -> List[Dict[str, Any]]:
+def list_proposals(
+    incident_id: Optional[int] = None, status: Optional[str] = None
+) -> List[Dict[str, Any]]:
     from lsadra.storage.database import get_proposed_actions
 
     return get_proposed_actions(incident_id=incident_id, status=status)

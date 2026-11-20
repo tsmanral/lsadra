@@ -25,11 +25,11 @@ def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
 
     df = df.copy()
     df["timestamp"] = parse_event_timestamps(df["timestamp"])
-    
+
     # Ensure source_ip and effective_username are strings and handle NaNs
     df["source_ip"] = df["source_ip"].fillna("127.0.0.1").astype(str)
     df["effective_username"] = df["effective_username"].fillna("unknown").astype(str)
-    
+
     df = df.sort_values("timestamp")
 
     # Binary success / failure indicators
@@ -81,8 +81,6 @@ def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Derived ratio
-    df["failure_ratio_15m"] = df["failures_15m"] / (
-        df["failures_15m"] + df["successes_15m"] + 1e-9
-    )
+    df["failure_ratio_15m"] = df["failures_15m"] / (df["failures_15m"] + df["successes_15m"] + 1e-9)
 
     return df

@@ -66,7 +66,7 @@ def fingerprint_pem(cert_path: str) -> str:
     pem = Path(cert_path).read_text(encoding="ascii")
     der = ssl.PEM_cert_to_DER_cert(pem)
     digest = hashlib.sha256(der).hexdigest()
-    return ":".join(digest[i:i + 2] for i in range(0, len(digest), 2))
+    return ":".join(digest[i : i + 2] for i in range(0, len(digest), 2))
 
 
 def ensure_self_signed(tls_dir: Path, host: str) -> tuple:
@@ -98,7 +98,9 @@ def ensure_self_signed(tls_dir: Path, host: str) -> tuple:
     except ValueError:
         if host:
             names.add(host)
-    san = [x509.DNSName(n) for n in sorted(names) if n] + [x509.IPAddress(i) for i in sorted(ips, key=str)]
+    san = [x509.DNSName(n) for n in sorted(names) if n] + [
+        x509.IPAddress(i) for i in sorted(ips, key=str)
+    ]
     subject = x509.Name([x509.NameAttribute(NameOID.COMMON_NAME, "LSADRA server")])
     now = datetime.now(timezone.utc)
     cert = (
@@ -142,7 +144,9 @@ def plan_listener(
     cert = config.TLS_CERT_PATH if cert is None else cert
     key = config.TLS_KEY_PATH if key is None else key
     trusted_proxies = config.TRUSTED_PROXY_IPS if trusted_proxies is None else trusted_proxies
-    allow_plaintext = config.ALLOW_PLAINTEXT_LISTENER if allow_plaintext is None else allow_plaintext
+    allow_plaintext = (
+        config.ALLOW_PLAINTEXT_LISTENER if allow_plaintext is None else allow_plaintext
+    )
     tls_dir = config.TLS_DIR if tls_dir is None else tls_dir
 
     if bool(cert) != bool(key):
@@ -168,7 +172,9 @@ def activate(plan: ListenerPlan) -> Optional[str]:
             logger.warning(
                 "Serving plain HTTP on %s:%s (%s). Device keys and logins cross this "
                 "listener unencrypted unless a TLS proxy fronts it.",
-                plan.host, plan.port, plan.reason,
+                plan.host,
+                plan.port,
+                plan.reason,
             )
         return None
     ACTIVE_FINGERPRINT = fingerprint_pem(plan.certfile)

@@ -43,8 +43,11 @@ LEVELS = ("informational", "low", "medium", "high", "critical")
 #: Lowest level that raises an alert without help from the anomaly layers.
 ALERT_LEVEL = "medium"
 _LEVEL_TO_SEVERITY = {
-    "informational": "LOW", "low": "LOW", "medium": "MEDIUM",
-    "high": "HIGH", "critical": "CRITICAL",
+    "informational": "LOW",
+    "low": "LOW",
+    "medium": "MEDIUM",
+    "high": "HIGH",
+    "critical": "CRITICAL",
 }
 STATUSES = ("stable", "test", "experimental")
 
@@ -60,19 +63,20 @@ class Rule:
 
     id: str
     title: str
-    code: str               # legacy alert type, e.g. BRUTE_FORCE
+    code: str  # legacy alert type, e.g. BRUTE_FORCE
     version: int
     status: str
-    level: str              # base level; a matcher may raise or lower it
+    level: str  # base level; a matcher may raise or lower it
     technique_ids: Tuple[str, ...]
-    event_types: Tuple[str, ...]   # canonical types read; () = any
+    event_types: Tuple[str, ...]  # canonical types read; () = any
     description: str
     falsepositives: Tuple[str, ...]
-    confidence: float        # author-set confidence that a match is the technique
+    confidence: float  # author-set confidence that a match is the technique
     scenario: Optional[str] = None  # demo corpus scenario exercising it
-    evaluated_by: str = "event"     # "event" (orchestrator) or "scheduler"
+    evaluated_by: str = "event"  # "event" (orchestrator) or "scheduler"
     matcher: Optional[Callable[[Dict[str, Any]], Optional["Hit"]]] = field(
-        default=None, compare=False, repr=False)
+        default=None, compare=False, repr=False
+    )
 
     @property
     def techniques(self) -> Tuple[Technique, ...]:
@@ -80,12 +84,18 @@ class Rule:
 
     def as_dict(self) -> Dict[str, Any]:
         return {
-            "id": self.id, "title": self.title, "version": self.version,
-            "status": self.status, "level": self.level,
+            "id": self.id,
+            "title": self.title,
+            "version": self.version,
+            "status": self.status,
+            "level": self.level,
             "techniques": [t.as_dict() for t in self.techniques],
-            "event_types": list(self.event_types), "description": self.description,
-            "falsepositives": list(self.falsepositives), "confidence": self.confidence,
-            "scenario": self.scenario, "evaluated_by": self.evaluated_by,
+            "event_types": list(self.event_types),
+            "description": self.description,
+            "falsepositives": list(self.falsepositives),
+            "confidence": self.confidence,
+            "scenario": self.scenario,
+            "evaluated_by": self.evaluated_by,
         }
 
 
@@ -145,6 +155,7 @@ RULES: Dict[str, Rule] = {}
 
 def rule(**meta: Any) -> Callable:
     """Register a matcher with its metadata. Validates techniques at import."""
+
     def wrap(fn: Callable[[Dict[str, Any]], Optional[Hit]]) -> Callable:
         r = Rule(matcher=fn, **meta)
         if r.id in RULES:
@@ -155,12 +166,14 @@ def rule(**meta: Any) -> Callable:
             technique(tid)  # raises on unknown, revoked or deprecated IDs
         RULES[r.id] = r
         return fn
+
     return wrap
 
 
 # ============================================================================
 # Feature access (rows from build_rule_features, or hand-built dicts)
 # ============================================================================
+
 
 def _f(row: Dict[str, Any], *keys: str) -> float:
     """Largest numeric value among *keys* (missing / bad values count as 0)."""
@@ -201,10 +214,18 @@ def _users_15m(row: Dict[str, Any]) -> float:
 # Credential access
 # ============================================================================
 
+
 @rule(
-    id="lsadra-auth-credential-stuffing", title="Credential Stuffing", code="CREDENTIAL_STUFFING",
-    version=2, status="stable", level="high", technique_ids=("T1110.004",),
-    event_types=("auth_failure", "auth_success"), confidence=0.75, scenario="ssh_bruteforce",
+    id="lsadra-auth-credential-stuffing",
+    title="Credential Stuffing",
+    code="CREDENTIAL_STUFFING",
+    version=2,
+    status="stable",
+    level="high",
+    technique_ids=("T1110.004",),
+    event_types=("auth_failure", "auth_success"),
+    confidence=0.75,
+    scenario="ssh_bruteforce",
     description="One source address fails logins against five or more accounts in 15 minutes.",
     falsepositives=("A shared jump host or NAT address where several users mistype passwords",),
 )
@@ -218,11 +239,20 @@ def _credential_stuffing(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-auth-brute-force", title="Brute Force Attack", code="BRUTE_FORCE",
-    version=2, status="stable", level="medium", technique_ids=("T1110.001",),
-    event_types=("auth_failure",), confidence=0.85, scenario="ssh_bruteforce",
-    description=("Repeated failed logins from one source address: 15 or more in 5 minutes is "
-                 "critical, 5 or more in 5 minutes high, 8 or more in 15 minutes medium."),
+    id="lsadra-auth-brute-force",
+    title="Brute Force Attack",
+    code="BRUTE_FORCE",
+    version=2,
+    status="stable",
+    level="medium",
+    technique_ids=("T1110.001",),
+    event_types=("auth_failure",),
+    confidence=0.85,
+    scenario="ssh_bruteforce",
+    description=(
+        "Repeated failed logins from one source address: 15 or more in 5 minutes is "
+        "critical, 5 or more in 5 minutes high, 8 or more in 15 minutes medium."
+    ),
     falsepositives=("A service retrying with an expired password",),
 )
 def _brute_force(row: Dict[str, Any]) -> Optional[Hit]:
@@ -239,11 +269,19 @@ def _brute_force(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-auth-low-and-slow", title="Low and Slow Attack", code="LOW_AND_SLOW",
-    version=2, status="stable", level="medium", technique_ids=("T1110.001",),
-    event_types=("auth_failure",), confidence=0.70,
-    description=("6 to 20 failed logins from one address in 15 minutes, over 90 % failure rate, "
-                 "paced under 5 attempts per 5 minutes to stay below burst thresholds."),
+    id="lsadra-auth-low-and-slow",
+    title="Low and Slow Attack",
+    code="LOW_AND_SLOW",
+    version=2,
+    status="stable",
+    level="medium",
+    technique_ids=("T1110.001",),
+    event_types=("auth_failure",),
+    confidence=0.70,
+    description=(
+        "6 to 20 failed logins from one address in 15 minutes, over 90 % failure rate, "
+        "paced under 5 attempts per 5 minutes to stay below burst thresholds."
+    ),
     falsepositives=("A misconfigured client retrying slowly",),
 )
 def _low_and_slow(row: Dict[str, Any]) -> Optional[Hit]:
@@ -257,9 +295,15 @@ def _low_and_slow(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-auth-success-after-failures", title="Successful Login After Repeated Failures",
-    code="SUCCESS_AFTER_FAILURES", version=1, status="stable", level="high",
-    technique_ids=("T1110.001",), event_types=("auth_success",), confidence=0.80,
+    id="lsadra-auth-success-after-failures",
+    title="Successful Login After Repeated Failures",
+    code="SUCCESS_AFTER_FAILURES",
+    version=1,
+    status="stable",
+    level="high",
+    technique_ids=("T1110.001",),
+    event_types=("auth_success",),
+    confidence=0.80,
     scenario="ssh_bruteforce",
     description="A login succeeds from an address with five or more failures in the last 15 minutes.",
     falsepositives=("A user who forgot a password and then got it right",),
@@ -274,11 +318,19 @@ def _success_after_failures(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-auth-off-hours-access", title="Anomalous Off-Hour Access", code="OFF_HOURS_ACCESS",
-    version=2, status="stable", level="low", technique_ids=("T1078",),
-    event_types=("auth_success", "session_open"), confidence=0.40,
-    description=("A clean login between 22:00 and 06:00. Low level: it only names the "
-                 "technique when the anomaly layers also flag the event."),
+    id="lsadra-auth-off-hours-access",
+    title="Anomalous Off-Hour Access",
+    code="OFF_HOURS_ACCESS",
+    version=2,
+    status="stable",
+    level="low",
+    technique_ids=("T1078",),
+    event_types=("auth_success", "session_open"),
+    confidence=0.40,
+    description=(
+        "A clean login between 22:00 and 06:00. Low level: it only names the "
+        "technique when the anomaly layers also flag the event."
+    ),
     falsepositives=("Shift workers, scheduled jobs, travel",),
 )
 def _off_hours_access(row: Dict[str, Any]) -> Optional[Hit]:
@@ -293,15 +345,24 @@ def _off_hours_access(row: Dict[str, Any]) -> Optional[Hit]:
 # Discovery, collection, exfiltration
 # ============================================================================
 
+
 @rule(
-    id="lsadra-net-port-scan", title="Port Scan", code="PORT_SCAN",
-    version=2, status="stable", level="high", technique_ids=("T1046",),
-    event_types=("network_flow", "firewall_deny"), confidence=0.75,
+    id="lsadra-net-port-scan",
+    title="Port Scan",
+    code="PORT_SCAN",
+    version=2,
+    status="stable",
+    level="high",
+    technique_ids=("T1046",),
+    event_types=("network_flow", "firewall_deny"),
+    confidence=0.75,
     description="One source address reaches 15 or more destination ports in 10 minutes (50+ is critical).",
     falsepositives=("Vulnerability scanners and monitoring probes you run yourself",),
 )
 def _port_scan(row: Dict[str, Any]) -> Optional[Hit]:
-    if not (_is_event(row, "network_flow", "firewall_deny") or row.get("source_type") == "network_flow"):
+    if not (
+        _is_event(row, "network_flow", "firewall_deny") or row.get("source_type") == "network_flow"
+    ):
         return None
     ports = _f(row, "unique_dst_ports_10min", "unique_dst_ports_per_ip")
     if ports >= 50:
@@ -312,13 +373,21 @@ def _port_scan(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-net-large-outbound-transfer", title="Large Outbound Transfer",
-    code="LARGE_DATA_TRANSFER", version=2, status="stable", level="low",
-    technique_ids=("T1048",), event_types=("network_flow",), confidence=0.50,
+    id="lsadra-net-large-outbound-transfer",
+    title="Large Outbound Transfer",
+    code="LARGE_DATA_TRANSFER",
+    version=2,
+    status="stable",
+    level="low",
+    technique_ids=("T1048",),
+    event_types=("network_flow",),
+    confidence=0.50,
     scenario="data_movement_offhours",
-    description=("More than 10 MB sent from one device to one destination in 30 minutes. Low "
-                 "level for internal or documentation addresses (backups look the same); "
-                 "medium when the destination is publicly routable."),
+    description=(
+        "More than 10 MB sent from one device to one destination in 30 minutes. Low "
+        "level for internal or documentation addresses (backups look the same); "
+        "medium when the destination is publicly routable."
+    ),
     falsepositives=("Backups, cloud sync, large uploads",),
 )
 def _large_transfer(row: Dict[str, Any]) -> Optional[Hit]:
@@ -333,10 +402,15 @@ def _large_transfer(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-file-hidden-staging-dir", title="Data Staged in a Hidden Directory",
-    code="DATA_STAGING", version=1, status="test", level="medium",
+    id="lsadra-file-hidden-staging-dir",
+    title="Data Staged in a Hidden Directory",
+    code="DATA_STAGING",
+    version=1,
+    status="test",
+    level="medium",
     technique_ids=("T1074.001",),
-    event_types=("process_exec", "archive_create", "file_write"), confidence=0.60,
+    event_types=("process_exec", "archive_create", "file_write"),
+    confidence=0.60,
     scenario="data_movement_offhours",
     description="A process or archive writes under a hidden directory in /tmp, /var/tmp or /dev/shm.",
     falsepositives=("Build tools and caches that use dot-directories in /tmp",),
@@ -345,7 +419,9 @@ def _hidden_staging(row: Dict[str, Any]) -> Optional[Hit]:
     if _et(row) not in ("process_exec", "archive_create", "file_write"):
         return None
     path = str(row.get("artifact_path") or "")
-    if int(_f(row, "artifact_in_hidden_dir")) and path.startswith(("/tmp/", "/var/tmp/", "/dev/shm/")):
+    if int(_f(row, "artifact_in_hidden_dir")) and path.startswith(
+        ("/tmp/", "/var/tmp/", "/dev/shm/")
+    ):
         return Hit(f"activity staged under hidden directory {path[:120]}")
     return None
 
@@ -354,10 +430,17 @@ def _hidden_staging(row: Dict[str, Any]) -> Optional[Hit]:
 # Execution
 # ============================================================================
 
+
 @rule(
-    id="lsadra-proc-encoded-powershell", title="Encoded PowerShell Command", code="ENCODED_COMMAND",
-    version=1, status="stable", level="high", technique_ids=("T1059.001",),
-    event_types=("process_exec", "script_exec"), confidence=0.80,
+    id="lsadra-proc-encoded-powershell",
+    title="Encoded PowerShell Command",
+    code="ENCODED_COMMAND",
+    version=1,
+    status="stable",
+    level="high",
+    technique_ids=("T1059.001",),
+    event_types=("process_exec", "script_exec"),
+    confidence=0.80,
     scenario="persistence_new_service",
     description="PowerShell started with an encoded (-EncodedCommand) script.",
     falsepositives=("Some management agents pass encoded commands",),
@@ -369,12 +452,20 @@ def _encoded_powershell(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-proc-lolbin-proxy-execution", title="Suspicious LOLBin Execution",
-    code="SUSPICIOUS_PROCESS", version=2, status="stable", level="high",
-    technique_ids=("T1218",), event_types=("process_exec",), confidence=0.75,
-    description=("A signed system binary often abused to proxy execution (rundll32, mshta, "
-                 "certutil, ...) runs with a suspicious command line or from an Office or "
-                 "browser parent. Alone it is low level."),
+    id="lsadra-proc-lolbin-proxy-execution",
+    title="Suspicious LOLBin Execution",
+    code="SUSPICIOUS_PROCESS",
+    version=2,
+    status="stable",
+    level="high",
+    technique_ids=("T1218",),
+    event_types=("process_exec",),
+    confidence=0.75,
+    description=(
+        "A signed system binary often abused to proxy execution (rundll32, mshta, "
+        "certutil, ...) runs with a suspicious command line or from an Office or "
+        "browser parent. Alone it is low level."
+    ),
     falsepositives=("Installers and IT scripts that call these binaries legitimately",),
 )
 def _lolbin(row: Dict[str, Any]) -> Optional[Hit]:
@@ -388,11 +479,19 @@ def _lolbin(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-proc-suspicious-cmdline", title="Suspicious Command Line", code="SUSPICIOUS_CMDLINE",
-    version=1, status="stable", level="medium", technique_ids=("T1059",),
-    event_types=("process_exec",), confidence=0.60,
-    description=("A command line with a download cradle, inline base64 decoding, or "
-                 "execution from a temp directory."),
+    id="lsadra-proc-suspicious-cmdline",
+    title="Suspicious Command Line",
+    code="SUSPICIOUS_CMDLINE",
+    version=1,
+    status="stable",
+    level="medium",
+    technique_ids=("T1059",),
+    event_types=("process_exec",),
+    confidence=0.60,
+    description=(
+        "A command line with a download cradle, inline base64 decoding, or "
+        "execution from a temp directory."
+    ),
     falsepositives=("Install scripts that download and run tooling",),
 )
 def _suspicious_cmdline(row: Dict[str, Any]) -> Optional[Hit]:
@@ -407,12 +506,22 @@ def _suspicious_cmdline(row: Dict[str, Any]) -> Optional[Hit]:
 # Persistence and defence impairment
 # ============================================================================
 
+
 @rule(
-    id="lsadra-persist-service-install", title="New Service Installed", code="PERSISTENCE",
-    version=2, status="stable", level="medium", technique_ids=("T1543.003", "T1543.002"),
-    event_types=("service_install",), confidence=0.85, scenario="persistence_new_service",
-    description=("A Windows service or systemd unit was installed; high level when its binary "
-                 "sits in a user-writable directory."),
+    id="lsadra-persist-service-install",
+    title="New Service Installed",
+    code="PERSISTENCE",
+    version=2,
+    status="stable",
+    level="medium",
+    technique_ids=("T1543.003", "T1543.002"),
+    event_types=("service_install",),
+    confidence=0.85,
+    scenario="persistence_new_service",
+    description=(
+        "A Windows service or systemd unit was installed; high level when its binary "
+        "sits in a user-writable directory."
+    ),
     falsepositives=("Software installs and updates",),
 )
 def _service_install(row: Dict[str, Any]) -> Optional[Hit]:
@@ -426,9 +535,16 @@ def _service_install(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-persist-service-registry", title="Service Registry Key Modified",
-    code="PERSISTENCE", version=1, status="stable", level="medium", technique_ids=("T1543.003",),
-    event_types=("registry_set",), confidence=0.70, scenario="persistence_new_service",
+    id="lsadra-persist-service-registry",
+    title="Service Registry Key Modified",
+    code="PERSISTENCE",
+    version=1,
+    status="stable",
+    level="medium",
+    technique_ids=("T1543.003",),
+    event_types=("registry_set",),
+    confidence=0.70,
+    scenario="persistence_new_service",
     description="A value under HKLM\\SYSTEM\\CurrentControlSet\\Services was set.",
     falsepositives=("Driver and service updates",),
 )
@@ -439,9 +555,15 @@ def _service_registry(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-persist-registry-run-key", title="Autostart Registry Key Modified",
-    code="PERSISTENCE", version=1, status="stable", level="high", technique_ids=("T1547.001",),
-    event_types=("registry_set",), confidence=0.80,
+    id="lsadra-persist-registry-run-key",
+    title="Autostart Registry Key Modified",
+    code="PERSISTENCE",
+    version=1,
+    status="stable",
+    level="high",
+    technique_ids=("T1547.001",),
+    event_types=("registry_set",),
+    confidence=0.80,
     description="A Run, RunOnce or Winlogon autostart value was set.",
     falsepositives=("Applications that legitimately start at logon",),
 )
@@ -452,9 +574,16 @@ def _run_key(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-persist-scheduled-task", title="Scheduled Task Created", code="PERSISTENCE",
-    version=2, status="stable", level="medium", technique_ids=("T1053.005",),
-    event_types=("scheduled_task_create",), confidence=0.80, scenario="persistence_new_service",
+    id="lsadra-persist-scheduled-task",
+    title="Scheduled Task Created",
+    code="PERSISTENCE",
+    version=2,
+    status="stable",
+    level="medium",
+    technique_ids=("T1053.005",),
+    event_types=("scheduled_task_create",),
+    confidence=0.80,
+    scenario="persistence_new_service",
     description="A Windows scheduled task was created; high level when it runs from a user-writable path.",
     falsepositives=("Software updaters register scheduled tasks",),
 )
@@ -467,9 +596,15 @@ def _scheduled_task(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-persist-cron-modified", title="Crontab Modified", code="PERSISTENCE",
-    version=2, status="stable", level="medium", technique_ids=("T1053.003",),
-    event_types=("cron_modified",), confidence=0.70,
+    id="lsadra-persist-cron-modified",
+    title="Crontab Modified",
+    code="PERSISTENCE",
+    version=2,
+    status="stable",
+    level="medium",
+    technique_ids=("T1053.003",),
+    event_types=("cron_modified",),
+    confidence=0.70,
     description="A crontab was created or edited.",
     falsepositives=("Administrators editing their own crontabs",),
 )
@@ -480,9 +615,15 @@ def _cron_modified(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-persist-local-account-created", title="Local Account Created", code="PERSISTENCE",
-    version=1, status="stable", level="medium", technique_ids=("T1136.001",),
-    event_types=("account_create",), confidence=0.70,
+    id="lsadra-persist-local-account-created",
+    title="Local Account Created",
+    code="PERSISTENCE",
+    version=1,
+    status="stable",
+    level="medium",
+    technique_ids=("T1136.001",),
+    event_types=("account_create",),
+    confidence=0.70,
     description="A local user account was created.",
     falsepositives=("Planned onboarding",),
 )
@@ -493,9 +634,15 @@ def _account_created(row: Dict[str, Any]) -> Optional[Hit]:
 
 
 @rule(
-    id="lsadra-impair-event-log-cleared", title="Event Log Cleared", code="DEFENSE_IMPAIRMENT",
-    version=1, status="stable", level="high", technique_ids=("T1685.005",),
-    event_types=("log_cleared",), confidence=0.90,
+    id="lsadra-impair-event-log-cleared",
+    title="Event Log Cleared",
+    code="DEFENSE_IMPAIRMENT",
+    version=1,
+    status="stable",
+    level="high",
+    technique_ids=("T1685.005",),
+    event_types=("log_cleared",),
+    confidence=0.90,
     description="A Windows event log was cleared (Security 1102 or System 104).",
     falsepositives=("Rare; some imaging or reset procedures",),
 )
@@ -510,9 +657,16 @@ def _log_cleared(row: Dict[str, Any]) -> Optional[Hit]:
 # with everything else.
 LATERAL_RULE_ID = "lsadra-lateral-remote-services"
 RULES[LATERAL_RULE_ID] = Rule(
-    id=LATERAL_RULE_ID, title="Lateral Movement", code="LATERAL_MOVEMENT",
-    version=2, status="stable", level="high", technique_ids=("T1021",),
-    event_types=(), confidence=0.85, evaluated_by="scheduler",
+    id=LATERAL_RULE_ID,
+    title="Lateral Movement",
+    code="LATERAL_MOVEMENT",
+    version=2,
+    status="stable",
+    level="high",
+    technique_ids=("T1021",),
+    event_types=(),
+    confidence=0.85,
+    evaluated_by="scheduler",
     description="One source address reaches 3 or more users or devices in 30 minutes.",
     falsepositives=("Administrators and automation that log in to many machines",),
 )
@@ -523,13 +677,17 @@ technique("T1021")
 # Evaluation
 # ============================================================================
 
+
 def _apply_cross_source(match: RuleMatch, row: Dict[str, Any]) -> RuleMatch:
     """Raise the level one step when the address is active in 2+ source families."""
     if not int(_f(row, "cross_source_activity")):
         return match
     new_level = LEVELS[min(level_rank(match.level) + 1, len(LEVELS) - 1)]
-    return replace(match, level=new_level,
-                   reason=match.reason + "; the same address is active in another log source")
+    return replace(
+        match,
+        level=new_level,
+        reason=match.reason + "; the same address is active in another log source",
+    )
 
 
 def evaluate(row: Dict[str, Any]) -> List[RuleMatch]:
@@ -551,7 +709,9 @@ def evaluate(row: Dict[str, Any]) -> List[RuleMatch]:
         if hit is None:
             continue
         m = RuleMatch(
-            rule=r, level=hit.level or r.level, reason=hit.reason,
+            rule=r,
+            level=hit.level or r.level,
+            reason=hit.reason,
             technique=technique(hit.technique_id or r.technique_ids[0]),
             source_ip=str(row.get("source_ip") or ""),
             source_type=str(row.get("event_source") or row.get("source_type") or ""),
@@ -594,7 +754,9 @@ def _single(rule_id: str) -> Callable[[Dict[str, Any]], Optional[Dict[str, Any]]
         if hit is None:
             return None
         return RuleMatch(
-            rule=r, level=hit.level or r.level, reason=hit.reason,
+            rule=r,
+            level=hit.level or r.level,
+            reason=hit.reason,
             technique=technique(hit.technique_id or r.technique_ids[0]),
             source_ip=str(features.get("source_ip") or ""),
             source_type=str(features.get("event_source") or features.get("source_type") or ""),
@@ -621,9 +783,7 @@ def check_persistence(features: Dict[str, Any]) -> Optional[Dict[str, Any]]:
     return None
 
 
-def apply_cross_source_elevation(
-    alert: Dict[str, Any], features: Dict[str, Any]
-) -> Dict[str, Any]:
+def apply_cross_source_elevation(alert: Dict[str, Any], features: Dict[str, Any]) -> Dict[str, Any]:
     """Raise a V4 alert dict's severity one step on cross-source activity."""
     if not features.get("cross_source_activity"):
         return alert
@@ -642,9 +802,8 @@ def apply_cross_source_elevation(
 # Lateral movement detection (SQLite)
 # ============================================================================
 
-def detect_lateral_movement(
-    db_conn: sqlite3.Connection, ip: str
-) -> Optional[Dict[str, Any]]:
+
+def detect_lateral_movement(db_conn: sqlite3.Connection, ip: str) -> Optional[Dict[str, Any]]:
     """
     Query the database for lateral movement signals from a source IP.
 
@@ -690,26 +849,26 @@ def detect_lateral_movement(
             return None
         d = dict(row)
         return {
-            "ip":              ip,
-            "type":            rule_meta.code,
-            "reason":          (
+            "ip": ip,
+            "type": rule_meta.code,
+            "reason": (
                 f"IP {ip} accessed {d['unique_users']} users and "
                 f"{d['unique_devices']} devices in {window} min"
             ),
-            "severity":        _LEVEL_TO_SEVERITY[rule_meta.level],
-            "rule_weight":     rule_meta.confidence,
-            "source_type":     "multi_source",
-            "mitre_id":        tech.id,
-            "mitre_name":      tech.name,
-            "mitre_tactics":   [t.name for t in tech.tactics],
-            "rule_id":         rule_meta.id,
-            "rule_version":    rule_meta.version,
-            "rule_title":      rule_meta.title,
-            "level":           rule_meta.level,
-            "window_minutes":  window,
-            "unique_users":    int(d["unique_users"]),
-            "unique_devices":  int(d["unique_devices"]),
-            "affected_users":  d.get("affected_users", ""),
+            "severity": _LEVEL_TO_SEVERITY[rule_meta.level],
+            "rule_weight": rule_meta.confidence,
+            "source_type": "multi_source",
+            "mitre_id": tech.id,
+            "mitre_name": tech.name,
+            "mitre_tactics": [t.name for t in tech.tactics],
+            "rule_id": rule_meta.id,
+            "rule_version": rule_meta.version,
+            "rule_title": rule_meta.title,
+            "level": rule_meta.level,
+            "window_minutes": window,
+            "unique_users": int(d["unique_users"]),
+            "unique_devices": int(d["unique_devices"]),
+            "affected_users": d.get("affected_users", ""),
             "affected_devices": d.get("affected_devices", ""),
         }
     except Exception:

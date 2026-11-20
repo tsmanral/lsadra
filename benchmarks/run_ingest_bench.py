@@ -80,8 +80,11 @@ DEFAULT_STOP_P99_MS = 1000.0
 DEFAULT_STOP_LOOP_LAG_P99_MS = 500.0
 # Reasons that mean the core no longer keeps up (vs. keeps up, but slowly).
 THROUGHPUT_REASONS = {
-    "sustained<90%_offered", "requests_429", "requests_error",
-    "requests_skipped_backpressure", "requests_abandoned",
+    "sustained<90%_offered",
+    "requests_429",
+    "requests_error",
+    "requests_skipped_backpressure",
+    "requests_abandoned",
 }
 IDLE_LAG_SECONDS = 5.0  # no-load loop-lag sample taken after warm-up
 SETTLE_TIMEOUT_S = 600.0  # max wait for a backlog to drain between steps
@@ -172,8 +175,9 @@ def _free_port() -> int:
 class BenchServer:
     """The real core in a subprocess on a throwaway data dir."""
 
-    def __init__(self, skip_detection: bool, boot_timeout: float = 180.0,
-                 trace: bool = False) -> None:
+    def __init__(
+        self, skip_detection: bool, boot_timeout: float = 180.0, trace: bool = False
+    ) -> None:
         self.skip_detection = skip_detection
         self.boot_timeout = boot_timeout
         self.port = _free_port()
@@ -416,18 +420,21 @@ def summarize_trace(result: seed_demo.RateResult, records: List[Dict[str, Any]])
 
             store = [c for c in calls if c[0] == "store"]
             server_ms = (srv["t1"] - srv["t0"]) * 1e3
-            row.update({
-                "server_ms": round(server_ms, 1),
-                "outside_server_ms": round(rec.latency_s * 1e3 - server_ms, 1),
-                "get_device_ms": round(spent("get_device"), 1),
-                "bcrypt_inline_ms": round(spent("checkpw"), 1),
-                "before_store_ms": round((store[0][1] - srv["t0"]) * 1e3, 1) if store else None,
-                "store_ms": round(spent("store"), 1),
-                "gc_ms": round(_overlap_ms(srv["t0"], srv["t1"], gcs), 1),
-                "gc_gen2_ms": round(_overlap_ms(
-                    srv["t0"], srv["t1"], [g for g in gcs if g.get("gen") == 2]), 1),
-                "detection_overlap_ms": round(_overlap_ms(srv["t0"], srv["t1"], runs), 1),
-            })
+            row.update(
+                {
+                    "server_ms": round(server_ms, 1),
+                    "outside_server_ms": round(rec.latency_s * 1e3 - server_ms, 1),
+                    "get_device_ms": round(spent("get_device"), 1),
+                    "bcrypt_inline_ms": round(spent("checkpw"), 1),
+                    "before_store_ms": round((store[0][1] - srv["t0"]) * 1e3, 1) if store else None,
+                    "store_ms": round(spent("store"), 1),
+                    "gc_ms": round(_overlap_ms(srv["t0"], srv["t1"], gcs), 1),
+                    "gc_gen2_ms": round(
+                        _overlap_ms(srv["t0"], srv["t1"], [g for g in gcs if g.get("gen") == 2]), 1
+                    ),
+                    "detection_overlap_ms": round(_overlap_ms(srv["t0"], srv["t1"], runs), 1),
+                }
+            )
         rows.append(row)
     rows.sort(key=lambda r: r["latency_ms"], reverse=True)
 
@@ -482,8 +489,12 @@ def degraded_reasons(step: Dict[str, Any], stop_p99_ms: float, stop_lag_ms: floa
     lag = step["loop_lag_ms"]["p99"]
     if lag is not None and lag > stop_lag_ms:
         reasons.append("loop_lag_p99")
-    for key in ("requests_429", "requests_error", "requests_skipped_backpressure",
-                "requests_abandoned"):
+    for key in (
+        "requests_429",
+        "requests_error",
+        "requests_skipped_backpressure",
+        "requests_abandoned",
+    ):
         if step[key]:
             reasons.append(key)
     return reasons
@@ -514,8 +525,12 @@ def settle(server: BenchServer, timeout: float = SETTLE_TIMEOUT_S) -> float:
         # Detection can pause between runs long enough to look idle; wait until
         # the server reports none queued or running.
         detecting = bench.get("detection_pending", 0) > 0
-        if (busy < SETTLE_CPU_PCT and not detecting
-                and len(recent) == 20 and max(recent) < SETTLE_LAG_MS):
+        if (
+            busy < SETTLE_CPU_PCT
+            and not detecting
+            and len(recent) == 20
+            and max(recent) < SETTLE_LAG_MS
+        ):
             break
     return round(time.perf_counter() - started, 2)
 
@@ -529,8 +544,9 @@ def log_counts(server: BenchServer) -> Dict[str, int]:
     return {marker: text.count(marker) for marker in LOG_MARKERS}
 
 
-def warm_up(server: BenchServer, creds: List[seed_demo.DeviceCred],
-            cycler: seed_demo.PayloadCycler) -> float:
+def warm_up(
+    server: BenchServer, creds: List[seed_demo.DeviceCred], cycler: seed_demo.PayloadCycler
+) -> float:
     """One full batch per device, sequentially — pays cold model training once."""
     started = time.perf_counter()
     for device_id, api_key in creds:
@@ -629,8 +645,11 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
         seq_before = server.health()["benchmark"]["loop_lag_seq"]
         time.sleep(IDLE_LAG_SECONDS)
         run["loop_lag_idle_ms"] = loop_lag_since(server.health(), seq_before)
-        print(f"[{label}] boot {run['server_boot_s']}s, registration "
-              f"{run['registration_s']}s, warm-up {run['warmup_s']}s", flush=True)
+        print(
+            f"[{label}] boot {run['server_boot_s']}s, registration "
+            f"{run['registration_s']}s, warm-up {run['warmup_s']}s",
+            flush=True,
+        )
 
         run["configs"] = []
         for devices in args.devices:
@@ -652,8 +671,10 @@ def run_once(detection: bool, repetition: int, args: argparse.Namespace) -> Dict
                     settle_s += after_rewarm_s
                     # A long settle here lets the re-warmed entries age, or expire,
                     # before the step: re-warm again.
-                    if (after_rewarm_s <= AUTH_REWARM_MAX_SETTLE_S
-                            or after_rewarm_s >= SETTLE_TIMEOUT_S):  # a stuck backlog: move on
+                    if (
+                        after_rewarm_s <= AUTH_REWARM_MAX_SETTLE_S
+                        or after_rewarm_s >= SETTLE_TIMEOUT_S
+                    ):  # a stuck backlog: move on
                         break
                 step = run_step(server, creds[:devices], cycler, rate, duration)
                 step["settle_before_s"] = round(settle_s, 2)
@@ -697,16 +718,23 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--repeats", type=int, default=2, help="runs per detection mode")
     parser.add_argument("--devices", type=int, nargs="+", default=DEFAULT_DEVICES)
     parser.add_argument(
-        "--rates", type=float, nargs="+", default=None,
+        "--rates",
+        type=float,
+        nargs="+",
+        default=None,
         help="explicit offered rates (ev/s); default: a ladder up to each fleet's limiter ceiling",
     )
     parser.add_argument("--duration", type=float, default=15.0, help="seconds per step")
     parser.add_argument(
-        "--min-requests", type=int, default=12,
+        "--min-requests",
+        type=int,
+        default=12,
         help="lengthen low-rate steps so each sends at least this many batches (default 12)",
     )
     parser.add_argument(
-        "--stop-on", choices=["any", "throughput"], default="any",
+        "--stop-on",
+        choices=["any", "throughput"],
+        default="any",
         help=(
             "end a device count's ladder at the first degraded step (any, default) or only "
             "once the core stops keeping up (throughput) — maps the throughput ceiling "
@@ -714,14 +742,16 @@ def build_parser() -> argparse.ArgumentParser:
         ),
     )
     parser.add_argument(
-        "--trace", action="store_true",
+        "--trace",
+        action="store_true",
         help="record per-request server timings, detection runs and garbage collections, "
-             "and add a per-step summary of what the slowest requests waited on",
+        "and add a per-step summary of what the slowest requests waited on",
     )
     parser.add_argument("--stop-p99-ms", type=float, default=DEFAULT_STOP_P99_MS)
     parser.add_argument("--stop-loop-lag-ms", type=float, default=DEFAULT_STOP_LOOP_LAG_P99_MS)
     parser.add_argument(
-        "--output", default=None,
+        "--output",
+        default=None,
         help="result JSON path (default benchmarks/baseline-<UTC date>.json)",
     )
     return parser
@@ -733,8 +763,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         print("error: --repeats >= 1, --duration > 0, --devices >= 1", file=sys.stderr)
         return 2
     now = datetime.now(timezone.utc)
-    output = Path(args.output) if args.output else (
-        Path(__file__).with_name(f"baseline-{now:%Y-%m-%d}.json")
+    output = (
+        Path(args.output)
+        if args.output
+        else (Path(__file__).with_name(f"baseline-{now:%Y-%m-%d}.json"))
     )
     modes = {"on": [True], "off": [False], "both": [True, False]}[args.detection]
 
@@ -756,7 +788,7 @@ def main(argv: Optional[List[str]] = None) -> int:
             "pace": DEFAULT_PACE,
             "per_device_limit_batches_per_min": seed_demo.SERVER_EVENTS_REQUESTS_PER_MIN,
             "payloads": "demo/corpus scenarios below, cycled in timestamp order, "
-                        "stamped at send time",
+            "stamped at send time",
             "scenarios": list(BASELINE_SCENARIOS),
         },
         "degraded_rule": {

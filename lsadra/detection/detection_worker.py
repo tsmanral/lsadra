@@ -62,7 +62,11 @@ class DetectionQueue:
         self._task: Optional["asyncio.Task[None]"] = None
         self._executor: Optional[ThreadPoolExecutor] = None
         self.stats: Dict[str, int] = {
-            "admitted": 0, "coalesced": 0, "rejected": 0, "runs": 0, "failures": 0,
+            "admitted": 0,
+            "coalesced": 0,
+            "rejected": 0,
+            "runs": 0,
+            "failures": 0,
         }
 
     # ── admission (request handlers) ─────────────────────────────────────
@@ -155,7 +159,8 @@ class DetectionQueue:
         if self._queued:
             logger.warning(
                 "Detection worker stopped with %d device(s) pending; their events are "
-                "stored and are picked up on the device's next batch.", len(self._queued),
+                "stored and are picked up on the device's next batch.",
+                len(self._queued),
             )
         logger.info("Detection worker stopped (%s).", self.stats)
 

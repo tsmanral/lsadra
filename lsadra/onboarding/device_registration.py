@@ -84,8 +84,9 @@ class DeviceConfig(BaseModel):
 _token_consume_lock = threading.Lock()
 
 
-def _register(token: str, hostname: str, os_type: str,
-              display_name: Optional[str]) -> Optional[Dict[str, str]]:
+def _register(
+    token: str, hostname: str, os_type: str, display_name: Optional[str]
+) -> Optional[Dict[str, str]]:
     """Consume the token and create the device; None if the token is invalid."""
     with _token_consume_lock:
         token_data = validate_and_consume(token)
@@ -136,7 +137,9 @@ async def register_device(body: RegisterRequest, request: Request) -> RegisterRe
     api_key = registered["api_key"]
     logger.info(
         "Device registered: id=%s hostname=%s user=%s",
-        device_id, log_safe(body.hostname), user_id,
+        device_id,
+        log_safe(body.hostname),
+        user_id,
     )
 
     # Default config (Linux)

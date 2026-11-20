@@ -39,14 +39,30 @@ def published(monkeypatch):
 def lateral(seeded):  # noqa: F811
     """One address logging in to three accounts on two devices, inside the window."""
     seeded.create_device("dev-2", USER_ID, "host-2", "linux", "synthetic-key-hash")
-    seeded.insert_events_batch([
-        make_event(timestamp=_ts(minutes=2), source_ip=IP, effective_username="ana.demo",
-                   event_type="auth_success"),
-        make_event(timestamp=_ts(minutes=3), source_ip=IP, effective_username="ben.demo",
-                   event_type="auth_success"),
-        make_event(timestamp=_ts(minutes=4), source_ip=IP, effective_username="cy.demo",
-                   event_type="auth_failure", device_id="dev-2", host="host-2"),
-    ])
+    seeded.insert_events_batch(
+        [
+            make_event(
+                timestamp=_ts(minutes=2),
+                source_ip=IP,
+                effective_username="ana.demo",
+                event_type="auth_success",
+            ),
+            make_event(
+                timestamp=_ts(minutes=3),
+                source_ip=IP,
+                effective_username="ben.demo",
+                event_type="auth_success",
+            ),
+            make_event(
+                timestamp=_ts(minutes=4),
+                source_ip=IP,
+                effective_username="cy.demo",
+                event_type="auth_failure",
+                device_id="dev-2",
+                host="host-2",
+            ),
+        ]
+    )
     return seeded
 
 
@@ -112,19 +128,28 @@ def test_risk_off_records_nothing(lateral, published, monkeypatch):
 
 
 def test_no_finding_no_alert(seeded, sql, published):  # noqa: F811
-    seeded.insert_events_batch([
-        make_event(timestamp=_ts(minutes=2), source_ip=IP, effective_username="ana.demo"),
-    ])
+    seeded.insert_events_batch(
+        [
+            make_event(timestamp=_ts(minutes=2), source_ip=IP, effective_username="ana.demo"),
+        ]
+    )
     scheduler._run_lateral_movement_scan()
     assert not _alerts(sql) and not published
 
 
 def test_narrative_escapes_log_controlled_names(seeded, sql, published):  # noqa: F811
     names = ["**bold**.demo", "[x](http://198.51.100.1).demo", "ok.demo"]
-    seeded.insert_events_batch([
-        make_event(timestamp=_ts(minutes=2), source_ip=IP, effective_username=n,
-                   event_type="auth_success") for n in names
-    ])
+    seeded.insert_events_batch(
+        [
+            make_event(
+                timestamp=_ts(minutes=2),
+                source_ip=IP,
+                effective_username=n,
+                event_type="auth_success",
+            )
+            for n in names
+        ]
+    )
     scheduler._run_lateral_movement_scan()
     narrative = _alerts(sql)[0]["narrative"]
     # Markdown specials arrive backslash-escaped (explainability.sanitize).
@@ -134,11 +159,14 @@ def test_narrative_escapes_log_controlled_names(seeded, sql, published):  # noqa
 
 # ── cross-source corroboration ──────────────────────────────────────────────
 
+
 def _multi_source(db):  # noqa: F811
-    db.insert_events_batch([
-        make_event(timestamp=_ts(minutes=1), source_ip=IP, event_type="ssh_login"),
-        make_event(timestamp=_ts(minutes=1), source_ip=IP, event_type="connection"),
-    ])
+    db.insert_events_batch(
+        [
+            make_event(timestamp=_ts(minutes=1), source_ip=IP, event_type="ssh_login"),
+            make_event(timestamp=_ts(minutes=1), source_ip=IP, event_type="connection"),
+        ]
+    )
 
 
 def test_cross_source_alone_raises_nothing(seeded, sql, published):  # noqa: F811
@@ -150,8 +178,9 @@ def test_cross_source_alone_raises_nothing(seeded, sql, published):  # noqa: F81
 def test_cross_source_raises_an_open_incident_one_step_once(seeded, sql, caplog):  # noqa: F811
     _multi_source(seeded)
     inc = seeded.create_incident(DEVICE_ID, IP, "SSH Brute Force", "MEDIUM", _ts(minutes=5))
-    other = seeded.create_incident(DEVICE_ID, "198.51.100.200", "SSH Brute Force", "MEDIUM",
-                                   _ts(minutes=5))
+    other = seeded.create_incident(
+        DEVICE_ID, "198.51.100.200", "SSH Brute Force", "MEDIUM", _ts(minutes=5)
+    )
     with caplog.at_level(logging.WARNING, logger=scan_alerts.logger.name):
         for _ in range(3):
             scheduler._run_cross_source_correlation()
@@ -167,11 +196,17 @@ def test_cross_source_leaves_closed_incidents_alone(seeded, sql):  # noqa: F811
     inc = seeded.create_incident(DEVICE_ID, IP, "SSH Brute Force", "LOW", _ts(minutes=5))
     seeded.update_incident_status(inc, "RESOLVED")
     scheduler._run_cross_source_correlation()
-    assert sql("SELECT severity_label FROM incidents WHERE id = ?", (inc,))[0]["severity_label"] == "LOW"
+    assert (
+        sql("SELECT severity_label FROM incidents WHERE id = ?", (inc,))[0]["severity_label"]
+        == "LOW"
+    )
 
 
 def test_critical_incidents_stay_critical(seeded, sql):  # noqa: F811
     _multi_source(seeded)
     inc = seeded.create_incident(DEVICE_ID, IP, "SSH Brute Force", "CRITICAL", _ts(minutes=5))
     scheduler._run_cross_source_correlation()
-    assert sql("SELECT severity_label FROM incidents WHERE id = ?", (inc,))[0]["severity_label"] == "CRITICAL"
+    assert (
+        sql("SELECT severity_label FROM incidents WHERE id = ?", (inc,))[0]["severity_label"]
+        == "CRITICAL"
+    )

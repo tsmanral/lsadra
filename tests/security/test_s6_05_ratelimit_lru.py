@@ -45,8 +45,8 @@ def test_idle_keys_evicted_after_window():
 def test_window_slides_and_allows_after_expiry():
     rl = SlidingWindowRateLimiter(limit=1, window_seconds=60, max_keys=100)
     assert rl.allow("k", 1000.0) is True
-    assert rl.allow("k", 1000.0) is False        # still within the window
-    assert rl.allow("k", 1000.0 + 61) is True    # window elapsed -> allowed again
+    assert rl.allow("k", 1000.0) is False  # still within the window
+    assert rl.allow("k", 1000.0 + 61) is True  # window elapsed -> allowed again
 
 
 def test_distinct_key_flood_does_not_reset_active_counter():

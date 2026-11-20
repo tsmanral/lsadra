@@ -77,12 +77,15 @@ def test_cli_without_server_settings_prints_hint_not_traceback(tmp_path):
     import sys
     from pathlib import Path
 
-    env = {k: v for k, v in os.environ.items()
-           if k not in ("LSADRA_DEV_MODE", "LSADRA_JWT_SECRET")}
+    env = {k: v for k, v in os.environ.items() if k not in ("LSADRA_DEV_MODE", "LSADRA_JWT_SECRET")}
     root = Path(__file__).resolve().parents[2]
     r = subprocess.run(
         [sys.executable, "-m", "lsadra.admin_cli", "promote", "--username", "x.demo"],
-        cwd=root, env=env, capture_output=True, text=True, timeout=60,
+        cwd=root,
+        env=env,
+        capture_output=True,
+        text=True,
+        timeout=60,
     )
     assert r.returncode == 2
     assert "LSADRA_JWT_SECRET" in r.stderr and "LSADRA_DEV_MODE" in r.stderr
