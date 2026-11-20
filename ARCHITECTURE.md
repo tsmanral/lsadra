@@ -15,7 +15,7 @@ the code disagree, the code is right and this page is a bug.
 
 | Piece | Where | What it does |
 |---|---|---|
-| Core API | `server.py`, `lsadra/` | FastAPI app: login, device onboarding, event ingestion, dashboard API, `/ws/alerts` live feed. Started with `python -m lsadra.serve`, which applies the listener policy (loopback by default, TLS required on any other address) |
+| Core API | `lsadra/app.py` (root `server.py` is an alias) | FastAPI app: login, device onboarding, event ingestion, dashboard API, `/ws/alerts` live feed. Started with `lsadra-server` or `python -m lsadra.serve`, which applies the listener policy (loopback by default, TLS required on any other address) |
 | Detection worker | `lsadra/detection/detection_worker.py` | One thread in the core process that runs online detection, fed by a bounded queue |
 | Background jobs | `lsadra/jobs/scheduler.py` | APScheduler threads in the core process (see section 4) |
 | Database | `lsadra/storage/` | SQLite in WAL mode, schema applied by numbered SQL migrations |

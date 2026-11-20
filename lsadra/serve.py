@@ -1,6 +1,7 @@
 """Start the LSADRA API with the listener policy applied (G-8).
 
-    python -m lsadra.serve            # 127.0.0.1:8000, or as configured
+    lsadra-server                     # 127.0.0.1:8000, or as configured
+    python -m lsadra.serve            # the same, from a checkout
 
 Use this instead of calling uvicorn directly: it binds loopback by default,
 refuses plain HTTP on any other address unless TLS is configured, generated,
@@ -21,7 +22,7 @@ def main() -> int:
         print(f"Refusing to start: {exc}", file=sys.stderr)
         return 2
     activate(plan)
-    from server import app
+    from lsadra.app import app
 
     kwargs = {"host": plan.host, "port": plan.port}
     if plan.tls:
