@@ -25,6 +25,10 @@ certs/
 
 # Build artifacts
 dist/
+# pip install . / python -m build (Python package) and mkdocs build
+/build/
+*.egg-info/
+/site/
 
 # Local documentation workspace (Obsidian is personal/local only)
 .obsidian/

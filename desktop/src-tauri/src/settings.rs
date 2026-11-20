@@ -6,6 +6,7 @@
 //!
 //! | Field        | Env override     | Meaning                                      |
 //! |--------------|------------------|----------------------------------------------|
+//! | `server`     | `LSADRA_SERVER`  | An installed `lsadra-server` executable      |
 //! | `server_dir` | `LSADRA_HOME`    | Folder holding `server.py` and `lsadra/`     |
 //! | `python`     | `LSADRA_PYTHON`  | Python interpreter that has LSADRA installed |
 //! | `port`       | `LSADRA_API_PORT`| API port on 127.0.0.1 (default 8000)         |
@@ -22,6 +23,7 @@ pub const DEFAULT_PORT: u16 = 8000;
 #[derive(Debug, Clone, Default, Serialize, Deserialize, PartialEq, Eq)]
 #[serde(default)]
 pub struct SettingsFile {
+    pub server: Option<PathBuf>,
     pub server_dir: Option<PathBuf>,
     pub python: Option<String>,
     pub port: Option<u16>,
@@ -31,6 +33,7 @@ pub struct SettingsFile {
 /// Settings after the environment has been applied.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Settings {
+    pub server: Option<PathBuf>,
     pub server_dir: Option<PathBuf>,
     pub python: Option<String>,
     pub port: u16,
@@ -47,6 +50,9 @@ impl Settings {
             .or(file.port)
             .unwrap_or(DEFAULT_PORT);
         Settings {
+            server: non_empty("LSADRA_SERVER")
+                .map(PathBuf::from)
+                .or(file.server),
             server_dir: non_empty("LSADRA_HOME")
                 .map(PathBuf::from)
                 .or(file.server_dir),
@@ -136,6 +142,7 @@ mod tests {
         let s = Settings::resolve(SettingsFile::default(), env_of(&[]));
         assert_eq!(s.port, DEFAULT_PORT);
         assert!(s.autostart);
+        assert!(s.server.is_none());
         assert!(s.server_dir.is_none());
         assert!(s.python.is_none());
     }
@@ -143,6 +150,7 @@ mod tests {
     #[test]
     fn environment_overrides_file() {
         let file = SettingsFile {
+            server: Some("/file/lsadra-server".into()),
             server_dir: Some("/from/file".into()),
             python: Some("py-file".into()),
             port: Some(9000),
@@ -151,11 +159,13 @@ mod tests {
         let s = Settings::resolve(
             file,
             env_of(&[
+                ("LSADRA_SERVER", "/env/lsadra-server"),
                 ("LSADRA_HOME", "/from/env"),
                 ("LSADRA_PYTHON", "py-env"),
                 ("LSADRA_API_PORT", "8123"),
             ]),
         );
+        assert_eq!(s.server, Some(PathBuf::from("/env/lsadra-server")));
         assert_eq!(s.server_dir, Some(PathBuf::from("/from/env")));
         assert_eq!(s.python.as_deref(), Some("py-env"));
         assert_eq!(s.port, 8123);

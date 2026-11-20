@@ -4,6 +4,11 @@
 //! 127.0.0.1, and the dashboard window talks to it over loopback. If a server
 //! is already answering on the port (for example one started by hand), the
 //! app uses it and leaves it running on quit.
+//!
+//! A bundled or installed `lsadra-server` keeps its database, models and logs
+//! in this user's app data folder (`LSADRA_DATA_DIR`, `LSADRA_LOG_DIR`), never
+//! in the folder it happens to be started from. A source checkout keeps its
+//! own `data/` folder, as it does when run by hand.
 
 use std::ffi::OsString;
 use std::fs;
@@ -25,7 +30,8 @@ pub const DESKTOP_ORIGINS: [&str; 3] = [
     "https://tauri.localhost",
 ];
 
-/// Name of a self-contained server build shipped next to the app executable.
+/// Name of the server command: a self-contained build shipped next to the
+/// app executable, or the console script `pip install lsadra` puts on PATH.
 #[cfg(windows)]
 pub const BUNDLED_SERVER: &str = "lsadra-server.exe";
 #[cfg(not(windows))]
@@ -41,6 +47,8 @@ const LOG_LIMIT_BYTES: u64 = 5 * 1024 * 1024;
 pub enum Launch {
     /// A self-contained server executable next to the app.
     Bundled { program: PathBuf },
+    /// An installed `lsadra-server` (pip or pipx), from settings or PATH.
+    Installed { program: PathBuf },
     /// `python -m lsadra.serve` (or uvicorn on older checkouts) in a source folder.
     Python {
         program: OsString,
@@ -79,21 +87,60 @@ pub fn default_python(dir: &Path) -> OsString {
     OsString::from(if cfg!(windows) { "python" } else { "python3" })
 }
 
-/// Decide how to start the server.
-pub fn resolve_launch(settings: &Settings, exe_dir: Option<&Path>) -> Launch {
+impl Launch {
+    /// True for a server that is not run from a source checkout, so its data
+    /// belongs in the per-user app data folder.
+    pub fn is_packaged(&self) -> bool {
+        matches!(self, Launch::Bundled { .. } | Launch::Installed { .. })
+    }
+}
+
+/// Find an installed `lsadra-server`: each folder in `path` (the PATH
+/// variable), then `~/.local/bin`, where pipx installs it. Apps started from
+/// a desktop menu often get a short PATH that leaves pipx's folder out.
+pub fn find_installed(path: Option<OsString>, home: Option<PathBuf>) -> Option<PathBuf> {
+    let mut dirs: Vec<PathBuf> = path
+        .map(|p| std::env::split_paths(&p).collect())
+        .unwrap_or_default();
+    if let Some(home) = home {
+        dirs.push(home.join(".local").join("bin"));
+    }
+    dirs.into_iter()
+        .filter(|d| d.is_absolute())
+        .map(|d| d.join(BUNDLED_SERVER))
+        .find(|p| p.is_file())
+}
+
+/// Decide how to start the server, in this order:
+///
+/// 1. a self-contained `lsadra-server` next to the app executable;
+/// 2. the `server` setting (`LSADRA_SERVER`), an installed `lsadra-server`;
+/// 3. the `server_dir` setting (`LSADRA_HOME`), a source checkout;
+/// 4. a checkout above the app executable (`npm run dev`);
+/// 5. `installed`, the `lsadra-server` found on PATH by [`find_installed`].
+pub fn resolve_launch(
+    settings: &Settings,
+    exe_dir: Option<&Path>,
+    installed: Option<PathBuf>,
+) -> Launch {
     if let Some(exe_dir) = exe_dir {
         let bundled = exe_dir.join(BUNDLED_SERVER);
         if bundled.is_file() {
             return Launch::Bundled { program: bundled };
         }
     }
-    let dir = match settings
+    if let Some(program) = settings.server.clone().filter(|p| p.is_file()) {
+        return Launch::Installed { program };
+    }
+    let checkout = settings
         .server_dir
         .clone()
-        .or_else(|| exe_dir.and_then(find_checkout))
-    {
-        Some(dir) if is_server_dir(&dir) => dir,
-        _ => return Launch::NotConfigured,
+        .filter(|d| is_server_dir(d))
+        .or_else(|| exe_dir.and_then(find_checkout));
+    let dir = match (checkout, installed) {
+        (Some(dir), _) => dir,
+        (None, Some(program)) => return Launch::Installed { program },
+        (None, None) => return Launch::NotConfigured,
     };
     let program = settings
         .python
@@ -157,6 +204,39 @@ pub fn server_env(
         env.push(("LSADRA_JWT_SECRET".to_string(), secret.to_string()));
     }
     env
+}
+
+/// Where a packaged server keeps its data: `LSADRA_DATA_DIR` and
+/// `LSADRA_LOG_DIR` in this user's app folders, unless the user already set
+/// them. Empty for a checkout, which keeps its own `data/` and `logs/`.
+pub fn data_env(
+    launch: &Launch,
+    data_dir: &Path,
+    log_dir: &Path,
+    inherited: impl Fn(&str) -> Option<String>,
+) -> Vec<(String, String)> {
+    if !launch.is_packaged() {
+        return Vec::new();
+    }
+    [("LSADRA_DATA_DIR", data_dir), ("LSADRA_LOG_DIR", log_dir)]
+        .into_iter()
+        .filter(|(key, _)| inherited(key).filter(|v| !v.trim().is_empty()).is_none())
+        .map(|(key, dir)| (key.to_string(), dir.to_string_lossy().into_owned()))
+        .collect()
+}
+
+/// The data folder the server will use, if the app or the user chose one.
+pub fn data_dir_of(
+    env: &[(String, String)],
+    inherited: impl Fn(&str) -> Option<String>,
+) -> Option<PathBuf> {
+    env.iter()
+        .rev()
+        .find(|(k, _)| k == "LSADRA_DATA_DIR")
+        .map(|(_, v)| v.clone())
+        .or_else(|| inherited("LSADRA_DATA_DIR"))
+        .filter(|v| !v.trim().is_empty())
+        .map(PathBuf::from)
 }
 
 fn is_loopback(host: &str) -> bool {
@@ -312,6 +392,17 @@ impl Server {
                 }
                 cmd
             }
+            Launch::Installed { program } => {
+                // Run from the data folder so nothing lands in whatever
+                // folder the app was started from.
+                let mut cmd = Command::new(program);
+                if let Some(dir) = data_dir_of(&self.env, |_| None) {
+                    fs::create_dir_all(&dir)
+                        .map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+                    cmd.current_dir(dir);
+                }
+                cmd
+            }
             Launch::Python { program, dir, args } => {
                 let mut cmd = Command::new(program);
                 cmd.args(args).current_dir(dir);
@@ -434,6 +525,7 @@ mod tests {
 
     fn settings(dir: Option<PathBuf>) -> Settings {
         Settings {
+            server: None,
             server_dir: dir,
             python: None,
             port: DEFAULT_PORT,
@@ -597,7 +689,7 @@ mod tests {
         let exe_dir = temp_dir("bundled");
         fs::write(exe_dir.join(BUNDLED_SERVER), "").unwrap();
         let checkout = fake_checkout("bundled-co", true);
-        let launch = resolve_launch(&settings(Some(checkout.clone())), Some(&exe_dir));
+        let launch = resolve_launch(&settings(Some(checkout.clone())), Some(&exe_dir), None);
         assert_eq!(
             launch,
             Launch::Bundled {
@@ -611,7 +703,7 @@ mod tests {
     #[test]
     fn resolve_uses_serve_module_when_present() {
         let checkout = fake_checkout("serve", true);
-        match resolve_launch(&settings(Some(checkout.clone())), None) {
+        match resolve_launch(&settings(Some(checkout.clone())), None, None) {
             Launch::Python { dir, args, .. } => {
                 assert_eq!(dir, checkout);
                 assert_eq!(args, vec!["-m", "lsadra.serve"]);
@@ -624,7 +716,7 @@ mod tests {
     #[test]
     fn resolve_falls_back_to_uvicorn_on_loopback() {
         let checkout = fake_checkout("uvicorn", false);
-        match resolve_launch(&settings(Some(checkout.clone())), None) {
+        match resolve_launch(&settings(Some(checkout.clone())), None, None) {
             Launch::Python { args, .. } => {
                 assert!(args.windows(2).any(|w| w == ["--host", "127.0.0.1"]));
                 assert!(args.windows(2).any(|w| w == ["--port", "8000"]));
@@ -643,7 +735,7 @@ mod tests {
             .join("target")
             .join("debug");
         fs::create_dir_all(&exe_dir).unwrap();
-        match resolve_launch(&settings(None), Some(&exe_dir)) {
+        match resolve_launch(&settings(None), Some(&exe_dir), None) {
             Launch::Python { dir, .. } => assert_eq!(dir, checkout),
             other => panic!("unexpected {other:?}"),
         }
@@ -654,10 +746,139 @@ mod tests {
     fn resolve_reports_not_configured() {
         let nowhere = temp_dir("nowhere");
         assert_eq!(
-            resolve_launch(&settings(Some(nowhere.clone())), Some(&nowhere)),
+            resolve_launch(&settings(Some(nowhere.clone())), Some(&nowhere), None),
             Launch::NotConfigured
         );
         let _ = fs::remove_dir_all(&nowhere);
+    }
+
+    fn fake_installed(name: &str) -> PathBuf {
+        let bin = temp_dir(name);
+        let program = bin.join(BUNDLED_SERVER);
+        fs::write(&program, "").unwrap();
+        program
+    }
+
+    #[test]
+    fn resolve_uses_installed_server_when_no_checkout() {
+        let program = fake_installed("installed");
+        let nowhere = temp_dir("installed-nowhere");
+        assert_eq!(
+            resolve_launch(&settings(None), Some(&nowhere), Some(program.clone())),
+            Launch::Installed {
+                program: program.clone()
+            }
+        );
+        // A checkout above the executable (development) still wins over PATH.
+        let checkout = fake_checkout("installed-co", true);
+        assert!(matches!(
+            resolve_launch(
+                &settings(Some(checkout.clone())),
+                None,
+                Some(program.clone())
+            ),
+            Launch::Python { .. }
+        ));
+        for dir in [program.parent().unwrap().to_path_buf(), nowhere, checkout] {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn server_setting_beats_checkout_and_path() {
+        let program = fake_installed("server-setting");
+        let checkout = fake_checkout("server-setting-co", true);
+        let mut s = settings(Some(checkout.clone()));
+        s.server = Some(program.clone());
+        assert_eq!(
+            resolve_launch(&s, None, Some(PathBuf::from("/elsewhere"))),
+            Launch::Installed {
+                program: program.clone()
+            }
+        );
+        // A setting that points at nothing is ignored, not fatal.
+        s.server = Some(checkout.join("missing"));
+        assert!(matches!(
+            resolve_launch(&s, None, None),
+            Launch::Python { .. }
+        ));
+        let _ = fs::remove_dir_all(program.parent().unwrap());
+        let _ = fs::remove_dir_all(&checkout);
+    }
+
+    #[test]
+    fn installed_server_is_found_on_path_then_pipx_folder() {
+        let first = temp_dir("path-a");
+        let program = fake_installed("path-b");
+        let second = program.parent().unwrap().to_path_buf();
+        let path = std::env::join_paths([&first, &second]).unwrap();
+        assert_eq!(find_installed(Some(path), None), Some(program.clone()));
+        assert_eq!(find_installed(None, None), None);
+        // Relative PATH entries are skipped: they depend on the current folder.
+        let relative = std::env::join_paths(["."]).unwrap();
+        assert_eq!(find_installed(Some(relative), None), None);
+
+        let home = temp_dir("pipx-home");
+        let pipx_bin = home.join(".local").join("bin");
+        fs::create_dir_all(&pipx_bin).unwrap();
+        fs::write(pipx_bin.join(BUNDLED_SERVER), "").unwrap();
+        let path = std::env::join_paths([&first]).unwrap();
+        assert_eq!(
+            find_installed(Some(path), Some(home.clone())),
+            Some(pipx_bin.join(BUNDLED_SERVER))
+        );
+        for dir in [first, second, home] {
+            let _ = fs::remove_dir_all(dir);
+        }
+    }
+
+    #[test]
+    fn packaged_servers_keep_data_in_the_user_folder() {
+        let data = PathBuf::from("/users/demo/lsadra/server");
+        let logs = PathBuf::from("/users/demo/lsadra/logs");
+        for launch in [
+            Launch::Installed {
+                program: "lsadra-server".into(),
+            },
+            Launch::Bundled {
+                program: "lsadra-server".into(),
+            },
+        ] {
+            let env: HashMap<_, _> = data_env(&launch, &data, &logs, env_of(&[]))
+                .into_iter()
+                .collect();
+            assert_eq!(PathBuf::from(&env["LSADRA_DATA_DIR"]), data);
+            assert_eq!(PathBuf::from(&env["LSADRA_LOG_DIR"]), logs);
+        }
+        // A checkout keeps its own data/ folder.
+        let checkout = Launch::Python {
+            program: "python3".into(),
+            dir: PathBuf::from("."),
+            args: vec![],
+        };
+        assert!(data_env(&checkout, &data, &logs, env_of(&[])).is_empty());
+        // A folder the user chose is inherited, not replaced.
+        let installed = Launch::Installed {
+            program: "lsadra-server".into(),
+        };
+        let env = data_env(
+            &installed,
+            &data,
+            &logs,
+            env_of(&[("LSADRA_DATA_DIR", "/srv/lsadra")]),
+        );
+        assert_eq!(
+            env,
+            vec![(
+                "LSADRA_LOG_DIR".to_string(),
+                logs.to_string_lossy().into_owned()
+            )]
+        );
+        assert_eq!(
+            data_dir_of(&env, env_of(&[("LSADRA_DATA_DIR", "/srv/lsadra")])),
+            Some(PathBuf::from("/srv/lsadra"))
+        );
+        assert_eq!(data_dir_of(&[], env_of(&[])), None);
     }
 
     #[test]
@@ -749,6 +970,49 @@ mod tests {
         );
         server.stop();
         assert_eq!(server.status(), Status::Stopped);
+        let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn installed_server_runs_in_its_data_folder() {
+        let closed = TcpListener::bind("127.0.0.1:0")
+            .unwrap()
+            .local_addr()
+            .unwrap()
+            .port();
+        let dir = temp_dir("installed-run");
+        let program = dir.join(BUNDLED_SERVER);
+        fs::write(
+            &program,
+            "#!/bin/sh\npwd > where\necho \"$LSADRA_DATA_DIR\" >> where\n",
+        )
+        .unwrap();
+        {
+            use std::os::unix::fs::PermissionsExt;
+            fs::set_permissions(&program, fs::Permissions::from_mode(0o755)).unwrap();
+        }
+        let data = dir.join("user-data");
+        let mut env = server_env(closed, "s", env_of(&[]));
+        let launch = Launch::Installed { program };
+        env.extend(data_env(&launch, &data, &dir.join("logs"), env_of(&[])));
+        let server = Server::new(launch, closed, env, dir.join("server.log"));
+        server.start().unwrap();
+        let written = data.join("where");
+        for _ in 0..50 {
+            if fs::read_to_string(&written).is_ok_and(|t| t.lines().count() == 2) {
+                break;
+            }
+            std::thread::sleep(Duration::from_millis(50));
+        }
+        let text = fs::read_to_string(&written).expect("server ran in the data folder");
+        let lines: Vec<&str> = text.lines().collect();
+        assert_eq!(
+            fs::canonicalize(lines[0]).unwrap(),
+            fs::canonicalize(&data).unwrap()
+        );
+        assert_eq!(PathBuf::from(lines[1]), data);
+        server.stop();
         let _ = fs::remove_dir_all(&dir);
     }
 
