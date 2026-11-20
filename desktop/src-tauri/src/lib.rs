@@ -18,7 +18,8 @@ use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent}
 use tauri::{AppHandle, Manager, RunEvent, WindowEvent};
 
 use server::{
-    data_dir_of, data_env, find_bundled, find_installed, resolve_launch, server_env, Server, Status,
+    dashboard_path, data_dir_of, data_env, find_bundled, find_installed, resolve_launch,
+    server_env, setup_env, Server, Status,
 };
 use settings::Settings;
 
@@ -79,6 +80,10 @@ pub fn run() {
             env.extend(data_env(&launch, &data_dir.join("server"), &log_dir, |k| {
                 std::env::var(k).ok()
             }));
+            env.extend(setup_env(&settings::random_hex()?, |k| {
+                std::env::var(k).ok()
+            }));
+            let start_page = dashboard_path(&env, |k| std::env::var(k).ok());
             let data_text = match data_dir_of(&env, |k| std::env::var(k).ok()) {
                 Some(dir) => format!("Data: {}", dir.display()),
                 None => "Data: the checkout's data folder".to_string(),
@@ -90,6 +95,18 @@ pub fn run() {
                 log_dir.join("server.log"),
             ));
             app.manage(server.clone());
+
+            // Built here rather than in tauri.conf.json so the start page can
+            // carry the first-run setup token.
+            tauri::WebviewWindowBuilder::new(
+                app,
+                MAIN_WINDOW,
+                tauri::WebviewUrl::App(start_page.into()),
+            )
+            .title("LSADRA")
+            .inner_size(1280.0, 820.0)
+            .min_inner_size(900.0, 600.0)
+            .build()?;
 
             if settings.autostart {
                 if let Err(err) = server.start() {

@@ -52,6 +52,14 @@ api.interceptors.request.use(
   }
 );
 
+// ── First-run setup (desktop app) ─────────────────────────────────────────────
+// Open only when the server was started with a setup token, from this
+// computer, and while no admin exists (lsadra/api/setup.py).
+export const getSetupStatus = (setup_token: string) =>
+  api.post<{ needs_admin: boolean }>('/api/setup/status', { setup_token });
+export const createFirstAdmin = (body: { setup_token: string; username: string; password: string }) =>
+  api.post('/api/setup/admin', body);
+
 // ── Live simulation counters ──────────────────────────────────────────────────
 let _liveEventCount = 1543290;
 let _liveAnomCount = 342;
