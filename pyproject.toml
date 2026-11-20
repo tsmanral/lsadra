@@ -40,4 +40,4 @@ dependencies = { file = ["requirements/base.in"] }
 include = ["lsadra*"]
 
 [tool.setuptools.package-data]
-"*" = ["*.json", "*.md", "*.sh", "*.sig", "*.sql", "*.sqlite", "*.txt", "*.yml"]
+"*" = ["*.json", "*.jsonl", "*.md", "*.sh", "*.sig", "*.sql", "*.sqlite", "*.txt", "*.yml"]
