@@ -249,6 +249,21 @@ def test_canary_fails_closed_without_scenarios(monkeypatch):
     assert res["passed"] is False
 
 
+def test_canary_corpus_ships_in_the_package():
+    """An installed or bundled server has no demo/ folder: the canary reads the
+    copies inside the package, which must match the labelled demo corpus."""
+    from lsadra import config
+    from lsadra.detection import model_lifecycle as lifecycle
+
+    package = Path(lifecycle.__file__).resolve().parent
+    assert lifecycle.CANARY_DIR.parent == package
+    shipped = {p.name: p.read_bytes() for p in lifecycle.CANARY_DIR.glob("*.jsonl")}
+    source = {p.name: p.read_bytes() for p in CORPUS.glob("*.jsonl")}
+    assert shipped == source, "update lsadra/detection/canary/ with demo/corpus/"
+    for scenario in config.CANARY_SCENARIOS:
+        assert f"{scenario}.jsonl" in shipped
+
+
 # ── single flight + cooldown ──────────────────────────────────────────────
 
 

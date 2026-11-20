@@ -244,14 +244,14 @@ The command saves the installer to a file and checks its SHA-256 before running 
 
 ## Desktop app (preview)
 
-`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first as in step 5 above (`LSADRA_DEV_MODE=true` is fine for that one command, since it only writes to the database). For now it runs the server from a source checkout set up as in step 1 of the quick start; a self-contained server bundle comes later.
+`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first with `lsadra-admin create-admin`, pointed at the app's data folder as shown in [desktop/README.md](desktop/README.md#first-account). It runs an installed `lsadra-server` (`pipx install .` from a checkout) and keeps that server's database and models in your user's app data folder, or, during development, the source checkout it is built from. A self-contained server bundle comes later.
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
 cd desktop && npm ci && npm run dev      # or: npm run build  (installers in src-tauri/target/release/bundle)
 ```
 
-See [desktop/README.md](desktop/README.md) for settings (`LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
+See [desktop/README.md](desktop/README.md) for where the data goes, settings (`LSADRA_SERVER`, `LSADRA_HOME`, `LSADRA_PYTHON`, port) and how it finds the server.
 
 ## Run with Docker
 
@@ -477,7 +477,7 @@ Model files are never trusted just because they sit in `data/models/`. Every fil
 Training is gated:
 
 - **Clean data.** Training uses the most recent `LSADRA_TRAINING_MAX_EVENTS` events (default 10,000) from all devices, minus events recorded as anomalies, events inside an open or investigating incident, and events whose `attributes.ground_truth.label` marks them as an attack (the labelled demo corpus carries this; real agents never send it). With two or more devices, none supplies more than `LSADRA_TRAINING_MAX_DEVICE_SHARE` of the set (default 0.5). At least `LSADRA_MIN_TRAINING_EVENTS` usable events are needed (default 50).
-- **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
+- **Canary before promotion.** A candidate is trained beside the live models and replayed against the attack scenarios of the demo corpus, a copy of which ships in the package (`lsadra/detection/canary/`) so installed servers have it too (`LSADRA_CANARY_SCENARIOS`, default `ssh_bruteforce,injection_attempts`). It replaces the live models only if its ML layers still flag at least `LSADRA_CANARY_MIN_RECALL` (default 0.5) of each scenario's attack events; otherwise it is discarded. Poisoned training data typically fails here. Setting the recall to 0 turns the gate off (not recommended).
 - **One run at a time, ADMIN only.** `POST /admin/retrain` (background) and `POST /api/dashboard/retrain` (waits for the result) answer `409` while a run is in progress and `429` with `Retry-After` within `LSADRA_RETRAIN_COOLDOWN_SECONDS` (default 600) of the last run. Automatic training after a device leaves baselining goes through the same gate.
 - **Retrains as data grows.** The first automatic model learns from the first `LSADRA_MIN_TRAINING_EVENTS` usable events. Until the live model has seen `LSADRA_TRAINING_MAX_EVENTS`, a new run (trigger `auto-growth`) starts each time the number of stored events has grown by `LSADRA_AUTO_RETRAIN_GROWTH` since the last run (default 2.0, so at about 100, 200, 400 ... events; 0 turns it off). Each run goes through the same gate, cooldown, canary, audit row and model card. A candidate the canary rejects is retried at the next step, not every cooldown. On the [detection bench](benchmarks/detection/README.md) this takes the shipped configuration from 72 to 7 false alerts per host per day.
 - **Rollback.** The files being replaced are kept in `data/models/previous/`; `POST /api/models/rollback` (ADMIN) swaps them back, and running it again undoes the rollback.
