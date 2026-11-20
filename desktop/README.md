@@ -2,8 +2,10 @@
 
 A lightweight tray app for running LSADRA on one computer. It is built with
 [Tauri v2](https://v2.tauri.app/) around the existing React dashboard in
-`frontend/`, so the installer is about 2 MB and uses the system webview
-instead of shipping a browser.
+`frontend/` and uses the system webview instead of shipping a browser. The
+app itself is about 2 MB; the installers also carry a self-contained LSADRA
+server, so nothing else needs installing (about 130 MB to download, 270 MB
+on disk, almost all of it the Python ML stack).
 
 What it does:
 
@@ -13,7 +15,7 @@ What it does:
 - Shows the dashboard in a native window. Closing the window keeps LSADRA in
   the tray; left-click the tray icon to bring it back.
 - Tray menu: server status, **Open dashboard**, **Start/Stop server**, the
-  server log path, **Quit LSADRA**.
+  data folder and server log path, **Quit LSADRA**.
 - Creates a random JWT signing secret on first run and keeps it in the app
   data folder (owner-only on Linux and macOS), so sessions survive restarts
   without dev mode or a placeholder secret. An `LSADRA_JWT_SECRET` already in
@@ -25,11 +27,17 @@ The dashboard window gets no Tauri commands (`capabilities` is empty), and its
 Content-Security-Policy only allows connections to the local API, so a page
 in the window cannot reach the filesystem, the shell or other hosts.
 
-## Install the server
+## The server it runs
 
-The app runs an installed `lsadra-server`, so it needs no source checkout.
-Install the server once, with Python 3.12 or newer, from a release or a
-checkout:
+The installers (`.deb`, AppImage, `.msi`, NSIS `.exe`, `.dmg`) include a
+self-contained `lsadra-server`: the LSADRA package and its Python
+dependencies frozen with [PyInstaller](https://pyinstaller.org/) into the
+app's resource folder. It is the same `lsadra.serve` entry point as the
+`lsadra-server` command, so it applies the same listener and TLS policy.
+
+Without a bundled server (for example a build made with plain
+`npm run build`), the app runs an installed `lsadra-server` instead. Install
+it once, with Python 3.12 or newer, from a release or a checkout:
 
 ```bash
 pipx install /path/to/lsadra        # or: pip install /path/to/lsadra
@@ -37,12 +45,30 @@ pipx install /path/to/lsadra        # or: pip install /path/to/lsadra
 
 pipx puts `lsadra-server` and `lsadra-admin` in `~/.local/bin` (Linux and
 macOS) or `%USERPROFILE%\.local\bin` (Windows), which the app checks even
-when it is started from a desktop menu with a short `PATH`. A self-contained
-server bundled into the installer, so no Python is needed, is planned.
+when it is started from a desktop menu with a short `PATH`.
+
+### Build the bundled server
+
+CI builds it on each OS before making the installers. To build it yourself,
+from the repository root with Python 3.12:
+
+```bash
+pip install --require-hashes -r requirements/base.txt -r requirements/sidecar.txt
+cd desktop/sidecar
+pyinstaller --noconfirm --clean --distpath ../src-tauri/sidecar lsadra-server.spec
+../src-tauri/sidecar/lsadra-server/lsadra-server --self-test
+cd .. && npx tauri build --config src-tauri/tauri.sidecar.conf.json
+```
+
+`--self-test` checks the frozen build instead of serving: the app imports,
+the Sigma rules and the signed intel bundle load, and a model trained on the
+shipped demo corpus passes the canary. Outside the self-test the frozen
+server refuses to start unless `LSADRA_DATA_DIR` is set, because its own
+folder is read-only once installed; the app always sets it.
 
 ### Where the data goes
 
-An installed server keeps its database, models, TLS files and runtime intel in
+A bundled or installed server keeps its database, models, TLS files and runtime intel in
 this user's app data folder, in a `server` subfolder, and its logs in the app
 log folder. The app sets `LSADRA_DATA_DIR` and `LSADRA_LOG_DIR` for it and
 starts it from the data folder, so nothing is written where the app was
@@ -95,8 +121,8 @@ A first-run setup screen inside the app is planned.
 
 In order:
 
-1. A self-contained `lsadra-server` (`lsadra-server.exe` on Windows) next to
-   the app executable (planned bundled build).
+1. The bundled server: `lsadra-server/lsadra-server` (`.exe` on Windows) in
+   the app's resource folder, or `lsadra-server` next to the app executable.
 2. The `server` setting or `LSADRA_SERVER`: the path of an installed
    `lsadra-server`.
 3. The `server_dir` setting or `LSADRA_HOME`: a source checkout.

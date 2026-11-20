@@ -244,7 +244,7 @@ The command saves the installer to a file and checks its SHA-256 before running 
 
 ## Desktop app (preview)
 
-`desktop/` holds a small Tauri tray app (about 2 MB installed) that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first with `lsadra-admin create-admin`, pointed at the app's data folder as shown in [desktop/README.md](desktop/README.md#first-account). It runs an installed `lsadra-server` (`pipx install .` from a checkout) and keeps that server's database and models in your user's app data folder, or, during development, the source checkout it is built from. A self-contained server bundle comes later.
+`desktop/` holds a small Tauri tray app that starts the LSADRA server on `127.0.0.1`, shows the dashboard in a native window, and keeps running in the system tray when the window is closed. It generates a per-install JWT secret, so no dev mode is needed. Sign-up is off, so create your admin account first with `lsadra-admin create-admin`, pointed at the app's data folder as shown in [desktop/README.md](desktop/README.md#first-account). Its installers include a self-contained `lsadra-server` built with PyInstaller (the app is about 2 MB; with the server the download is about 130 MB), so no Python is needed. Without the bundle it runs an installed `lsadra-server` (`pipx install .`), or, during development, the source checkout it is built from. Either way a packaged server keeps its database and models in your user's app data folder.
 
 ```bash
 cd frontend && npm ci && npm run build && cd ..
@@ -539,6 +539,7 @@ lsadra/             Core platform: the FastAPI app (app.py), server start-up (se
 collectors/         Rust endpoint collectors (Cargo workspace): core (schema check, spool, shipper, key store), journald and Windows Event Log sources, lsadra-agent binary
 frontend/           React (Vite + TypeScript) SOC dashboard; Dockerfile + nginx.conf build the compose `web` service
 desktop/            Tauri v2 tray app: runs the local server, shows the dashboard (see desktop/README.md)
+  sidecar/          PyInstaller entry and spec for the self-contained lsadra-server the installers ship
 tests/              Test suite + end-to-end smoke tests
   security/         Security regression suite, one file per remediated finding
   storage/          Storage contract suite: every public storage function, on the real migrations
@@ -550,7 +551,7 @@ scripts/            Operator tooling (seed_demo.py replays the demo corpus throu
                     detection_scorecard.py; update_attack_data.py refreshes the pinned ATT&CK table;
                     llm_redteam.py runs the LLM injection corpus; release_notes.py checks the version and writes release notes;
                     check_tier_boundary.py is the Lite/Team import check, ADR 0008)
-requirements/       Hash-locked Python dependencies: base (server), ml, dev, ci-tools;
+requirements/       Hash-locked Python dependencies: base (server), ml, dev, ci-tools, docs, sidecar;
                     see requirements/README.md (scripts/lock-deps.sh regenerates them)
 benchmarks/         Ingest benchmark harness + committed baseline results (see benchmarks/README.md)
   detection/        Detection bench: TPR per ATT&CK technique at fixed FPR (see benchmarks/detection/README.md)
