@@ -45,6 +45,7 @@ from lsadra.config import (
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ingestion.credential_cache import VerifiedCredentialCache
 from lsadra.ratelimit import SlidingWindowRateLimiter
+from lsadra.security.log_safety import log_safe
 from lsadra.storage.database import get_device, store_batch_and_touch
 
 logger = logging.getLogger(__name__)
@@ -546,7 +547,7 @@ async def ingest_raw_batch(
             src = event.get("source_type", "unknown")
             source_counts[src] = source_counts.get(src, 0) + 1
         except Exception:
-            logger.exception("[V4] Failed to ingest raw line: %.120s", line_obj.raw_line)
+            logger.exception("[V4] Failed to ingest raw line: %s", log_safe(line_obj.raw_line, 120))
             parse_errors += 1
 
     detect = _reserve_detection(device_id)
@@ -554,7 +555,7 @@ async def ingest_raw_batch(
         await _store_reserved(device_id, db_rows, detect)
         logger.info(
             "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
-            accepted, device_id, parse_errors, source_counts,
+            accepted, device_id, parse_errors, log_safe(source_counts),
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
