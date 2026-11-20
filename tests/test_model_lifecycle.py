@@ -313,7 +313,9 @@ def test_retrain_skips_with_too_few_events(monkeypatch):
     _store_events(_corpus_events("benign_background"))
     result = _orchestrator().retrain(trigger="api", requested_by="admin-1")
     assert result["status"] == "skipped"
-    assert 0 < lifecycle.cooldown_remaining() <= lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS
+    # monotonic() + 30 - monotonic() can round a hair above 30 on a long-running clock
+    remaining = lifecycle.cooldown_remaining()
+    assert 0 < remaining <= lifecycle.SKIPPED_RUN_COOLDOWN_SECONDS + 1e-6
 
 
 # ── rollback ──────────────────────────────────────────────────────────────
