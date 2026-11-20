@@ -1,5 +1,26 @@
 # Changelog
 
+## [6.1.0](https://github.com/tsmanral/lsadra/compare/v6.0.0...v6.1.0) (2026-11-20)
+
+
+### Features
+
+* **desktop:** first-run admin setup in the app ([03b5f74](https://github.com/tsmanral/lsadra/commit/03b5f742a48a7c7e17456d70e1ff4bd3c69d3194))
+* **desktop:** first-run admin setup in the app ([#184](https://github.com/tsmanral/lsadra/issues/184)) ([ed062c6](https://github.com/tsmanral/lsadra/commit/ed062c6b6b490ed1b1adcc67bd05670ce10d3193))
+* **desktop:** run an installed lsadra-server with a per-user data folder ([ebf6731](https://github.com/tsmanral/lsadra/commit/ebf6731522ca56bb7811127071db8282cdb92443))
+* **desktop:** run an installed lsadra-server with a per-user data folder ([a84c3dd](https://github.com/tsmanral/lsadra/commit/a84c3dddaf1125cd86ae5882428c0857c637961e))
+* **desktop:** ship a self-contained lsadra-server in the installers ([32653ea](https://github.com/tsmanral/lsadra/commit/32653ea7fe7a399e8998e12d7480bf5efa3e2e76))
+* **desktop:** ship a self-contained lsadra-server in the installers ([#183](https://github.com/tsmanral/lsadra/issues/183)) ([520b2a0](https://github.com/tsmanral/lsadra/commit/520b2a0fe48a4dc9ac246f824f7abaf0fb12026d))
+
+
+### Bug Fixes
+
+* **detection:** ship the canary corpus inside the package ([51be8a3](https://github.com/tsmanral/lsadra/commit/51be8a31436c224f242dc9a0f5d12ed55adf750b))
+* **security:** escape device values in logs and keep the simulator key off disk ([fd672cd](https://github.com/tsmanral/lsadra/commit/fd672cd927e65136a78760cdd5ad6c1995192977))
+* **security:** escape the device id in the raw ingest log line ([00ffd6c](https://github.com/tsmanral/lsadra/commit/00ffd6cb841126f32a0cd6223572a59a5e0e54a7))
+* **security:** flatten ingest source counts before escaping them for the log ([ededd6c](https://github.com/tsmanral/lsadra/commit/ededd6cc97fab1539036f910979660b995896457))
+* **security:** keep the device-derived source breakdown out of the ingest log ([05fe5fd](https://github.com/tsmanral/lsadra/commit/05fe5fd19d4fd55c492668537d4db4d45381d94b))
+
 ## [6.0.0](https://github.com/tsmanral/lsadra/compare/v5.0.0...v6.0.0) (2026-11-20)
 
 
