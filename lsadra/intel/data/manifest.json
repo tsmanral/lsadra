@@ -1,26 +1,26 @@
 {
-  "built_at": "2026-11-18T12:38:57+00:00",
-  "file": "intel-20261118.sqlite",
+  "built_at": "2026-11-23T18:05:34+00:00",
+  "file": "intel-20261123.sqlite",
   "format": 1,
-  "sha256": "bef3289d2dbcbd00fdc00f773360c4909a3b880e4ff14912f5fa591dac95cd52",
-  "size": 1101824,
+  "sha256": "1c5d2ed677fc5c01f986986c050528fd15b74c68d01e0ea8a8fbfec541e2cfad",
+  "size": 1114112,
   "sources": [
     {
       "id": "cisa_kev",
       "license": "CC0-1.0",
       "name": "CISA Known Exploited Vulnerabilities",
-      "records": 1782,
-      "retrieved_at": "2026-11-18T12:38:57+00:00",
-      "upstream_sha256": "11ee3c54a8c3f112047bb0088763acd8d2d3513259a8d08b89a327e8a2ce7dee",
+      "records": 1790,
+      "retrieved_at": "2026-11-23T18:05:34+00:00",
+      "upstream_sha256": "12c9ca4c5350ecacdf22bdce91b4ffcf06b8c8dc9c69b8bfb4c1a21be7a5fe50",
       "url": "https://raw.githubusercontent.com/cisagov/kev-data/main/known_exploited_vulnerabilities.json",
-      "version": "2026.11.17"
+      "version": "2026.11.20"
     },
     {
       "id": "mitre_attack_enterprise",
       "license": "MITRE ATT&CK Terms of Use (royalty-free, attribution required)",
       "name": "MITRE ATT&CK Enterprise",
       "records": 706,
-      "retrieved_at": "2026-11-18T12:38:57+00:00",
+      "retrieved_at": "2026-11-23T18:05:34+00:00",
       "upstream_sha256": "539a843a7b53ed9749740b2123dddae3726b1a4831841c32aca740b011b910b5",
       "url": "https://raw.githubusercontent.com/mitre-attack/attack-stix-data/master/enterprise-attack/enterprise-attack-20.1.json",
       "version": "20.1"
