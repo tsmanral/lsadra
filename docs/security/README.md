@@ -1,7 +1,7 @@
 # Security
 
 - **Reporting a vulnerability:** see the repository
-  [SECURITY.md](../../SECURITY.md) — private reporting via GitHub advisory or
+  [SECURITY.md](https://github.com/tsmanral/lsadra/blob/main/SECURITY.md) — private reporting via GitHub advisory or
   email; 72-hour acknowledgement, 7-day triage target.
 - **Do not** open public issues for vulnerabilities.
 
@@ -13,3 +13,16 @@
   RAG index.
 - Full-history secret scanning runs weekly in CI (gitleaks on PRs + a scheduled
   verified TruffleHog sweep).
+- What the server stores and for how long, file permissions, and backups:
+  [data-inventory.md](data-inventory.md).
+
+## Pages
+
+- [Operator incident runbook](incident-runbook.md): leaked secrets or keys,
+  compromised hosts, server or account compromise, stolen database.
+- [Secure development and the CRA](ssdf-cra.md): NIST SSDF practice map and the
+  project's EU Cyber Resilience Act position for Lite and Team.
+- [Release security review](release-security-review.md): the AI-assisted review
+  the maintainer runs before every release tag.
+- [Product threat model](../threat-models/product-stride.md): STRIDE table and
+  data-flow diagram.

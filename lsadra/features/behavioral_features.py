@@ -8,6 +8,9 @@ login velocity, failure ratios, username diversity, etc.
 import numpy as np
 import pandas as pd
 
+from lsadra.detection.event_types import canonical_event_type, is_failure, is_success
+from lsadra.features.timestamps import parse_event_timestamps
+
 
 def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
     """
@@ -21,17 +24,21 @@ def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
         return df
 
     df = df.copy()
-    df["timestamp"] = pd.to_datetime(df["timestamp"])
-    
+    df["timestamp"] = parse_event_timestamps(df["timestamp"])
+
     # Ensure source_ip and effective_username are strings and handle NaNs
     df["source_ip"] = df["source_ip"].fillna("127.0.0.1").astype(str)
     df["effective_username"] = df["effective_username"].fillna("unknown").astype(str)
-    
+
     df = df.sort_values("timestamp")
 
     # Binary success / failure indicators
-    df["is_failure"] = df["event_type"].str.contains("failed|failure", case=False, na=False).astype(int)
-    df["is_success"] = df["event_type"].str.contains("accepted|success", case=False, na=False).astype(int)
+    # Outcome from the canonical event type (lsadra/detection/event_types.py),
+    # not a substring match: "ssh_failed_password" and "windows_logon_failure"
+    # still count, while a look-alike string such as "auth\u200b_failure" does not.
+    canonical = df["event_type"].map(canonical_event_type)
+    df["is_failure"] = canonical.map(is_failure).astype(int)
+    df["is_success"] = canonical.map(is_success).astype(int)
 
     # Map usernames to numeric IDs for rolling operations
     df["username_id"] = pd.factorize(df["effective_username"])[0]
@@ -74,8 +81,6 @@ def extract_behavioral_features(df: pd.DataFrame) -> pd.DataFrame:
     )
 
     # Derived ratio
-    df["failure_ratio_15m"] = df["failures_15m"] / (
-        df["failures_15m"] + df["successes_15m"] + 1e-9
-    )
+    df["failure_ratio_15m"] = df["failures_15m"] / (df["failures_15m"] + df["successes_15m"] + 1e-9)
 
     return df

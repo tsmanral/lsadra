@@ -6,15 +6,17 @@ Uses APScheduler to run periodic tasks.
 V3 jobs (preserved):
   - Metrics aggregation (every 5 min)
   - Device offline detection (every 2 min)
-  - Threat intel refresh (every 24h)
-  - IP geolocation resolution (every 24h; opt-in, LSADRA_GEO_RESOLUTION_ENABLED)
+  - Runtime threat intel refresh (hourly check; feeds and AbuseIPDB only if enabled)
+  - IP geolocation resolution from a local .mmdb (every 24h; opt-in, LSADRA_GEO_RESOLUTION_ENABLED)
   - Feature drift detection (every 24h)
   - Data retention cleanup (every RETENTION_INTERVAL_MINUTES, first run 1 min
     after start; bounded batches, see storage.database.cleanup_old_data)
 
 V4 jobs (new — added after V3 jobs):
-  - Cross-source correlation check (every 5 min)    [GLASSWING ALIGNMENT]
-  - Lateral movement scan (every 10 min)            [GLASSWING ALIGNMENT]
+  - Cross-source correlation check (every 5 min): raises the severity of open
+    incidents whose address shows up in 2+ log sources [Capability: cross-source correlation]
+  - Lateral movement scan (every 10 min): raises a stored, published alert
+    per address and window, and feeds entity risk [Capability: lateral movement detection]
   - Ingestion health check (every 15 min)           [V4 ENHANCEMENT]
 
 Started and stopped by server.py's lifespan (LSADRA_SCHEDULER_ENABLED). Every
@@ -24,6 +26,7 @@ still going is coalesced into a single catch-up run.
 
 import logging
 from datetime import datetime, timedelta
+from typing import Optional
 
 logger = logging.getLogger(__name__)
 
@@ -72,17 +75,19 @@ def start_scheduler() -> None:
         replace_existing=True,
     )
 
-    # ── V3 Job 3: Threat intel refresh (every 24h) ──────────────────────
+    # ── V3 Job 3: Runtime intel refresh (hourly check) ──────────────────
+    # Each enabled feed is fetched only once LSADRA_INTEL_FEED_REFRESH_HOURS
+    # have passed, with a conditional GET. No feeds or key: no requests.
     _scheduler.add_job(
         _run_threat_intel_refresh,
-        IntervalTrigger(hours=24),
+        IntervalTrigger(hours=1),
         id="threat_intel_refresh",
         name="Threat Intel Refresh",
         replace_existing=True,
     )
 
     # ── V3 Job 4: IP geolocation resolution (every 24h; opt-in) ─────────
-    # Sends observed public IPs to ipinfo.io, so it only runs when enabled.
+    # Reads the local .mmdb file only; no IP leaves the machine.
     if GEO_RESOLUTION_ENABLED:
         _scheduler.add_job(
             _run_geo_resolution,
@@ -115,7 +120,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 7: Cross-source correlation check (every 5 min) ──────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: cross-source correlation]
     _scheduler.add_job(
         _run_cross_source_correlation,
@@ -126,7 +131,7 @@ def start_scheduler() -> None:
     )
 
     # ── V4 Job 8: Lateral movement scan (every 10 min) ──────────────────
-    # [GLASSWING ALIGNMENT — lateral movement detection]
+    # [Capability: lateral movement detection]
     # [V4 ENHANCEMENT — gap: relationship modeling]
     _scheduler.add_job(
         _run_lateral_movement_scan,
@@ -144,6 +149,18 @@ def start_scheduler() -> None:
         id="ingestion_health_check",
         name="V4 Ingestion Health Check",
         replace_existing=True,
+    )
+
+    # ── Audit chain check (every 6 h) ────────────────────────────────────
+    # G-26: a broken hash chain means someone edited the audit log; it is
+    # raised as a CRITICAL LSADRA alert (once per break).
+    _scheduler.add_job(
+        _run_audit_chain_check,
+        IntervalTrigger(hours=6),
+        id="audit_chain_check",
+        name="Audit trail hash-chain check",
+        replace_existing=True,
+        next_run_time=datetime.now().astimezone() + timedelta(minutes=1),
     )
 
     _scheduler.start()
@@ -181,6 +198,7 @@ def _run_metrics_aggregation() -> None:
     """Aggregate metrics into 5-minute windows."""
     try:
         from lsadra.storage.metrics_aggregator import run
+
         run()
     except Exception:
         logger.exception("Metrics aggregation job failed.")
@@ -206,7 +224,9 @@ def _run_device_offline_check() -> None:
                     last_dt = datetime.fromisoformat(last_seen)
                     if last_dt < threshold and device.get("status") != "OFFLINE":
                         update_device_status(device["id"], "OFFLINE")
-                        logger.info("Device %s marked OFFLINE (last seen: %s)", device["id"], last_seen)
+                        logger.info(
+                            "Device %s marked OFFLINE (last seen: %s)", device["id"], last_seen
+                        )
                 except (ValueError, TypeError):
                     pass
             elif device.get("status") == "ONLINE":
@@ -217,30 +237,40 @@ def _run_device_offline_check() -> None:
 
 
 def _run_threat_intel_refresh() -> None:
-    """Re-query AbuseIPDB for expiring cache entries."""
+    """Refresh the runtime intel tier: due list feeds, then expiring AbuseIPDB entries.
+
+    Does nothing on a default install (no feeds enabled, no AbuseIPDB key).
+    """
     try:
         import asyncio
-        from lsadra.storage.database import get_expiring_threat_intel
-        from lsadra.explainability.threat_intel import query_abuseipdb
+        from lsadra.config import ABUSEIPDB_API_KEY
+        from lsadra.intel import feeds, runtime
 
-        expiring = get_expiring_threat_intel(limit=50)
+        results = feeds.update_feeds(only_if_due=True)
+        if results:
+            logger.info("Intel feeds refreshed: %s", results)
+
+        if not ABUSEIPDB_API_KEY:
+            return
+        expiring = runtime.expiring_abuse(limit=50)
         if not expiring:
             return
 
         async def _refresh():
-            for entry in expiring:
-                await query_abuseipdb(entry["ip_address"])
+            for ip in expiring:
+                await feeds.query_abuseipdb(ip)
 
         asyncio.run(_refresh())
-        logger.info("Threat intel refresh: processed %d entries.", len(expiring))
+        logger.info("AbuseIPDB refresh: processed %d entries.", len(expiring))
     except Exception:
         logger.exception("Threat intel refresh job failed.")
 
 
 def _run_geo_resolution() -> None:
-    """Resolve unresolved IP addresses using geopy."""
+    """Fill ip_geolocation from the local .mmdb file (no network)."""
     try:
         from lsadra.jobs.geo_resolver import run
+
         run()
     except Exception:
         logger.exception("Geo resolution job failed.")
@@ -250,6 +280,7 @@ def _run_drift_detection() -> None:
     """Run feature drift detection across models."""
     try:
         from lsadra.detection.drift_detector import run
+
         run()
     except Exception:
         logger.exception("Feature drift detection job failed.")
@@ -259,10 +290,33 @@ def _run_data_cleanup() -> None:
     """Delete data past the retention period."""
     try:
         from lsadra.storage.database import cleanup_old_data
+
         deleted = cleanup_old_data()
         logger.info("Data cleanup: removed %d expired rows.", deleted)
     except Exception:
         logger.exception("Data cleanup job failed.")
+
+
+_audit_break_reported: Optional[int] = None
+
+
+def _run_audit_chain_check() -> None:
+    """Verify the audit trail's hash chain; alert once per newly found break."""
+    global _audit_break_reported
+    try:
+        from lsadra.security import audit
+
+        intact, first_bad, checked = audit.verify_chain()
+        if intact:
+            _audit_break_reported = None
+            logger.info("Audit chain intact (%d rows).", checked)
+            return
+        logger.error("Audit chain broken at row %s (%d rows checked).", first_bad, checked)
+        if first_bad != _audit_break_reported:
+            _audit_break_reported = first_bad
+            audit.raise_self_alert("audit.chain.broken", target=f"audit_events row {first_bad}")
+    except Exception:
+        logger.exception("Audit chain check failed.")
 
 
 # ============================================================================
@@ -270,85 +324,103 @@ def _run_data_cleanup() -> None:
 # ============================================================================
 
 # [V4 ENHANCEMENT — gap: cross-source correlation]
-# [GLASSWING ALIGNMENT — lateral movement detection]
+# [Capability: lateral movement detection]
+
 
 def _run_cross_source_correlation() -> None:
     """
-    Check each recently active source_ip for activity across 2+ source types.
+    Find addresses active in 2+ log-source families in the last 10 minutes.
 
-    If found, log the correlation and update incident severity.
+    Activity across sources is not an alert by itself. When the address
+    already has an open incident, that incident's severity goes up one step,
+    once (lsadra/detection/scan_alerts.py).
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: cross-source correlation]
     """
     try:
+        from lsadra.config import CROSS_SOURCE_ELEVATION_THRESHOLD
+        from lsadra.detection.scan_alerts import corroborate_cross_source
         from lsadra.storage.database import get_connection
 
         cutoff = _iso_cutoff(minutes=10)
         conn = get_connection()
-        rows = conn.execute(
-            """SELECT source_ip,
-                      GROUP_CONCAT(DISTINCT event_type) AS event_types,
-                      COUNT(DISTINCT
-                          CASE
-                            WHEN event_type LIKE 'ssh%' OR event_type LIKE 'session%' THEN 'ssh_log'
-                            WHEN event_type IN ('connection','firewall_deny') THEN 'network_flow'
-                            WHEN event_type IN ('process_create','file_write','dll_load') THEN 'endpoint'
-                            ELSE 'other'
-                          END
-                      ) AS source_count
-               FROM normalized_events
-               WHERE timestamp >= ?
-                 AND source_ip IS NOT NULL
-               GROUP BY source_ip
-               HAVING source_count >= 2""",
-            (cutoff,),
-        ).fetchall()
-        conn.close()
+        try:
+            rows = conn.execute(
+                """SELECT source_ip,
+                          GROUP_CONCAT(DISTINCT event_type) AS event_types,
+                          COUNT(DISTINCT
+                              CASE
+                                WHEN event_type LIKE 'ssh%' OR event_type LIKE 'session%' THEN 'ssh_log'
+                                WHEN event_type IN ('connection','firewall_deny') THEN 'network_flow'
+                                WHEN event_type IN ('process_create','file_write','dll_load') THEN 'endpoint'
+                                ELSE 'other'
+                              END
+                          ) AS source_count
+                   FROM normalized_events
+                   WHERE timestamp >= ?
+                     AND source_ip IS NOT NULL
+                   GROUP BY source_ip
+                   HAVING source_count >= ?""",
+                (cutoff, max(2, CROSS_SOURCE_ELEVATION_THRESHOLD)),
+            ).fetchall()
+        finally:
+            conn.close()
 
         for row in rows:
             d = dict(row)
             ip = d["source_ip"]
             logger.info(
                 "[V4 ENHANCEMENT] Cross-source correlation: %s active in %d source types (%s)",
-                ip, d["source_count"], d.get("event_types", ""),
+                ip,
+                d["source_count"],
+                d.get("event_types", ""),
             )
+            corroborate_cross_source(ip, int(d["source_count"]))
     except Exception:
         logger.exception("[V4] Cross-source correlation job failed.")
 
 
 def _run_lateral_movement_scan() -> None:
     """
-    Run detect_lateral_movement() for recently active IPs.
+    Run detect_lateral_movement() for every address active in the window.
 
-    Stores any new lateral movement alerts to the database.
+    Each finding becomes an alert: stored in ``anomalies`` with its rule ID and
+    ATT&CK technique and tactics, linked to an incident, published to
+    ``/ws/alerts`` and added to entity risk. One address raises at most one
+    alert per window (lsadra/detection/scan_alerts.py).
 
-    [GLASSWING ALIGNMENT — lateral movement detection]
+    [Capability: lateral movement detection]
     [V4 ENHANCEMENT — gap: relationship modeling]
     """
     try:
+        from lsadra.config import LATERAL_MOVEMENT_WINDOW_MINUTES
+        from lsadra.detection import rule_engine
+        from lsadra.detection.scan_alerts import raise_lateral_movement
         from lsadra.storage.database import get_connection
-        from lsadra.detection.rule_engine import detect_lateral_movement
 
         conn = get_connection()
-        active_ips = conn.execute(
-            """SELECT DISTINCT source_ip FROM normalized_events
-               WHERE timestamp >= ?
-                 AND source_ip IS NOT NULL""",
-            (_iso_cutoff(minutes=30),),
-        ).fetchall()
+        try:
+            active_ips = conn.execute(
+                """SELECT DISTINCT source_ip FROM normalized_events
+                   WHERE timestamp >= ?
+                     AND source_ip IS NOT NULL""",
+                (_iso_cutoff(minutes=LATERAL_MOVEMENT_WINDOW_MINUTES),),
+            ).fetchall()
 
-        for row in active_ips:
-            ip = row[0]
-            if not ip:
-                continue
-            result = detect_lateral_movement(conn, ip)
-            if result:
-                logger.warning(
-                    "[V4 ENHANCEMENT] Lateral movement detected: %s — %s",
-                    ip, result.get("reason", ""),
-                )
-        conn.close()
+            for row in active_ips:
+                ip = row[0]
+                if not ip:
+                    continue
+                result = rule_engine.detect_lateral_movement(conn, ip)
+                if not result:
+                    continue
+                try:
+                    raise_lateral_movement(conn, result)
+                except Exception:
+                    logger.exception("Could not raise the lateral movement alert for %s", ip)
+        finally:
+            conn.close()
     except Exception:
         logger.exception("[V4] Lateral movement scan job failed.")
 
@@ -369,7 +441,7 @@ def _run_ingestion_health_check() -> None:
         cutoff = datetime.utcnow() - timedelta(minutes=30)
 
         for row in stats:
-            src  = row.get("source_type", "unknown")
+            src = row.get("source_type", "unknown")
             last = row.get("last_event")
             if last:
                 try:

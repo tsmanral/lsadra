@@ -1,0 +1,28 @@
+title: Service Installed From A Temp Folder
+name: lsadra_win_service_install_temp_folder
+id: aa25966d-d86f-54da-a78c-76a881a93009
+status: test
+description: Detects a new Windows service whose binary lives in a Windows or user temp folder, a common place for dropped payloads.
+references:
+    - https://attack.mitre.org/techniques/T1543/003/
+author: LSADRA contributors
+date: 2026-11-18
+tags:
+    - attack.persistence
+    - attack.privilege-escalation
+    - attack.t1543.003
+logsource:
+    product: windows
+    service: system
+detection:
+    selection:
+        Provider_Name: 'Service Control Manager'
+        EventID: 7045
+        ImagePath|contains:
+            - '\Windows\Temp\'
+            - '\AppData\Local\Temp\'
+            - '\Users\Public\'
+    condition: selection
+falsepositives:
+    - Installers that run a service from their extraction folder
+level: high

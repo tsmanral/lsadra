@@ -21,19 +21,20 @@ logger = logging.getLogger(__name__)
 
 # Weights for each detection layer in the V3 composite score
 _LAYER_WEIGHTS = {
-    "layer1_z":     0.25,
+    "layer1_z": 0.25,
     "layer2_score": 0.35,
     "layer3_error": 0.20,
-    "vote_ratio":   0.20,
+    "vote_ratio": 0.20,
 }
 
-_Z_SCORE_MAX  = 10.0
+_Z_SCORE_MAX = 10.0
 _AE_ERROR_MAX = 0.5
 
 
 # ============================================================================
 # V3 functions (preserved exactly)
 # ============================================================================
+
 
 def compute_severity_score(
     layer1_z: float = 0.0,
@@ -55,16 +56,16 @@ def compute_severity_score(
     Returns:
         Tuple of (severity_score: float [0–1], severity_label: str).
     """
-    norm_z        = min(abs(layer1_z) / _Z_SCORE_MAX, 1.0)
+    norm_z = min(abs(layer1_z) / _Z_SCORE_MAX, 1.0)
     norm_ensemble = min(abs(layer2_score), 1.0)
-    norm_ae       = min(abs(layer3_error) / _AE_ERROR_MAX, 1.0)
-    vote_ratio    = layer2_votes / max(total_models, 1)
+    norm_ae = min(abs(layer3_error) / _AE_ERROR_MAX, 1.0)
+    vote_ratio = layer2_votes / max(total_models, 1)
 
     score = (
-        _LAYER_WEIGHTS["layer1_z"]     * norm_z
+        _LAYER_WEIGHTS["layer1_z"] * norm_z
         + _LAYER_WEIGHTS["layer2_score"] * norm_ensemble
         + _LAYER_WEIGHTS["layer3_error"] * norm_ae
-        + _LAYER_WEIGHTS["vote_ratio"]   * vote_ratio
+        + _LAYER_WEIGHTS["vote_ratio"] * vote_ratio
     )
     score = max(0.0, min(score, 1.0))
     return score, _score_to_label(score)
@@ -81,6 +82,24 @@ def _score_to_label(score: float) -> str:
     return "LOW"
 
 
+_LABEL_ORDER = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+
+
+def apply_rule_floor(score: float, label: str, rule_severity: Optional[str]) -> Tuple[float, str]:
+    """
+    Raise a layer-based severity to at least the matched rule's severity.
+
+    A brute force burst is HIGH whatever the anomaly layers think of it, so the
+    rule's level sets a floor; it never lowers what the layers found.
+    """
+    if not rule_severity or rule_severity not in _LABEL_ORDER:
+        return score, label
+    if _LABEL_ORDER.index(rule_severity) <= _LABEL_ORDER.index(label):
+        return score, label
+    floor = SEVERITY_THRESHOLDS.get(rule_severity, 0.0) if rule_severity != "LOW" else 0.0
+    return max(score, floor), rule_severity
+
+
 def severity_context(score: float, label: str) -> Dict[str, Any]:
     """
     Build a severity context dict for use in narratives and SHAP.
@@ -90,20 +109,21 @@ def severity_context(score: float, label: str) -> Dict[str, Any]:
     """
     urgency_map = {
         "CRITICAL": "Immediate action required — active exploitation likely.",
-        "HIGH":     "Urgent investigation recommended — strong anomaly detected.",
-        "MEDIUM":   "Review recommended — moderate anomaly indicators present.",
-        "LOW":      "Low-priority — minor anomaly detected, possible false positive.",
+        "HIGH": "Urgent investigation recommended — strong anomaly detected.",
+        "MEDIUM": "Review recommended — moderate anomaly indicators present.",
+        "LOW": "Low-priority — minor anomaly detected, possible false positive.",
     }
     return {
         "severity_score": round(score, 4),
         "severity_label": label,
-        "urgency":        urgency_map.get(label, "Unknown severity level."),
+        "urgency": urgency_map.get(label, "Unknown severity level."),
     }
 
 
 # ============================================================================
 # V4: Dynamic severity scoring
 # ============================================================================
+
 
 def calculate_dynamic_severity(
     features: Dict[str, Any],
@@ -147,26 +167,32 @@ def calculate_dynamic_severity(
     Returns:
         (severity_label, numeric_score, plain_english_explanation)
     """
-    failed_5min  = min(float(features.get("failed_logins_last_5min", 0)) / 20, 1.0)
-    velocity     = min(float(features.get("login_attempt_velocity",  0)) / 10, 1.0)
-    shap_signal  = _max_shap(shap_values)
-    rule_weight  = float(rule_alert.get("rule_weight", 0.5))
-    ti_score     = max(0.0, min(float(threat_intel_score), 1.0))
-    cross_bonus  = 0.10 if cross_source_corroboration else 0.0
+    failed_5min = min(float(features.get("failed_logins_last_5min", 0)) / 20, 1.0)
+    velocity = min(float(features.get("login_attempt_velocity", 0)) / 10, 1.0)
+    shap_signal = _max_shap(shap_values)
+    rule_weight = float(rule_alert.get("rule_weight", 0.5))
+    ti_score = max(0.0, min(float(threat_intel_score), 1.0))
+    cross_bonus = 0.10 if cross_source_corroboration else 0.0
 
-    login_contrib  = failed_5min   * 0.20
-    vel_contrib    = velocity      * 0.20
-    shap_contrib   = shap_signal   * 0.15
-    rule_contrib   = rule_weight   * 0.25
-    ti_contrib     = ti_score      * 0.10
+    login_contrib = failed_5min * 0.20
+    vel_contrib = velocity * 0.20
+    shap_contrib = shap_signal * 0.15
+    rule_contrib = rule_weight * 0.25
+    ti_contrib = ti_score * 0.10
 
     score = login_contrib + vel_contrib + shap_contrib + rule_contrib + ti_contrib + cross_bonus
     score = max(0.0, min(score, 1.0))
 
     label = _v4_score_to_label(score)
     explanation = _build_explanation(
-        score, label,
-        rule_contrib, login_contrib, vel_contrib, shap_contrib, ti_contrib, cross_bonus,
+        score,
+        label,
+        rule_contrib,
+        login_contrib,
+        vel_contrib,
+        shap_contrib,
+        ti_contrib,
+        cross_bonus,
     )
 
     return label, round(score, 4), explanation

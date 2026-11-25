@@ -3,7 +3,8 @@ LSADRA V3 — Classical unsupervised ensemble (Layer 2).
 
 Combines Isolation Forest, LOF, and One-Class SVM predictions via
 majority voting with averaged anomaly scores.
-Supports persistence via ``save()`` and ``load()`` using joblib.
+Supports persistence via ``save()`` and ``load()`` using joblib, verified
+against the models folder manifest before loading (G-17).
 """
 
 import logging
@@ -57,18 +58,23 @@ class EnsembleModel:
             votes = sum(1 for mp in all_preds if mp[i]["is_anomaly"])
             avg_score = float(np.mean([mp[i]["anomaly_score"] for mp in all_preds]))
             details = [
-                {"model": self.models[j].name, "is_anomaly": all_preds[j][i]["is_anomaly"],
-                 "score": all_preds[j][i]["anomaly_score"]}
+                {
+                    "model": self.models[j].name,
+                    "is_anomaly": all_preds[j][i]["is_anomaly"],
+                    "score": all_preds[j][i]["anomaly_score"],
+                }
                 for j in range(len(self.models))
             ]
-            results.append({
-                "is_anomaly": votes >= len(self.models) / 2,
-                "anomaly_score": avg_score,
-                "votes": votes,
-                "total_models": len(self.models),
-                "details": details,
-                "model_name": "Ensemble_Voting",
-            })
+            results.append(
+                {
+                    "is_anomaly": votes >= len(self.models) / 2,
+                    "anomaly_score": avg_score,
+                    "votes": votes,
+                    "total_models": len(self.models),
+                    "details": details,
+                    "model_name": "Ensemble_Voting",
+                }
+            )
 
         return results
 
@@ -80,28 +86,23 @@ class EnsembleModel:
         return MODEL_DIR / "ensemble.joblib"
 
     def save(self, path: Optional[Path] = None) -> Path:
-        """
-        Persist all sub-models. Each base model saves itself, then the
-        ensemble wrapper is also saved via joblib.
-        """
-        import joblib
+        """Persist the ensemble (its base models are pickled inside it)."""
+        from lsadra.models.integrity import ModelStore
 
         target = path or self._model_path()
-        target.parent.mkdir(parents=True, exist_ok=True)
-
-        # Save each sub-model individually
-        for m in self.models:
-            m.save()
-
-        # Save the ensemble wrapper
-        joblib.dump(self, str(target))
+        ModelStore(target.parent).save_joblib(target.name, self)
         logger.info("Ensemble saved to %s", target)
         return target
 
     @classmethod
     def load(cls, path: Optional[Path] = None) -> "EnsembleModel":
-        """Load a persisted ensemble from disk."""
-        import joblib
+        """Load a persisted ensemble, or a fresh one if none verifies.
+
+        The file is deserialized only after its hash matches the folder's
+        authenticated manifest. A missing, unlisted or modified file is never
+        loaded; the caller gets an untrained ensemble and models retrain.
+        """
+        from lsadra.models.integrity import ModelIntegrityError, ModelStore
 
         target = path or (MODEL_DIR / "ensemble.joblib")
         if not target.exists():
@@ -109,9 +110,15 @@ class EnsembleModel:
             return cls()
 
         try:
-            model = joblib.load(str(target))
-            logger.info("Ensemble loaded from %s", target)
-            return model
+            model = ModelStore(target.parent).load_joblib(target.name)
+        except ModelIntegrityError as exc:
+            logger.warning("Refusing to load ensemble from %s: %s — creating fresh.", target, exc)
+            return cls()
         except Exception:
             logger.exception("Failed to load ensemble from %s — creating fresh.", target)
             return cls()
+        if not isinstance(model, cls):
+            logger.warning("%s does not hold an ensemble — creating fresh.", target)
+            return cls()
+        logger.info("Ensemble loaded from %s", target)
+        return model

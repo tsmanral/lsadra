@@ -30,6 +30,7 @@ FAKE_API_KEY = "test-secret-abc123"
 
 # ── The insecure default that must never ship again ───────────────────────
 
+
 def test_default_api_key_is_empty_not_dev_key():
     """The baked-in default must be empty, never the shared 'DEV_KEY_UNSECURE'."""
     assert agent.DEFAULT_CONFIG["api_key"] == ""
@@ -46,6 +47,7 @@ def test_load_config_missing_file_yields_empty_api_key():
 
 
 # ── The startup guard must fail-closed on an unconfigured key ──────────────
+
 
 def test_main_refuses_to_start_when_api_key_empty(monkeypatch):
     """main() exits(1) when api_key is unconfigured, even with a valid device_id.

@@ -20,9 +20,10 @@ import time
 from contextlib import contextmanager
 from datetime import datetime, timedelta
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional
+from typing import Any, Dict, Iterator, List, Optional, Tuple
 
 from lsadra.config import (
+    ALERT_RETENTION_DAYS,
     DB_PATH,
     RETENTION_BATCH_PAUSE_S,
     RETENTION_BATCH_SIZE,
@@ -53,6 +54,9 @@ def get_connection() -> sqlite3.Connection:
         conn.execute(f"PRAGMA busy_timeout={BUSY_TIMEOUT_S * 1000}")
         conn.execute("PRAGMA synchronous=NORMAL")
         conn.execute("PRAGMA foreign_keys=ON")
+        # G-27: deleted rows (retention, device deletes) are overwritten with
+        # zeros instead of lingering in free pages of the database file.
+        conn.execute("PRAGMA secure_delete=ON")
     except BaseException:
         conn.close()
         raise
@@ -130,9 +134,7 @@ def create_user(
 def get_user_by_username(username: str) -> Optional[Dict[str, Any]]:
     """Return a user row or *None*."""
     with _connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM users WHERE username = ?", (username,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM users WHERE username = ?", (username,)).fetchone()
         return dict(row) if row else None
 
 
@@ -144,17 +146,87 @@ def get_user_by_id(user_id: str) -> Optional[Dict[str, Any]]:
 
 
 def update_user_role(user_id: str, role: str) -> None:
-    """Update a user's role."""
+    """Update a user's role; sessions issued under the old role end at once (G-9)."""
     with _connection() as conn:
-        conn.execute("UPDATE users SET role = ? WHERE id = ?", (role, user_id))
+        conn.execute(
+            "UPDATE users SET role = ?, token_version = token_version + 1 WHERE id = ?",
+            (role, user_id),
+        )
         conn.commit()
 
 
 def list_users() -> List[Dict[str, Any]]:
     """Return all users."""
     with _connection() as conn:
-        rows = conn.execute("SELECT id, username, role, created_at FROM users").fetchall()
+        rows = conn.execute(
+            "SELECT id, username, role, created_at, disabled, totp_enabled FROM users"
+        ).fetchall()
         return [dict(r) for r in rows]
+
+
+# ── Session revocation and second factor (G-9, G-33) ──────────────────────
+# Every change below bumps users.token_version, which every access token
+# carries ("tv") and every request compares, so earlier tokens stop working.
+
+
+def bump_token_version(user_id: str) -> bool:
+    """End every session of *user_id*. False if there is no such user."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET token_version = token_version + 1 WHERE id = ?", (user_id,)
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_disabled(user_id: str, disabled: bool) -> bool:
+    """Disable or re-enable an account; disabling ends its sessions."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET disabled = ?, token_version = token_version + 1 WHERE id = ?",
+            (1 if disabled else 0, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_password_hash(user_id: str, password_hash: str) -> bool:
+    """Replace a password hash; every existing session ends."""
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET password_hash = ?, token_version = token_version + 1 WHERE id = ?",
+            (password_hash, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def set_user_totp(user_id: str, secret: Optional[str], enabled: bool) -> bool:
+    """Store (or clear, with secret=None) a TOTP secret; enabling ends other sessions."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE users SET totp_secret = ?, totp_enabled = ?, totp_last_step = 0,
+                      token_version = token_version + ?
+               WHERE id = ?""",
+            (secret, 1 if enabled else 0, 1 if enabled else 0, user_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def claim_totp_step(user_id: str, step: int) -> bool:
+    """Record *step* as used; False if it (or a later one) was already used.
+
+    One conditional UPDATE, so two concurrent logins with the same code cannot
+    both succeed.
+    """
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE users SET totp_last_step = ? WHERE id = ? AND totp_last_step < ?",
+            (step, user_id, step),
+        )
+        conn.commit()
+        return cur.rowcount == 1
 
 
 # ══════════════════════════════════════════════════════════════════════════
@@ -215,10 +287,40 @@ def touch_device(device_id: str) -> None:
         conn.commit()
 
 
-def update_device_status(device_id: str, status: str) -> None:
-    """Update device status (BASELINING | ONLINE | OFFLINE)."""
+def revoke_device(device_id: str) -> bool:
+    """Mark a device REVOKED: its key (and any rotation overlap key) stops working."""
     with _connection() as conn:
-        conn.execute("UPDATE devices SET status = ? WHERE id = ?", (status, device_id))
+        cur = conn.execute(
+            """UPDATE devices SET status = 'REVOKED', previous_api_key_hash = NULL,
+                      previous_key_expires_at = NULL
+               WHERE id = ?""",
+            (device_id,),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def rotate_device_key(device_id: str, new_key_hash: str, overlap_until: datetime) -> bool:
+    """Install a new key hash; the old one keeps working until *overlap_until*."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE devices SET previous_api_key_hash = api_key_hash,
+                      previous_key_expires_at = ?, api_key_hash = ?
+               WHERE id = ? AND status != 'REVOKED'""",
+            (overlap_until.isoformat(), new_key_hash, device_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1
+
+
+def update_device_status(device_id: str, status: str) -> None:
+    """Update device status (BASELINING | ONLINE | OFFLINE); never un-revokes."""
+    with _connection() as conn:
+        # A revoked device stays revoked; only revoke_device() sets that state.
+        conn.execute(
+            "UPDATE devices SET status = ? WHERE id = ? AND status != 'REVOKED'",
+            (status, device_id),
+        )
         conn.commit()
 
 
@@ -230,9 +332,7 @@ def increment_device_event_count(device_id: str, count: int = 1) -> int:
             (count, device_id),
         )
         conn.commit()
-        row = conn.execute(
-            "SELECT event_count FROM devices WHERE id = ?", (device_id,)
-        ).fetchone()
+        row = conn.execute("SELECT event_count FROM devices WHERE id = ?", (device_id,)).fetchone()
         return dict(row)["event_count"] if row else 0
 
 
@@ -258,9 +358,7 @@ def consume_token(token: str) -> Optional[Dict[str, Any]]:
     Returns the token row (with ``user_id``) if valid, else *None*.
     """
     with _connection() as conn:
-        row = conn.execute(
-            "SELECT * FROM registration_tokens WHERE token = ?", (token,)
-        ).fetchone()
+        row = conn.execute("SELECT * FROM registration_tokens WHERE token = ?", (token,)).fetchone()
 
         if row is None:
             return None
@@ -367,9 +465,7 @@ def store_batch_and_touch(device_id: str, events: List[Dict[str, Any]]) -> int:
         return len(events)
 
 
-def get_events_since(
-    device_id: str, after_id: int, limit: int = 500
-) -> List[Dict[str, Any]]:
+def get_events_since(device_id: str, after_id: int, limit: int = 500) -> List[Dict[str, Any]]:
     """Fetch events for a device newer than *after_id*."""
     with _connection() as conn:
         rows = conn.execute(
@@ -379,6 +475,303 @@ def get_events_since(
             (device_id, after_id, limit),
         ).fetchall()
         return [dict(r) for r in rows]
+
+
+def get_events_before(
+    device_id: str, before_id: int, since: str, limit: int = 2000
+) -> List[Dict[str, Any]]:
+    """
+    Stored events for a device with ``id < before_id`` and ``timestamp >= since``.
+
+    Detection context: the recent history a new batch's time windows need.
+    *since* is ``YYYY-MM-DDTHH:MM:SS`` (UTC). Stored timestamps share that
+    prefix whatever their suffix (``+00:00``, fractions), so the text
+    comparison orders correctly. Returned oldest first, newest *limit* rows.
+    """
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM (
+                   SELECT * FROM normalized_events
+                   WHERE device_id = ? AND id < ? AND timestamp >= ?
+                   ORDER BY id DESC LIMIT ?
+               ) ORDER BY id ASC""",
+            (device_id, before_id, since, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+
+
+def insert_sigma_matches(results: List[Dict[str, Any]]) -> int:
+    """
+    Store the ``sigma_matches`` of detection results (one row per rule match).
+
+    Returns the number of rows written.
+    """
+    rows = []
+    now = datetime.utcnow().isoformat()  # same clock and format as retention
+    for res in results:
+        for hit in res.get("sigma_matches") or []:
+            rows.append(
+                (
+                    int(res.get("event_id") or 0),
+                    str(res.get("device_id") or ""),
+                    str(hit.get("rule_id") or ""),
+                    str(hit.get("title") or ""),
+                    str(hit.get("level") or ""),
+                    json.dumps(list(hit.get("techniques") or [])),
+                    json.dumps(list(hit.get("tactics") or [])),
+                    str(hit.get("source") or ""),
+                    1 if hit.get("correlation") else 0,
+                    str(res.get("sigma_mode") or "shadow"),
+                    str(res.get("created_at") or ""),
+                    now,
+                )
+            )
+    if not rows:
+        return 0
+    with _connection() as conn:
+        conn.executemany(
+            """INSERT INTO sigma_matches
+               (event_id, device_id, rule_id, title, level, techniques, tactics,
+                source, correlation, mode, event_time, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            rows,
+        )
+        conn.commit()
+    return len(rows)
+
+
+def get_sigma_matches(device_id: Optional[str] = None, limit: int = 500) -> List[Dict[str, Any]]:
+    """Most recent Sigma matches, newest first, optionally for one device."""
+    query = "SELECT * FROM sigma_matches"
+    params: List[Any] = []
+    if device_id:
+        query += " WHERE device_id = ?"
+        params.append(device_id)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(int(limit))
+    with _connection() as conn:
+        out = []
+        for r in conn.execute(query, params).fetchall():
+            row = dict(r)
+            row["techniques"] = json.loads(row.get("techniques") or "[]")
+            row["tactics"] = json.loads(row.get("tactics") or "[]")
+            row["correlation"] = bool(row.get("correlation"))
+            out.append(row)
+        return out
+
+
+# ── entity risk (audit G-29; lsadra/detection/risk.py) ─────────────────────
+
+
+def _risk_row(r: sqlite3.Row) -> Dict[str, Any]:
+    row = dict(r)
+    if "tactics" in row:
+        row["tactics"] = json.loads(row.get("tactics") or "[]")
+    return row
+
+
+def insert_risk_events(rows: List[Dict[str, Any]]) -> int:
+    """Store risk signals (one row per signal per entity). Returns rows written."""
+    if not rows:
+        return 0
+    now = datetime.utcnow().isoformat()  # same clock and format as retention
+    with _connection() as conn:
+        conn.executemany(
+            """INSERT INTO risk_events
+               (entity_type, entity, device_id, user_id, event_id, source, rule_id, title,
+                level, technique_id, tactics, base_score, event_time, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            [
+                (
+                    r["entity_type"],
+                    r["entity"],
+                    r.get("device_id") or "",
+                    r.get("user_id"),
+                    r.get("event_id"),
+                    r["source"],
+                    r.get("rule_id"),
+                    r.get("title") or "",
+                    r.get("level") or "",
+                    r.get("technique_id"),
+                    json.dumps(list(r.get("tactics") or [])),
+                    float(r["base_score"]),
+                    r["event_time"],
+                    now,
+                )
+                for r in rows
+            ],
+        )
+        conn.commit()
+    return len(rows)
+
+
+def get_risk_events(
+    entity_type: str, entity: str, since: str = "", limit: int = 5000
+) -> List[Dict[str, Any]]:
+    """An entity's risk signals with ``event_time >= since``, oldest first (newest *limit*)."""
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT * FROM (
+                   SELECT * FROM risk_events
+                   WHERE entity_type = ? AND entity = ? AND event_time >= ?
+                   ORDER BY event_time DESC, id DESC LIMIT ?
+               ) ORDER BY event_time ASC, id ASC""",
+            (entity_type, entity, since, int(limit)),
+        ).fetchall()
+        return [_risk_row(r) for r in rows]
+
+
+def get_risk_entities(
+    since: str = "", user_id: Optional[str] = None, limit: int = 200
+) -> List[Dict[str, Any]]:
+    """Entities with risk signals since *since*, most recent first (optionally one owner's)."""
+    query = """SELECT entity_type, entity, MAX(device_id) AS device_id, COUNT(*) AS signal_rows,
+                      MAX(event_time) AS last_seen
+               FROM risk_events WHERE event_time >= ?"""
+    params: List[Any] = [since]
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    query += " GROUP BY entity_type, entity ORDER BY last_seen DESC LIMIT ?"
+    params.append(int(limit))
+    with _connection() as conn:
+        return [dict(r) for r in conn.execute(query, params).fetchall()]
+
+
+def get_asset_weight(entity_type: str, entity: str) -> float:
+    """The user-set weight of an asset, 1.0 when none is set."""
+    with _connection() as conn:
+        row = conn.execute(
+            "SELECT weight FROM asset_weights WHERE entity_type = ? AND entity = ?",
+            (entity_type, entity),
+        ).fetchone()
+        return float(row["weight"]) if row else 1.0
+
+
+def set_asset_weight(
+    entity_type: str, entity: str, weight: float, note: str = "", updated_by: Optional[str] = None
+) -> None:
+    """Set (or replace) an asset's risk weight; 0 < weight <= 5."""
+    with _connection() as conn:
+        conn.execute(
+            """INSERT INTO asset_weights (entity_type, entity, weight, note, updated_by, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?)
+               ON CONFLICT(entity_type, entity) DO UPDATE SET
+                   weight = excluded.weight, note = excluded.note,
+                   updated_by = excluded.updated_by, updated_at = excluded.updated_at""",
+            (entity_type, entity, float(weight), note, updated_by, datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+
+
+def get_open_risk_notable(entity_type: str, entity: str) -> Optional[Dict[str, Any]]:
+    """The entity's open risk case, if any."""
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM risk_notables WHERE entity_type = ? AND entity = ? AND status = 'OPEN'
+               ORDER BY id DESC LIMIT 1""",
+            (entity_type, entity),
+        ).fetchone()
+        return _risk_row(row) if row else None
+
+
+def create_risk_notable(
+    entity_type: str,
+    entity: str,
+    device_id: str,
+    user_id: Optional[str],
+    score: float,
+    tactics: List[str],
+    signal_count: int,
+    mode: str,
+    first_seen: str,
+    last_seen: str,
+) -> int:
+    """Open a risk case for an entity. Returns its id."""
+    now = datetime.utcnow().isoformat()
+    with _connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO risk_notables
+               (entity_type, entity, device_id, user_id, score, tactics, signal_count, mode,
+                status, first_seen, last_seen, created_at, updated_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, 'OPEN', ?, ?, ?, ?)""",
+            (
+                entity_type,
+                entity,
+                device_id,
+                user_id,
+                float(score),
+                json.dumps(list(tactics)),
+                int(signal_count),
+                mode,
+                first_seen,
+                last_seen,
+                now,
+                now,
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+
+
+def update_risk_notable(
+    notable_id: int, score: float, tactics: List[str], signal_count: int, last_seen: str
+) -> None:
+    """Refresh an open risk case with the entity's latest score and tactic chain."""
+    with _connection() as conn:
+        conn.execute(
+            """UPDATE risk_notables SET score = ?, tactics = ?, signal_count = ?, last_seen = ?,
+                      updated_at = ? WHERE id = ?""",
+            (
+                float(score),
+                json.dumps(list(tactics)),
+                int(signal_count),
+                last_seen,
+                datetime.utcnow().isoformat(),
+                int(notable_id),
+            ),
+        )
+        conn.commit()
+
+
+def set_risk_notable_status(notable_id: int, status: str) -> bool:
+    """Close or reopen a risk case. Returns whether it existed."""
+    if status not in ("OPEN", "CLOSED"):
+        raise ValueError("status must be OPEN or CLOSED")
+    with _connection() as conn:
+        cur = conn.execute(
+            "UPDATE risk_notables SET status = ?, updated_at = ? WHERE id = ?",
+            (status, datetime.utcnow().isoformat(), int(notable_id)),
+        )
+        conn.commit()
+        return cur.rowcount > 0
+
+
+def get_risk_notables(
+    user_id: Optional[str] = None, status: Optional[str] = None, limit: int = 100
+) -> List[Dict[str, Any]]:
+    """Risk cases, highest score first (optionally one owner's, one status)."""
+    query = "SELECT * FROM risk_notables WHERE 1 = 1"
+    params: List[Any] = []
+    if user_id:
+        query += " AND user_id = ?"
+        params.append(user_id)
+    if status:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY score DESC, id DESC LIMIT ?"
+    params.append(int(limit))
+    with _connection() as conn:
+        return [_risk_row(r) for r in conn.execute(query, params).fetchall()]
+
+
+def get_risk_notable(notable_id: int) -> Optional[Dict[str, Any]]:
+    """One risk case by id."""
+    with _connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM risk_notables WHERE id = ?", (int(notable_id),)
+        ).fetchone()
+        return _risk_row(row) if row else None
 
 
 def get_events_for_user(
@@ -449,8 +842,9 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
                 severity_score, severity_label,
                 is_anomaly, threat_type, attack_type,
                 mitre_technique, mitre_confidence,
-                narrative, shap_values, incident_id, is_synthetic)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                narrative, shap_values, incident_id, is_synthetic,
+                rule_id, rule_version, mitre_tactics)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 anomaly.get("event_id"),
                 anomaly.get("device_id"),
@@ -471,11 +865,31 @@ def insert_anomaly(anomaly: Dict[str, Any]) -> int:
                 json.dumps(anomaly.get("shap_values", {})),
                 anomaly.get("incident_id"),
                 anomaly.get("is_synthetic", False),
+                anomaly.get("rule_id"),
+                anomaly.get("rule_version"),
+                json.dumps(anomaly.get("mitre_tactics") or []),
             ),
         )
         row_id = cur.lastrowid
         conn.commit()
         return row_id or 0
+
+
+def get_recent_rule_alert(rule_id: str, source_ip: str, since: str) -> Optional[Dict[str, Any]]:
+    """The newest anomaly *rule_id* raised for *source_ip* at or after *since*.
+
+    *since* is ``YYYY-MM-DD HH:MM:SS`` in UTC, the format of
+    ``anomalies.created_at``. The scheduler uses it so one address raises one
+    alert per rule per window, not one per scan.
+    """
+    with _connection() as conn:
+        row = conn.execute(
+            """SELECT * FROM anomalies
+               WHERE rule_id = ? AND source_ip = ? AND created_at >= ?
+               ORDER BY id DESC LIMIT 1""",
+            (rule_id, source_ip, since),
+        ).fetchone()
+        return dict(row) if row else None
 
 
 def get_anomalies_for_user(
@@ -492,9 +906,7 @@ def get_anomalies_for_user(
         return [dict(r) for r in rows]
 
 
-def get_anomalies_for_device(
-    device_id: str, limit: int = 200
-) -> List[Dict[str, Any]]:
+def get_anomalies_for_device(device_id: str, limit: int = 200) -> List[Dict[str, Any]]:
     """Return anomalies for a specific device."""
     with _connection() as conn:
         rows = conn.execute(
@@ -603,10 +1015,41 @@ def update_incident_last_seen(incident_id: int, last_seen: str) -> None:
         conn.commit()
 
 
+def elevate_cross_source_incidents(source_ip: str, at: str) -> List[Dict[str, Any]]:
+    """Raise each open incident from *source_ip* one severity step, once.
+
+    Only incidents not raised before (``cross_source_at IS NULL``) and below
+    CRITICAL change; each is stamped with *at* so later runs leave it alone.
+    Returns the incidents that changed, with their old and new labels.
+    """
+    order = ("LOW", "MEDIUM", "HIGH", "CRITICAL")
+    changed: List[Dict[str, Any]] = []
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT id, severity_label FROM incidents
+               WHERE source_ip = ? AND status IN ('OPEN', 'INVESTIGATING')
+                 AND cross_source_at IS NULL""",
+            (source_ip,),
+        ).fetchall()
+        for row in rows:
+            old = str(row["severity_label"] or "LOW").upper()
+            new = order[min(order.index(old) + 1, len(order) - 1)] if old in order else "MEDIUM"
+            conn.execute(
+                "UPDATE incidents SET severity_label = ?, cross_source_at = ? WHERE id = ?",
+                (new, at, row["id"]),
+            )
+            if new != old:
+                changed.append({"id": row["id"], "old": old, "new": new})
+        conn.commit()
+    return changed
+
+
 def update_incident_status(incident_id: int, status: str, notes: str = "") -> None:
     """Update incident status (OPEN, INVESTIGATING, RESOLVED, FALSE_POSITIVE)."""
     with _connection() as conn:
-        resolved_at = datetime.utcnow().isoformat() if status in ("RESOLVED", "FALSE_POSITIVE") else None
+        resolved_at = (
+            datetime.utcnow().isoformat() if status in ("RESOLVED", "FALSE_POSITIVE") else None
+        )
         conn.execute(
             """UPDATE incidents
                SET status = ?, notes = ?, resolved_at = COALESCE(?, resolved_at)
@@ -645,10 +1088,10 @@ def get_all_incidents(
     with _connection() as conn:
         query = "SELECT i.* FROM incidents i"
         params: List[Any] = []
-        
+
         if user_id:
             query += " JOIN devices d ON i.device_id = d.id"
-            
+
         conditions = []
         if status:
             conditions.append("i.status = ?")
@@ -656,13 +1099,13 @@ def get_all_incidents(
         if user_id:
             conditions.append("d.user_id = ?")
             params.append(user_id)
-            
+
         if conditions:
             query += " WHERE " + " AND ".join(conditions)
-            
+
         query += " ORDER BY i.last_seen DESC LIMIT ?"
         params.append(limit)
-        
+
         rows = conn.execute(query, tuple(params)).fetchall()
         return [dict(r) for r in rows]
 
@@ -836,15 +1279,21 @@ def upsert_metrics_5min(
                    max_severity  = excluded.max_severity,
                    unique_ips    = excluded.unique_ips,
                    unique_users  = excluded.unique_users""",
-            (device_id, window_start, event_count, anomaly_count,
-             avg_severity, max_severity, unique_ips, unique_users),
+            (
+                device_id,
+                window_start,
+                event_count,
+                anomaly_count,
+                avg_severity,
+                max_severity,
+                unique_ips,
+                unique_users,
+            ),
         )
         conn.commit()
 
 
-def get_metrics_timeseries(
-    device_id: str, start: str, end: str
-) -> List[Dict[str, Any]]:
+def get_metrics_timeseries(device_id: str, start: str, end: str) -> List[Dict[str, Any]]:
     """Return metrics_5min rows for a device within a time range."""
     with _connection() as conn:
         rows = conn.execute(
@@ -893,9 +1342,19 @@ def upsert_threat_intel(
                    raw_response  = excluded.raw_response,
                    queried_at    = excluded.queried_at,
                    expires_at    = excluded.expires_at""",
-            (ip_address, abuse_score, country_code, isp, domain, is_tor,
-             total_reports, last_reported, raw_response,
-             now.isoformat(), expires.isoformat()),
+            (
+                ip_address,
+                abuse_score,
+                country_code,
+                isp,
+                domain,
+                is_tor,
+                total_reports,
+                last_reported,
+                raw_response,
+                now.isoformat(),
+                expires.isoformat(),
+            ),
         )
         conn.commit()
 
@@ -1005,21 +1464,74 @@ def get_drift_records(model_name: str, limit: int = 50) -> List[Dict[str, Any]]:
 # Retention order matters: the only FK into ``normalized_events`` is
 # ``anomalies.event_id`` (migration 001), so anomalies go first. Table and column
 # names are constants, never input.
+#
+# Each table belongs to a tier (gap G-35): "raw" telemetry expires after
+# RETENTION_DAYS (default 30), "alert" rows (anomalies and the rollups built from
+# events) after ALERT_RETENTION_DAYS (default 365).
 _RETENTION_STEPS = (
-    ("anomalies", "created_at", ""),
+    ("anomalies", "created_at", "alert", ""),
+    ("sigma_matches", "created_at", "alert", ""),
+    ("risk_events", "created_at", "alert", ""),
     (
         "normalized_events",
         "timestamp",
+        "raw",
         "AND id NOT IN (SELECT event_id FROM anomalies WHERE event_id IS NOT NULL)",
     ),
-    ("device_heartbeats", "timestamp", ""),
-    ("metrics_5min", "window_start", ""),
-    ("feature_drift", "measured_at", ""),
+    ("device_heartbeats", "timestamp", "raw", ""),
+    ("metrics_5min", "window_start", "alert", ""),
+    ("feature_drift", "measured_at", "alert", ""),
+    # G-27: personal data that used to be kept forever. Closed incidents go once
+    # no retained anomaly points at them; open ones stay until someone closes them.
+    # Incidents and analyst feedback are alert records, so they follow the alert tier.
+    (
+        "incidents",
+        "last_seen",
+        "alert",
+        "AND status IN ('RESOLVED', 'FALSE_POSITIVE') "
+        "AND id NOT IN (SELECT incident_id FROM anomalies WHERE incident_id IS NOT NULL)",
+    ),
+    ("alerts_feedback", "created_at", "alert", ""),
+    ("threat_intel_cache", "queried_at", "raw", ""),
+    ("ip_geolocation", "resolved_at", "raw", ""),
+    ("registration_tokens", "expires_at", "raw", ""),
 )
+
+# Audit rows have their own, longer floor (config.AUDIT_RETENTION_DAYS >= 365);
+# the table's trigger refuses anything younger than 365 days.
+_AUDIT_RETENTION = ("audit_events", "ts")
+
+
+def _retention_cutoffs(now: Optional[datetime] = None) -> Dict[str, str]:
+    """ISO cutoff per tier; rows older than their tier's cutoff are deleted."""
+    from lsadra import config as _config
+
+    now = now or datetime.utcnow()
+    alert_days = max(ALERT_RETENTION_DAYS, RETENTION_DAYS)
+    return {
+        "raw": (now - timedelta(days=RETENTION_DAYS)).isoformat(),
+        "alert": (now - timedelta(days=alert_days)).isoformat(),
+        "audit": (now - timedelta(days=_config.AUDIT_RETENTION_DAYS)).strftime("%Y-%m-%dT%H:%M:%S"),
+    }
+
+
+def _retention_pause(seconds: float) -> None:
+    """Pause between retention batches so waiting writers get the lock.
+
+    Its own function so tests can replace this pause alone; patching
+    ``time.sleep`` would also catch sleeps on unrelated threads.
+    """
+    time.sleep(seconds)
 
 
 def cleanup_old_data(batch_size: Optional[int] = None) -> int:
-    """Delete rows older than RETENTION_DAYS. Returns the number of events deleted.
+    """Delete rows past their retention tier. Returns the number of events deleted.
+
+    Tiered: raw telemetry (events, heartbeats, enrichment caches, expired
+    registration tokens) older than ``RETENTION_DAYS``; alert records
+    (anomalies, closed incidents, analyst feedback, 5-minute metrics, drift
+    records) older than ``ALERT_RETENTION_DAYS``; ``audit_events`` older than
+    ``AUDIT_RETENTION_DAYS`` (365 minimum).
 
     Bounded: each table is cleared in transactions of at most ``batch_size`` rows
     (default ``RETENTION_BATCH_SIZE``), each committed on its own, with a short
@@ -1028,19 +1540,23 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
     and the next run picks up where this one stopped.
 
     Tables go in foreign-key-safe order (``_RETENTION_STEPS``). An expired event
-    still referenced by a *retained* anomaly (e.g. a back-filled log line whose
-    anomaly is recent) is kept until that anomaly ages out: deleting it would
-    violate the FK, deleting the anomaly early would drop a finding inside its
-    retention window. ``incidents`` are not part of retention; they are only
-    ever the parent side (``anomalies.incident_id``), so they impose no ordering.
+    still referenced by a *retained* anomaly (e.g. the evidence behind an alert
+    that is inside the alert tier) is kept until that anomaly ages out: deleting
+    it would violate the FK, deleting the anomaly early would drop a finding
+    inside its retention window. Closed incidents expire after their anomalies
+    (an incident still referenced by a retained anomaly stays); open incidents
+    are never expired.
     """
     batch = batch_size or RETENTION_BATCH_SIZE
     if batch < 1:
         raise ValueError("retention batch size must be at least 1")
-    cutoff = (datetime.utcnow() - timedelta(days=RETENTION_DAYS)).isoformat()
+    cutoffs = _retention_cutoffs()
+    steps = [(t, c, tier, e) for t, c, tier, e in _RETENTION_STEPS]
+    steps.append((_AUDIT_RETENTION[0], _AUDIT_RETENTION[1], "audit", ""))
     events_deleted = 0
     with _connection() as conn:
-        for table, column, extra in _RETENTION_STEPS:
+        for table, column, tier, extra in steps:
+            cutoff = cutoffs[tier]
             while True:
                 cur = conn.execute(
                     f"""DELETE FROM {table} WHERE rowid IN (
@@ -1053,8 +1569,13 @@ def cleanup_old_data(batch_size: Optional[int] = None) -> int:
                     events_deleted += deleted
                 if deleted < batch:
                     break
-                time.sleep(RETENTION_BATCH_PAUSE_S)
-    logger.info("Retention cleanup: removed %d events older than %s", events_deleted, cutoff)
+                _retention_pause(RETENTION_BATCH_PAUSE_S)
+    logger.info(
+        "Retention cleanup: removed %d events older than %s (alerts kept until %s)",
+        events_deleted,
+        cutoffs["raw"],
+        cutoffs["alert"],
+    )
     return events_deleted
 
 
@@ -1095,8 +1616,12 @@ def store_feedback(
                 suggested_thresholds, source_type)
                VALUES (?, ?, ?, ?, ?, ?)""",
             (
-                alert_id, label, analyst_note, fp_pattern,
-                json.dumps(suggested_thresholds), source_type,
+                alert_id,
+                label,
+                analyst_note,
+                fp_pattern,
+                json.dumps(suggested_thresholds),
+                source_type,
             ),
         )
         conn.commit()
@@ -1211,9 +1736,7 @@ def get_ingestion_stats(
         last_event, updated_at.
     """
     with _connection(db_conn) as conn:
-        rows = conn.execute(
-            "SELECT * FROM ingestion_stats ORDER BY events_count DESC"
-        ).fetchall()
+        rows = conn.execute("SELECT * FROM ingestion_stats ORDER BY events_count DESC").fetchall()
         return [dict(r) for r in rows]
 
 
@@ -1222,3 +1745,211 @@ def get_ingestion_stats(
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO, format="%(levelname)s: %(message)s")
     init_db()
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CRUD: model training runs (G-18 audit trail)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def insert_training_run(
+    trigger: str,
+    requested_by: Optional[str],
+    status: str,
+    event_count: int = 0,
+    device_count: int = 0,
+    excluded_count: int = 0,
+    canary: Optional[dict] = None,
+    detail: str = "",
+    finished: bool = True,
+) -> int:
+    """Record one training / promotion / rollback attempt. Returns its id."""
+    now = datetime.utcnow().isoformat()
+    with _connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO model_training_runs
+               (started_at, finished_at, trigger, requested_by, status,
+                event_count, device_count, excluded_count, canary, detail)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (
+                now,
+                now if finished else None,
+                trigger,
+                requested_by,
+                status,
+                event_count,
+                device_count,
+                excluded_count,
+                json.dumps(canary) if canary is not None else None,
+                detail[:2000],
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+
+
+def finish_training_run(
+    run_id: int,
+    status: str,
+    event_count: int = 0,
+    device_count: int = 0,
+    excluded_count: int = 0,
+    canary: Optional[dict] = None,
+    detail: str = "",
+) -> None:
+    """Close a training run row opened with ``finished=False``."""
+    with _connection() as conn:
+        conn.execute(
+            """UPDATE model_training_runs
+               SET finished_at = ?, status = ?, event_count = ?, device_count = ?,
+                   excluded_count = ?, canary = ?, detail = ?
+               WHERE id = ?""",
+            (
+                datetime.utcnow().isoformat(),
+                status,
+                event_count,
+                device_count,
+                excluded_count,
+                json.dumps(canary) if canary is not None else None,
+                detail[:2000],
+                run_id,
+            ),
+        )
+        conn.commit()
+
+
+def get_training_runs(limit: int = 20) -> List[Dict[str, Any]]:
+    """Most recent training runs first."""
+    with _connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM model_training_runs ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        if d.get("canary"):
+            try:
+                d["canary"] = json.loads(d["canary"])
+            except ValueError:
+                pass
+        out.append(d)
+    return out
+
+
+def get_training_events(limit: int) -> Tuple[List[Dict[str, Any]], int]:
+    """Most recent events that are not themselves recorded as anomalies.
+
+    Returns ``(events, excluded)`` where *excluded* counts the recent events
+    dropped because an anomaly row points at them. Events inside an open
+    incident's window are filtered by the caller.
+    """
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT e.* FROM (
+                   SELECT * FROM normalized_events ORDER BY id DESC LIMIT ?
+               ) AS e
+               WHERE NOT EXISTS (
+                   SELECT 1 FROM anomalies a WHERE a.event_id = e.id AND a.is_anomaly
+               )
+               ORDER BY e.id""",
+            (limit,),
+        ).fetchall()
+        total = conn.execute(
+            "SELECT COUNT(*) FROM (SELECT id FROM normalized_events ORDER BY id DESC LIMIT ?)",
+            (limit,),
+        ).fetchone()[0]
+    return [dict(r) for r in rows], int(total) - len(rows)
+
+
+def get_open_incident_windows() -> List[Dict[str, Any]]:
+    """Device, source IP and time window of every OPEN or INVESTIGATING incident."""
+    with _connection() as conn:
+        rows = conn.execute(
+            """SELECT device_id, source_ip, first_seen, last_seen FROM incidents
+               WHERE status IN ('OPEN', 'INVESTIGATING')"""
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def get_recent_events(limit: int) -> List[Dict[str, Any]]:
+    """The *limit* most recently stored events (for drift measurement)."""
+    with _connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM normalized_events ORDER BY id DESC LIMIT ?", (limit,)
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ══════════════════════════════════════════════════════════════════════════
+#  CRUD: proposed actions (G-30 action broker; recommend-only)
+# ══════════════════════════════════════════════════════════════════════════
+
+
+def insert_proposed_action(
+    incident_id: int,
+    action: str,
+    target: str,
+    rationale: str = "",
+    source: str = "llm",
+    evidence_event_ids: Optional[List[int]] = None,
+) -> int:
+    """Store a recommendation as PROPOSED. There is no execute counterpart."""
+    with _connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO proposed_actions
+               (incident_id, action, target, rationale, source, evidence_event_ids,
+                status, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, 'PROPOSED', ?)""",
+            (
+                incident_id,
+                action,
+                target,
+                rationale,
+                source,
+                json.dumps(evidence_event_ids or []),
+                datetime.utcnow().isoformat(),
+            ),
+        )
+        conn.commit()
+        return cur.lastrowid or 0
+
+
+def get_proposed_actions(
+    incident_id: Optional[int] = None, status: Optional[str] = None, limit: int = 100
+) -> List[Dict[str, Any]]:
+    """Proposed actions, newest first, optionally for one incident and/or status."""
+    query = "SELECT * FROM proposed_actions WHERE 1=1"
+    params: List[Any] = []
+    if incident_id is not None:
+        query += " AND incident_id = ?"
+        params.append(incident_id)
+    if status is not None:
+        query += " AND status = ?"
+        params.append(status)
+    query += " ORDER BY id DESC LIMIT ?"
+    params.append(limit)
+    with _connection() as conn:
+        rows = conn.execute(query, params).fetchall()
+    out = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["evidence_event_ids"] = json.loads(d.get("evidence_event_ids") or "[]")
+        except ValueError:
+            d["evidence_event_ids"] = []
+        out.append(d)
+    return out
+
+
+def decide_proposed_action(proposal_id: int, decision: str, decided_by: str) -> bool:
+    """Move a PROPOSED action to APPROVED or REJECTED. False if it was not pending."""
+    if decision not in ("APPROVED", "REJECTED"):
+        raise ValueError("decision must be APPROVED or REJECTED")
+    with _connection() as conn:
+        cur = conn.execute(
+            """UPDATE proposed_actions SET status = ?, decided_by = ?, decided_at = ?
+               WHERE id = ? AND status = 'PROPOSED'""",
+            (decision, decided_by, datetime.utcnow().isoformat(), proposal_id),
+        )
+        conn.commit()
+        return cur.rowcount == 1

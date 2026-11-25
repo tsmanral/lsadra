@@ -7,7 +7,7 @@ threshold, the corresponding model is flagged as stale in the model registry.
 """
 
 import logging
-from typing import Dict, List, Optional
+from typing import Any, Dict, List, Optional
 
 import numpy as np
 import pandas as pd
@@ -15,18 +15,14 @@ import pandas as pd
 from lsadra.config import PSI_DRIFT_THRESHOLD
 from lsadra.features.feature_extractor import FEATURE_COLS
 from lsadra.storage.database import (
-    get_events_since,
     insert_drift_record,
     mark_model_stale,
-    get_all_devices,
 )
 
 logger = logging.getLogger(__name__)
 
 
-def _calculate_psi(
-    reference: np.ndarray, current: np.ndarray, n_bins: int = 10
-) -> float:
+def _calculate_psi(reference: np.ndarray, current: np.ndarray, n_bins: int = 10) -> float:
     """
     Calculate Population Stability Index between two 1-D distributions.
 
@@ -99,7 +95,10 @@ def detect_drift(
             drifted[feat] = psi
             logger.warning(
                 "Feature drift detected: %s (PSI=%.4f > %.4f) for model '%s'",
-                feat, psi, threshold, model_name,
+                feat,
+                psi,
+                threshold,
+                model_name,
             )
 
     # If any feature has drifted, mark the model as stale
@@ -112,6 +111,65 @@ def detect_drift(
     return drifted
 
 
+def detect_drift_from_reference(
+    reference: Dict[str, Any],
+    current_df: pd.DataFrame,
+    threshold: float = PSI_DRIFT_THRESHOLD,
+) -> Dict[str, float]:
+    """PSI of each feature in *current_df* against stored training quantiles (G-19).
+
+    Records a measurement per feature for both ML models and marks both stale
+    when any feature drifts. A sudden jump right after a retrain can also mean
+    the training data was poisoned, so the warning says so: review the latest
+    training run before retraining again.
+    """
+    from lsadra.detection.model_lifecycle import psi_against_reference
+
+    drifted: Dict[str, float] = {}
+    for feat, ref in (reference.get("features") or {}).items():
+        if feat not in current_df.columns:
+            continue
+        values = pd.to_numeric(current_df[feat], errors="coerce").dropna().to_numpy(dtype=float)
+        if len(values) < 10:
+            continue
+        psi = psi_against_reference(ref, values)
+        is_drifted = psi > threshold
+        for model_name in ("ensemble", "autoencoder"):
+            insert_drift_record(model_name, feat, psi, is_drifted)
+        if is_drifted:
+            drifted[feat] = psi
+
+    if drifted:
+        for model_name in ("ensemble", "autoencoder"):
+            mark_model_stale(model_name)
+        logger.warning(
+            "Feature drift against the training reference: %s. Either the environment "
+            "changed or recent training data was poisoned; review the latest training run "
+            "(GET /api/models/status) before retraining or roll back.",
+            ", ".join(f"{k}={v:.3f}" for k, v in sorted(drifted.items())),
+        )
+    return drifted
+
+
+def _recent_feature_window(hours: int) -> pd.DataFrame:
+    """Features of events from the last *hours* hours (bounded by TRAINING_MAX_EVENTS)."""
+    from lsadra import config
+    from lsadra.features.feature_extractor import build_features
+    from lsadra.storage.database import get_recent_events
+
+    events = get_recent_events(config.TRAINING_MAX_EVENTS)
+    if not events:
+        return pd.DataFrame()
+    cutoff = pd.Timestamp.now(tz="UTC") - pd.Timedelta(hours=hours)
+    recent = []
+    for ev in events:
+        ts = pd.to_datetime(ev.get("timestamp"), errors="coerce", utc=True)
+        if not pd.isna(ts) and ts >= cutoff:
+            recent.append(ev)
+    recent.reverse()  # oldest first, as build_features expects
+    return build_features(recent)
+
+
 def run(
     reference_df: Optional[pd.DataFrame] = None,
     current_df: Optional[pd.DataFrame] = None,
@@ -119,13 +177,26 @@ def run(
     """
     Scheduled entry point for drift detection.
 
-    If reference/current DataFrames are not supplied, this is a no-op
-    (the caller should build them from the DB).
+    With DataFrames supplied, compares them directly. Without, compares the
+    last ``LSADRA_DRIFT_WINDOW_HOURS`` of events against the reference
+    quantiles stored (and verified) when the live models were trained.
     """
-    if reference_df is None or current_df is None:
-        logger.info("Drift detection skipped — no data supplied.")
-        return {}
+    if reference_df is not None and current_df is not None:
+        results = detect_drift(reference_df, current_df, model_name="ensemble")
+        detect_drift(reference_df, current_df, model_name="autoencoder")
+        return results
 
-    results = detect_drift(reference_df, current_df, model_name="ensemble")
-    detect_drift(reference_df, current_df, model_name="autoencoder")
-    return results
+    from lsadra import config
+    from lsadra.detection.model_lifecycle import load_reference
+
+    reference = load_reference()
+    if not reference:
+        logger.info("Drift detection skipped — no verified training reference yet.")
+        return {}
+    current = _recent_feature_window(config.DRIFT_WINDOW_HOURS)
+    if current.empty:
+        logger.info(
+            "Drift detection skipped — no events in the last %d h.", config.DRIFT_WINDOW_HOURS
+        )
+        return {}
+    return detect_drift_from_reference(reference, current)

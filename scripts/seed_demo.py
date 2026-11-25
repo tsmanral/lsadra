@@ -123,7 +123,9 @@ def _parse_ts(value: str) -> datetime:
     return datetime.fromisoformat(value.replace("Z", "+00:00"))
 
 
-def time_shift(events: List[Dict[str, Any]], anchor: Optional[datetime] = None) -> List[Dict[str, Any]]:
+def time_shift(
+    events: List[Dict[str, Any]], anchor: Optional[datetime] = None
+) -> List[Dict[str, Any]]:
     """
     Shift the whole corpus forward so its newest event sits at *anchor* (now).
 
@@ -242,8 +244,7 @@ class DemoSeeder:
             )
             if reg.status_code != 200:
                 raise SeedError(
-                    f"could not create demo user {username!r}: "
-                    f"{reg.status_code} {reg.text[:200]}"
+                    f"could not create demo user {username!r}: {reg.status_code} {reg.text[:200]}"
                 )
             resp = self.session.post(
                 self._url("/api/auth/login"),
@@ -297,7 +298,9 @@ class DemoSeeder:
                 "device registration was rate limited (5/min per IP) — wait a minute and retry"
             )
         if reg_resp.status_code != 200:
-            raise SeedError(f"device registration failed: {reg_resp.status_code} {reg_resp.text[:200]}")
+            raise SeedError(
+                f"device registration failed: {reg_resp.status_code} {reg_resp.text[:200]}"
+            )
 
         data = reg_resp.json()
         self.device_id = data["device_id"]
@@ -315,9 +318,7 @@ class DemoSeeder:
             timeout=self.ingest_timeout,
         )
         if resp.status_code == 429:
-            raise SeedError(
-                "ingestion rate limit hit — lower --batch-size or raise --pace"
-            )
+            raise SeedError("ingestion rate limit hit — lower --batch-size or raise --pace")
         if resp.status_code != 200:
             raise SeedError(f"ingest failed: {resp.status_code} {resp.text[:300]}")
         return int(resp.json().get("events_accepted", 0))
@@ -417,6 +418,7 @@ class RequestRecord:
     status: int  # HTTP status; 0 = transport error / client timeout
     events_sent: int
     events_accepted: int
+    request_id: str = ""  # x-bench-request-id sent with it, when the caller asked for one
 
 
 @dataclass
@@ -444,8 +446,13 @@ async def drive_rate(
     request_timeout: float = 120.0,
     max_in_flight: int = 256,
     drain_timeout: float = 120.0,
+    request_id_prefix: Optional[str] = None,
 ) -> RateResult:
-    """Offer *rate* events/s for *duration* s, round-robin across *creds*."""
+    """Offer *rate* events/s for *duration* s, round-robin across *creds*.
+
+    With *request_id_prefix*, batch *k* also carries an ``x-bench-request-id``
+    header ``<prefix>-<k>`` (ignored by the server; the benchmark's tracer reads it).
+    """
     import httpx  # in requirements.txt; imported lazily so one-shot mode never needs it
 
     interval = batch_size / rate
@@ -465,14 +472,17 @@ async def drive_rate(
     ) as client:
         started = time.perf_counter()
 
-        async def send(device_index: int, batch: List[Dict[str, Any]]) -> None:
+        async def send(device_index: int, batch: List[Dict[str, Any]], request_id: str) -> None:
             device_id, api_key = creds[device_index]
+            headers = {"x-device-id": device_id, "x-api-key": api_key}
+            if request_id:
+                headers["x-bench-request-id"] = request_id
             t_send = time.perf_counter()
             try:
                 resp = await client.post(
                     "/api/events/batch",
                     json={"events": batch},
-                    headers={"x-device-id": device_id, "x-api-key": api_key},
+                    headers=headers,
                 )
                 status = resp.status_code
                 accepted = int(resp.json().get("events_accepted", 0)) if status == 200 else 0
@@ -485,6 +495,7 @@ async def drive_rate(
                     status=status,
                     events_sent=len(batch),
                     events_accepted=accepted,
+                    request_id=request_id,
                 )
             )
 
@@ -499,7 +510,10 @@ async def drive_rate(
             if len(in_flight) >= max_in_flight:
                 result.skipped_backpressure += 1
                 continue
-            task = asyncio.create_task(send(k % len(creds), cycler.next_batch(batch_size)))
+            request_id = f"{request_id_prefix}-{k}" if request_id_prefix else ""
+            task = asyncio.create_task(
+                send(k % len(creds), cycler.next_batch(batch_size), request_id)
+            )
             in_flight.add(task)
             task.add_done_callback(in_flight.discard)
 
@@ -591,8 +605,15 @@ def seed_rate(args: argparse.Namespace) -> int:
     print(f"devices: registered {len(creds)}; offering {args.rate:g} ev/s for {args.duration:g} s")
 
     result = asyncio.run(
-        drive_rate(args.url, creds, cycler, args.rate, args.duration, args.batch_size,
-                   request_timeout=args.ingest_timeout)
+        drive_rate(
+            args.url,
+            creds,
+            cycler,
+            args.rate,
+            args.duration,
+            args.batch_size,
+            request_timeout=args.ingest_timeout,
+        )
     )
     print(json.dumps(summarize_rate(result), indent=2))
     return 0
@@ -737,19 +758,13 @@ def main(argv: Optional[List[str]] = None) -> int:
         args.pace = 0.95 if rate_mode else 0.8
 
     if not 1 <= args.batch_size <= SERVER_MAX_EVENTS_PER_BATCH:
-        print(
-            f"error: --batch-size must be 1..{SERVER_MAX_EVENTS_PER_BATCH}", file=sys.stderr
-        )
+        print(f"error: --batch-size must be 1..{SERVER_MAX_EVENTS_PER_BATCH}", file=sys.stderr)
         return 2
     if not 0 < args.pace <= 1:
         print("error: --pace must be in (0, 1]", file=sys.stderr)
         return 2
-    if not rate_mode and (
-        args.duration is not None or args.devices != 1 or args.spread_source_ips
-    ):
-        print(
-            "error: --duration, --devices and --spread-source-ips need --rate", file=sys.stderr
-        )
+    if not rate_mode and (args.duration is not None or args.devices != 1 or args.spread_source_ips):
+        print("error: --duration, --devices and --spread-source-ips need --rate", file=sys.stderr)
         return 2
     if rate_mode:
         if args.duration is None:

@@ -45,6 +45,7 @@ from lsadra.config import (
 from lsadra.detection.detection_worker import detection_queue
 from lsadra.ingestion.credential_cache import VerifiedCredentialCache
 from lsadra.ratelimit import SlidingWindowRateLimiter
+from lsadra.security.log_safety import log_safe
 from lsadra.storage.database import get_device, store_batch_and_touch
 
 logger = logging.getLogger(__name__)
@@ -68,7 +69,11 @@ class _ContractRoute(APIRoute):
                 return await handler(request)
             except RequestValidationError as exc:
                 errors = [
-                    {"type": e.get("type"), "loc": list(e.get("loc", ())), "msg": str(e.get("msg", ""))}
+                    {
+                        "type": e.get("type"),
+                        "loc": list(e.get("loc", ())),
+                        "msg": str(e.get("msg", "")),
+                    }
                     for e in exc.errors()
                 ]
                 raise RequestValidationError(errors) from None
@@ -254,7 +259,28 @@ def _refresh_credential(device_id: str, api_key: str, stored_hash: str) -> None:
         device_credential_cache.finish_refresh(device_id, api_key, stored_hash, ok)
 
 
-def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header(...)) -> Dict[str, Any]:
+def _matches_previous_key(device: Dict[str, Any], api_key: str) -> bool:
+    """True if *api_key* is the device's pre-rotation key and its overlap is still open."""
+    previous = device.get("previous_api_key_hash") or ""
+    until = device.get("previous_key_expires_at")
+    if not previous.startswith("$2") or not until:
+        return False
+    try:
+        if datetime.utcnow() >= datetime.fromisoformat(str(until)):
+            return False
+    except ValueError:
+        return False
+    if device_credential_cache.is_verified(device["id"], api_key, previous):
+        return True
+    if _checkpw(api_key, previous):
+        device_credential_cache.remember(device["id"], api_key, previous)
+        return True
+    return False
+
+
+def _authenticate_device(
+    x_device_id: str = Header(...), x_api_key: str = Header(...)
+) -> Dict[str, Any]:
     """
     Validate the device ID + API key sent in request headers.
 
@@ -269,6 +295,9 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
     device = get_device(x_device_id)
     if device is None:
         raise HTTPException(status_code=401, detail="Unknown device.")
+    if device.get("status") == "REVOKED":
+        # G-9: a revoked device is refused at authentication, whatever key it sends.
+        raise HTTPException(status_code=401, detail="Device has been revoked.")
 
     stored_hash = device.get("api_key_hash") or ""
     if not stored_hash:
@@ -286,6 +315,10 @@ def _authenticate_device(x_device_id: str = Header(...), x_api_key: str = Header
             device_credential_cache.remember(x_device_id, x_api_key, stored_hash)
     else:
         ok = hmac.compare_digest(stored_hash, x_api_key)
+    if not ok and _matches_previous_key(device, x_api_key):
+        # Pre-rotation key inside its overlap window (checked only after the
+        # current key fails, so steady traffic never pays a second bcrypt).
+        return device
     if not ok:
         logger.warning("API key mismatch for device %s — rejected", x_device_id)
         raise HTTPException(status_code=401, detail="Invalid API key.")
@@ -304,6 +337,7 @@ def _get_orchestrator():
     global _orchestrator
     if _orchestrator is None:
         from lsadra.detection.detection_orchestrator import DetectionOrchestrator
+
         _orchestrator = DetectionOrchestrator()
     return _orchestrator
 
@@ -368,6 +402,7 @@ def _get_ingest_manager():
     global _ingest_manager
     if _ingest_manager is None:
         from lsadra.ingestion.ingestion_manager import IngestionManager
+
         _ingest_manager = IngestionManager()
     return _ingest_manager
 
@@ -469,7 +504,7 @@ async def ingest_raw_batch(
     loop) and schedules online detection on the detection worker.
 
     [V4 ENHANCEMENT — gap: multi-source ingestion]
-    [GLASSWING ALIGNMENT — central ingestion orchestrator]
+    [Capability: central ingestion orchestrator]
 
     Args:
         batch:  Batch of raw log lines with optional source_hint.
@@ -479,11 +514,11 @@ async def ingest_raw_batch(
         status, accepted count, parse error count, per-source breakdown.
     """
     device_id: str = device["id"]
-    user_id:   str = device["user_id"]
+    user_id: str = device["user_id"]
 
     _check_rate_limit(device_id)
 
-    manager  = _get_ingest_manager()
+    manager = _get_ingest_manager()
     accepted = 0
     parse_errors = 0
     source_counts: Dict[str, int] = {}
@@ -503,16 +538,16 @@ async def ingest_raw_batch(
 
             # Map V4 event schema to V3 DB row schema
             db_row = {
-                "timestamp":          event.get("timestamp"),
-                "device_id":          device_id,
-                "user_id":            user_id,
-                "host":               _raw_event_host(event),
+                "timestamp": event.get("timestamp"),
+                "device_id": device_id,
+                "user_id": user_id,
+                "host": _raw_event_host(event),
                 "effective_username": event.get("username") or "",
-                "source_ip":          event.get("source_ip"),
-                "event_type":         event.get("event_type"),
-                "raw_message":        event.get("raw", "")[:MAX_RAW_MESSAGE_LENGTH],
-                "attributes":         event.get("extra", {}),
-                "is_synthetic":       False,
+                "source_ip": event.get("source_ip"),
+                "event_type": event.get("event_type"),
+                "raw_message": event.get("raw", "")[:MAX_RAW_MESSAGE_LENGTH],
+                "attributes": event.get("extra", {}),
+                "is_synthetic": False,
             }
             db_rows.append(db_row)
             accepted += 1
@@ -520,15 +555,20 @@ async def ingest_raw_batch(
             src = event.get("source_type", "unknown")
             source_counts[src] = source_counts.get(src, 0) + 1
         except Exception:
-            logger.exception("[V4] Failed to ingest raw line: %.120s", line_obj.raw_line)
+            logger.exception("[V4] Failed to ingest raw line: %s", log_safe(line_obj.raw_line, 120))
             parse_errors += 1
 
     detect = _reserve_detection(device_id)
     if db_rows:
         await _store_reserved(device_id, db_rows, detect)
+        # The per-source breakdown is derived from device-sent lines, so it
+        # stays in the response and /stats rather than the server log.
         logger.info(
-            "[V4] Ingested %d events from device %s (errors: %d, sources: %s)",
-            accepted, device_id, parse_errors, source_counts,
+            "[V4] Ingested %d events from device %s (errors: %d, source types: %d)",
+            accepted,
+            log_safe(device_id),
+            parse_errors,
+            len(source_counts),
         )
     elif detect:
         # ── schedule online detection (V3 behaviour preserved: scheduled even
@@ -536,8 +576,8 @@ async def ingest_raw_batch(
         detection_queue.commit(device_id)
 
     return {
-        "status":       "ok",
-        "accepted":     accepted,
+        "status": "ok",
+        "accepted": accepted,
         "parse_errors": parse_errors,
         "source_breakdown": source_counts,
     }

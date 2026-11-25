@@ -3,7 +3,8 @@
 Covers: insert_anomaly, get_anomalies_for_user, get_anomalies_for_device,
 get_anomalies_for_incident, get_recent_anomalies, update_anomaly_incident,
 create_incident, get_incident, get_open_incident, update_incident_last_seen,
-update_incident_status, assign_incident, get_open_incidents, get_all_incidents.
+update_incident_status, assign_incident, get_open_incidents, get_all_incidents,
+insert_sigma_matches, get_sigma_matches.
 """
 
 import json
@@ -36,6 +37,10 @@ ANOMALY_KEYS = {
     "incident_id",
     "is_synthetic",
     "created_at",
+    # Rule attribution (migration 005)
+    "rule_id",
+    "rule_version",
+    "mitre_tactics",
 }
 INCIDENT_KEYS = {
     "id",
@@ -52,6 +57,7 @@ INCIDENT_KEYS = {
     "notes",
     "created_at",
     "playbook",
+    "cross_source_at",  # migration 011 (W5)
 }
 IP = "192.0.2.10"
 
@@ -97,6 +103,58 @@ def test_insert_anomaly_returns_id_and_round_trips(seeded):
     assert json.loads(a["shap_values"]) == {"failed_logins": 0.4}
     assert a["is_anomaly"] == 1 and a["is_synthetic"] == 0
     assert a["incident_id"] is None
+
+
+def test_insert_anomaly_stores_rule_attribution(seeded):
+    event_id = seeded.insert_event(make_event())
+    seeded.insert_anomaly(
+        _anomaly(
+            event_id=event_id,
+            mitre_technique="T1110.001",
+            rule_id="lsadra-auth-brute-force",
+            rule_version=2,
+            mitre_tactics=["Credential Access"],
+        )
+    )
+    [a] = seeded.get_anomalies_for_device(DEVICE_ID)
+    assert a["rule_id"] == "lsadra-auth-brute-force" and a["rule_version"] == 2
+    assert json.loads(a["mitre_tactics"]) == ["Credential Access"]
+
+
+def test_sigma_matches_round_trip(seeded):
+    hit = {
+        "rule_id": "lsadra-cron",
+        "title": "Cron File Written",
+        "level": "medium",
+        "techniques": ["T1053.003"],
+        "tactics": ["Execution", "Persistence"],
+        "source": "lsadra",
+        "correlation": False,
+    }
+    spray = dict(hit, rule_id="lsadra-spray", level="high", correlation=True)
+    results = [
+        {
+            "event_id": 7,
+            "device_id": DEVICE_ID,
+            "sigma_mode": "shadow",
+            "created_at": "2026-01-15T02:00:00+00:00",
+            "sigma_matches": [hit, spray],
+        },
+        {"event_id": 8, "device_id": "other-device", "sigma_matches": [hit]},
+        {"event_id": 9, "device_id": DEVICE_ID, "sigma_matches": []},
+    ]
+    assert seeded.insert_sigma_matches(results) == 3
+    assert seeded.insert_sigma_matches([{"sigma_matches": []}]) == 0
+    got = seeded.get_sigma_matches(DEVICE_ID)
+    assert [g["rule_id"] for g in got] == ["lsadra-spray", "lsadra-cron"]
+    assert got[0]["correlation"] is True and got[1]["correlation"] is False
+    assert got[1]["techniques"] == ["T1053.003"] and got[1]["tactics"] == [
+        "Execution",
+        "Persistence",
+    ]
+    assert got[1]["mode"] == "shadow" and got[1]["event_time"] == "2026-01-15T02:00:00+00:00"
+    assert len(seeded.get_sigma_matches()) == 3
+    assert len(seeded.get_sigma_matches(limit=1)) == 1
 
 
 def test_insert_anomaly_empty_dict_stores_defaults(db, sql):
@@ -272,3 +330,36 @@ def test_get_all_incidents_filters_by_status_and_owner(seeded):
     assert seeded.get_all_incidents(status="RESOLVED", user_id=USER_ID) == []
     assert len(seeded.get_all_incidents(limit=1)) == 1
     assert all(set(i) == INCIDENT_KEYS for i in seeded.get_all_incidents(user_id="user-2"))
+
+
+# ── scheduled-scan helpers (W5) ────────────────────────────────────────────
+
+
+def test_get_recent_rule_alert_matches_rule_address_and_window(seeded, sql):
+    old = seeded.insert_anomaly(_anomaly(rule_id="r1"))
+    sql("UPDATE anomalies SET created_at = '2026-01-01 00:00:00' WHERE id = ?", (old,))
+    assert seeded.get_recent_rule_alert("r1", IP, "2026-01-01 00:00:01") is None
+    new = seeded.insert_anomaly(_anomaly(rule_id="r1"))
+    seeded.insert_anomaly(_anomaly(rule_id="r2"))
+    assert seeded.get_recent_rule_alert("r1", IP, "2026-01-01 00:00:01")["id"] == new
+    assert seeded.get_recent_rule_alert("r1", "198.51.100.1", "2026-01-01 00:00:01") is None
+    assert seeded.get_recent_rule_alert("r3", IP, "2026-01-01 00:00:01") is None
+
+
+def test_elevate_cross_source_incidents_raises_open_ones_once(seeded):
+    low = _incident(seeded, severity_label="LOW")
+    crit = _incident(seeded, severity_label="CRITICAL", attack_type="exfil")
+    closed = _incident(seeded, severity_label="LOW", attack_type="persistence")
+    other_ip = _incident(seeded, severity_label="LOW", source_ip="198.51.100.1")
+    seeded.update_incident_status(closed, "RESOLVED")
+
+    changed = seeded.elevate_cross_source_incidents(IP, "2026-01-01T00:05:00+00:00")
+    assert changed == [{"id": low, "old": "LOW", "new": "MEDIUM"}]
+    assert seeded.get_incident(low)["cross_source_at"] == "2026-01-01T00:05:00+00:00"
+    # CRITICAL cannot go higher, but is stamped so later runs skip it.
+    assert seeded.get_incident(crit)["severity_label"] == "CRITICAL"
+    assert seeded.get_incident(crit)["cross_source_at"]
+    assert seeded.get_incident(closed)["cross_source_at"] is None
+    assert seeded.get_incident(other_ip)["cross_source_at"] is None
+    assert seeded.elevate_cross_source_incidents(IP, "2026-01-01T00:10:00+00:00") == []
+    assert seeded.get_incident(low)["severity_label"] == "MEDIUM"

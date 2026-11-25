@@ -1,0 +1,17 @@
+# zizmor configuration (workflow linter, see .github/workflows/zizmor.yml).
+rules:
+  # Suggests the newer `$/` form for same-repo reusable workflows; keep the
+  # long-supported `./` form until it is widely documented.
+  self-repository:
+    disable: true
+  # commitlint.yml installs exact versions of @commitlint/cli and
+  # config-conventional with npm; moving it to a lockfile is a follow-up.
+  adhoc-packages:
+    ignore:
+      - commitlint.yml
+  # contributor-triage.yml needs pull_request_target to label fork PRs. It
+  # never checks out or runs PR code and only reads event metadata, which is
+  # the safe use of that trigger.
+  dangerous-triggers:
+    ignore:
+      - contributor-triage.yml

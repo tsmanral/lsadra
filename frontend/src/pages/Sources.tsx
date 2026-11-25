@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDevices, getAnomalies, deleteDevice } from '../services/api';
+import { getDevices, getAnomalies, deleteDevice, updateDeviceStatus, getIngestionStats, isTestUser } from '../services/api';
 import { Database, Plus, Trash2, Power, PowerOff, MonitorSmartphone } from 'lucide-react';
 
 const SEED_AGENTS = [
@@ -12,11 +12,13 @@ const SEED_AGENTS = [
 
 const Sources = () => {
   const navigate = useNavigate();
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   // IMPORTANT: For real users like demouser001, we start with an EMPTY list.
   const [agents, setAgents] = useState<any[]>(isTest ? SEED_AGENTS : []);
   const [anomCounts, setAnomCounts] = useState<Record<string, number>>({});
   const [confirmRemove, setConfirmRemove] = useState<string | null>(null);
+  const [eps, setEps] = useState<number | null>(null);
+  const [actionError, setActionError] = useState<string | null>(null);
 
   useEffect(() => {
     getDevices().then(r => {
@@ -33,10 +35,10 @@ const Sources = () => {
         if (data.length > 0 || !isTest) {
           const mapped = data.map((d: any) => ({
             id: d.device_id || d.id,
-            type: d.source_type || 'Unknown',
-            ip: d.ip_address || '—',
-            status: d.is_active ? 'ACTIVE' : 'OFFLINE',
-            lastSeen: d.last_seen ? new Date(d.last_seen).toLocaleString() : '—',
+            type: d.source_type || d.os_type || 'Unknown',
+            ip: d.ip_address || d.hostname || '—',
+            status: (d.is_active ?? (d.status ? d.status !== 'OFFLINE' : false)) ? 'ACTIVE' : 'OFFLINE',
+            lastSeen: (d.last_seen || d.last_seen_at) ? new Date(d.last_seen || d.last_seen_at).toLocaleString() : '—',
             os: d.os_type || '—',
           }));
           setAgents(mapped);
@@ -48,18 +50,29 @@ const Sources = () => {
       if (Array.isArray(r?.data)) {
         const counts: Record<string, number> = {};
         r.data.forEach((a: any) => {
-          const ip = a.source_ip;
-          if (ip) counts[ip] = (counts[ip] || 0) + 1;
+          const dev = a.device_id;
+          if (dev) counts[dev] = (counts[dev] || 0) + 1;
         });
         setAnomCounts(counts);
       }
     }).catch(() => {});
+    getIngestionStats()
+      .then(r => setEps(typeof r?.data?.events_per_second === 'number' ? r.data.events_per_second : null))
+      .catch(() => setEps(null));
   }, [isTest]);
 
-  const toggleStatus = (id: string) => {
-    setAgents(prev => prev.map(a =>
-      a.id === id ? { ...a, status: a.status === 'ACTIVE' ? 'OFFLINE' : 'ACTIVE', lastSeen: 'Just now' } : a
-    ));
+  // Saved on the server; the row only changes once the server agrees.
+  const toggleStatus = async (id: string) => {
+    const agent = agents.find(a => a.id === id);
+    if (!agent) return;
+    const activate = agent.status !== 'ACTIVE';
+    try {
+      await updateDeviceStatus(id, activate);
+      setActionError(null);
+      setAgents(prev => prev.map(a => (a.id === id ? { ...a, status: activate ? 'ACTIVE' : 'OFFLINE' } : a)));
+    } catch (err: any) {
+      setActionError(err?.response?.data?.detail || err?.message || 'Could not change the device status.');
+    }
   };
 
   const removeAgent = async (id: string) => {
@@ -75,7 +88,7 @@ const Sources = () => {
   };
 
   const statusColor = (s: string) =>
-    s === 'ACTIVE' ? 'text-emerald-400' : s === 'WARNING' ? 'text-amber-400' : 'text-slate-500';
+    s === 'ACTIVE' ? 'text-emerald-400' : s === 'WARNING' ? 'text-amber-400' : 'text-slate-400';
 
   return (
     <div className="p-8 space-y-8 animate-in fade-in duration-500">
@@ -84,22 +97,24 @@ const Sources = () => {
           <h1 className="text-4xl font-display font-black tracking-tighter text-white">MULTI-SOURCE</h1>
           <p className="text-slate-400 mt-1">Manage ingestion agents and data stream health</p>
         </div>
-        <button className="flex items-center gap-2 bg-[var(--color-primary)] hover:bg-opacity-80 text-black px-6 py-3 rounded-xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-cyan-500/20">
+        <button onClick={() => navigate('/app/connect')} className="flex items-center gap-2 bg-[var(--color-primary)] hover:bg-opacity-80 text-black px-6 py-3 rounded-xl font-bold transition-all transform hover:scale-105 active:scale-95 shadow-lg shadow-cyan-500/20">
           <Plus size={20}/>
           DEPLOY NEW AGENT
         </button>
       </div>
 
+      {actionError && <p role="alert" className="text-sm font-mono text-rose-400">{actionError}</p>}
+
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
         {[
           { label: 'Active Sources', value: agents.filter(a => a.status === 'ACTIVE').length, icon: <Database className="text-emerald-400"/> },
-          { label: 'Offline', value: agents.filter(a => a.status === 'OFFLINE').length, icon: <PowerOff className="text-slate-500"/> },
-          { label: 'Total Events/s', value: (agents.filter(a => a.status === 'ACTIVE').length * 42.5).toFixed(1), icon: <MonitorSmartphone className="text-cyan-400"/> },
-          { label: 'Avg Latency', value: '14ms', icon: <Database className="text-purple-400"/> }
+          { label: 'Offline', value: agents.filter(a => a.status === 'OFFLINE').length, icon: <PowerOff className="text-slate-400"/> },
+          { label: 'Events/s (last min)', value: eps == null ? '—' : eps.toFixed(1), icon: <MonitorSmartphone className="text-cyan-400"/> },
+          { label: 'Avg Latency', value: 'Not measured', icon: <Database className="text-purple-400"/> }
         ].map((stat, i) => (
           <div key={i} className="glass-panel p-6 rounded-2xl flex items-center justify-between border border-white/5">
             <div>
-              <p className="text-sm font-bold text-slate-500 uppercase tracking-wider">{stat.label}</p>
+              <p className="text-sm font-bold text-slate-400 uppercase tracking-wider">{stat.label}</p>
               <p className="text-3xl font-display font-black text-white mt-1">{stat.value}</p>
             </div>
             <div className="p-4 bg-white/5 rounded-xl">{stat.icon}</div>
@@ -145,25 +160,26 @@ const Sources = () => {
                         </span>
                       </div>
                       <div className="flex items-center gap-4 mt-1">
-                        <span className="text-sm text-slate-500 font-medium">OS: <span className="text-slate-300">{agent.os}</span></span>
-                        <span className="text-sm text-slate-500 font-medium">IP: <span className="text-slate-300 font-mono tracking-tight">{agent.ip}</span></span>
+                        <span className="text-sm text-slate-400 font-medium">OS: <span className="text-slate-300">{agent.os}</span></span>
+                        <span className="text-sm text-slate-400 font-medium">Host: <span className="text-slate-300 font-mono tracking-tight">{agent.ip}</span></span>
                       </div>
                     </div>
                   </div>
 
                   <div className="flex items-center gap-12">
                     <div className="text-right">
-                      <p className="text-xs font-bold text-slate-500 uppercase tracking-widest">Active Anomalies</p>
-                      <p className={`text-2xl font-display font-black mt-1 ${anomCounts[agent.ip] ? 'text-rose-400 animate-pulse' : 'text-slate-700'}`}>
-                        {anomCounts[agent.ip] || 0}
+                      <p className="text-xs font-bold text-slate-400 uppercase tracking-widest">Recent Anomalies</p>
+                      <p className={`text-2xl font-display font-black mt-1 ${anomCounts[agent.id] ? 'text-rose-400' : 'text-slate-400'}`}>
+                        {anomCounts[agent.id] || 0}
                       </p>
                     </div>
                     
                     <div className="flex items-center gap-2">
                       <button 
                         onClick={() => toggleStatus(agent.id)}
-                        className={`p-3 rounded-xl transition-all border ${agent.status === 'ACTIVE' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' : 'bg-slate-500/10 border-slate-500/20 text-slate-500 hover:bg-slate-500/20'}`}
-                        title="Toggle Connection"
+                        className={`p-3 rounded-xl transition-all border ${agent.status === 'ACTIVE' ? 'bg-emerald-500/10 border-emerald-500/20 text-emerald-400 hover:bg-emerald-500/20' : 'bg-slate-500/10 border-slate-500/20 text-slate-400 hover:bg-slate-500/20'}`}
+                        title={agent.status === 'ACTIVE' ? 'Mark device inactive' : 'Mark device active'}
+                        aria-label={`${agent.status === 'ACTIVE' ? 'Mark inactive' : 'Mark active'}: ${agent.id}`}
                       >
                         {agent.status === 'ACTIVE' ? <Power size={20}/> : <PowerOff size={20}/>}
                       </button>
@@ -171,6 +187,7 @@ const Sources = () => {
                         onClick={() => setConfirmRemove(agent.id)}
                         className="p-3 bg-rose-500/10 border border-rose-500/20 text-rose-400 rounded-xl hover:bg-rose-500/20 transition-all"
                         title="Remove Device"
+                        aria-label={`Remove device ${agent.id}`}
                       >
                         <Trash2 size={20}/>
                       </button>

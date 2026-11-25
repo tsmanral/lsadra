@@ -1,0 +1,4 @@
+# Optional ML extras. Installed on top of base.txt.
+-c base.txt
+# SHAP explanations (the code runs without it)
+shap>=0.52.0

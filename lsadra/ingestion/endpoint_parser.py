@@ -12,7 +12,7 @@ Enriches with:
   - unusual_parent: known-bad child-parent combos (e.g., winword→cmd)
 
 [V4 ENHANCEMENT — gap: multi-source ingestion]
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 """
 
 import json
@@ -26,43 +26,61 @@ from lsadra.ingestion.base_parser import BaseParser
 # Configuration
 # ---------------------------------------------------------------------------
 KNOWN_LOLBINS: Set[str] = {
-    "certutil", "mshta", "wscript", "cscript", "regsvr32",
-    "rundll32", "msiexec", "installutil", "regasm", "regsvcs",
+    "certutil",
+    "mshta",
+    "wscript",
+    "cscript",
+    "regsvr32",
+    "rundll32",
+    "msiexec",
+    "installutil",
+    "regasm",
+    "regsvcs",
 }
 
 SUSPICIOUS_PARENTS: Dict[str, Set[str]] = {
-    "winword.exe":   {"cmd.exe", "powershell.exe", "wscript.exe", "cscript.exe"},
-    "excel.exe":     {"cmd.exe", "powershell.exe", "wscript.exe"},
-    "outlook.exe":   {"cmd.exe", "powershell.exe"},
-    "iexplore.exe":  {"cmd.exe", "powershell.exe"},
-    "msedge.exe":    {"cmd.exe", "powershell.exe"},
-    "chrome.exe":    {"cmd.exe", "powershell.exe"},
+    "winword.exe": {"cmd.exe", "powershell.exe", "wscript.exe", "cscript.exe"},
+    "excel.exe": {"cmd.exe", "powershell.exe", "wscript.exe"},
+    "outlook.exe": {"cmd.exe", "powershell.exe"},
+    "iexplore.exe": {"cmd.exe", "powershell.exe"},
+    "msedge.exe": {"cmd.exe", "powershell.exe"},
+    "chrome.exe": {"cmd.exe", "powershell.exe"},
 }
 
 VALID_ACTIONS: Set[str] = {
-    "process_create", "file_write", "file_delete",
-    "registry_write", "network_connect", "dll_load",
+    "process_create",
+    "file_write",
+    "file_delete",
+    "registry_write",
+    "network_connect",
+    "dll_load",
 }
 
 # Suspicious cmdline patterns (applied case-insensitively)
 _SUSPICIOUS_PATTERNS: List[str] = [
-    r"-(?:en|enc|encoded|encodedcommand)\s",     # PS encoded command
-    r"frombase64string",                          # inline base64 decode
-    r"(?:wget|curl|invoke-webrequest|iwr)\s+http",# download cradle
-    r"\\temp\\.*\.(exe|ps1|bat|vbs)",             # execution from temp
-    r"/tmp/.*\.(sh|py|pl|elf)",                   # Linux /tmp execution
-    r"cmd\.exe.*powershell|powershell.*cmd\.exe", # cmd→powershell chain
-    r"\bwhoami\b",                                # recon
-    r"\bnet\s+user\b",                            # user enumeration
-    r"\bnet\s+localgroup\b",                      # group enumeration
-    r"certutil.*-decode",                         # certutil lolbin decode
+    r"-(?:en|enc|encoded|encodedcommand)\s",  # PS encoded command
+    r"frombase64string",  # inline base64 decode
+    r"(?:wget|curl|invoke-webrequest|iwr)\s+http",  # download cradle
+    r"\\temp\\.*\.(exe|ps1|bat|vbs)",  # execution from temp
+    r"/tmp/.*\.(sh|py|pl|elf)",  # Linux /tmp execution
+    r"cmd\.exe.*powershell|powershell.*cmd\.exe",  # cmd→powershell chain
+    r"\bwhoami\b",  # recon
+    r"\bnet\s+user\b",  # user enumeration
+    r"\bnet\s+localgroup\b",  # group enumeration
+    r"certutil.*-decode",  # certutil lolbin decode
 ]
 _SUSPICIOUS_RE = re.compile("|".join(_SUSPICIOUS_PATTERNS), re.IGNORECASE)
 
 # Pipe-delimited field order
 _PIPE_FIELDS = [
-    "timestamp", "device_id", "username", "process_name",
-    "parent_process", "cmdline", "file_path", "action",
+    "timestamp",
+    "device_id",
+    "username",
+    "process_name",
+    "parent_process",
+    "cmdline",
+    "file_path",
+    "action",
 ]
 
 
@@ -73,7 +91,7 @@ class EndpointParser(BaseParser):
     Normalises pipe-delimited and JSON endpoint agent events into the
     unified V4 schema, enriching each event with process-level threat signals.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 
@@ -130,39 +148,39 @@ class EndpointParser(BaseParser):
         if not fields:
             return None
 
-        ts         = self._normalise_ts(fields.get("timestamp", ""))
-        proc_name  = fields.get("process_name", "").lower()
-        parent     = fields.get("parent_process", "").lower()
-        cmdline    = fields.get("cmdline", "")
-        action     = fields.get("action", "process_create")
-        username   = fields.get("username") or None
-        file_path  = fields.get("file_path", "")
+        ts = self._normalise_ts(fields.get("timestamp", ""))
+        proc_name = fields.get("process_name", "").lower()
+        parent = fields.get("parent_process", "").lower()
+        cmdline = fields.get("cmdline", "")
+        action = fields.get("action", "process_create")
+        username = fields.get("username") or None
+        file_path = fields.get("file_path", "")
 
         # Override device_id from the line if available and valid
-        ev_device  = fields.get("device_id") or device_id
+        ev_device = fields.get("device_id") or device_id
 
         extra: Dict[str, Any] = {
-            "process_name":     proc_name,
-            "parent_process":   parent,
-            "cmdline":          cmdline[:512],
-            "file_path":        file_path,
-            "action":           action,
+            "process_name": proc_name,
+            "parent_process": parent,
+            "cmdline": cmdline[:512],
+            "file_path": file_path,
+            "action": action,
             "suspicious_cmdline": self._is_suspicious(cmdline),
-            "known_lolbin":       self._is_lolbin(proc_name),
-            "unusual_parent":     self._is_unusual_parent(parent, proc_name),
+            "known_lolbin": self._is_lolbin(proc_name),
+            "unusual_parent": self._is_unusual_parent(parent, proc_name),
         }
 
         return {
-            "timestamp":   ts,
+            "timestamp": ts,
             "source_type": self.source_type,
-            "source_ip":   None,
-            "dest_ip":     None,
-            "username":    username,
-            "event_type":  action if action in VALID_ACTIONS else "process_create",
-            "success":     True,
-            "raw":         raw_line[:2048],
-            "device_id":   ev_device,
-            "extra":       extra,
+            "source_ip": None,
+            "dest_ip": None,
+            "username": username,
+            "event_type": action if action in VALID_ACTIONS else "process_create",
+            "success": True,
+            "raw": raw_line[:2048],
+            "device_id": ev_device,
+            "extra": extra,
         }
 
     # ------------------------------------------------------------------
@@ -208,7 +226,7 @@ class EndpointParser(BaseParser):
     def _is_unusual_parent(self, parent: str, child: str) -> bool:
         """Return True if the child process spawned from an unusual parent."""
         parent_base = parent.split("\\")[-1].split("/")[-1].lower()
-        child_base  = child.split("\\")[-1].split("/")[-1].lower()
+        child_base = child.split("\\")[-1].split("/")[-1].lower()
         return child_base in SUSPICIOUS_PARENTS.get(parent_base, set())
 
     def _normalise_ts(self, ts_str: str) -> str:

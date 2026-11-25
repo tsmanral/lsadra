@@ -19,6 +19,8 @@ const KpiTile: React.FC<{label:string;value:any;color?:string;sub?:string;onClic
 );
 
 // ── Main Page ─────────────────────────────────────────────────────────────────
+const CLOSED = ['RESOLVED', 'FALSE_POSITIVE'];
+
 const CommandCenter = () => {
   const navigate = useNavigate();
   const [incidents, setIncidents] = useState<any[]>([]);
@@ -133,7 +135,7 @@ const CommandCenter = () => {
       {/* KPI Tiles */}
       <div className="grid grid-cols-5 gap-4 shrink-0">
         <KpiTile label="Total Events 24h" value={kpis?.total_events_24h??0} color="var(--color-primary)" pulse
-          sub={`${stats?.events_per_second?.toFixed(0)??0} evt/s · ${stats?.avg_latency_ms?.toFixed(1)??0}ms`}
+          sub={`${stats?.events_per_second?.toFixed(1)??0} evt/s${typeof stats?.avg_latency_ms==='number' ? ` · ${stats.avg_latency_ms.toFixed(1)}ms` : ''}`}
           onClick={()=>setDrawer({type:'events'})}/>
         <KpiTile label="Active Threats" value={kpis?.total_anomalies_24h??0} color="#FF4444"
           sub={`${incidents.filter(i=>i.severity_label==='CRITICAL').length} critical · ${kpis?.open_incidents??0} open`}
@@ -167,8 +169,8 @@ const CommandCenter = () => {
                 <tbody className="text-sm font-mono text-gray-300">
                   {/* Critical & High with Playbooks */}
                   <tr className="bg-[rgba(255,68,68,0.08)] border-b border-[rgba(255,68,68,0.2)]"><td colSpan={7} className="py-2 px-2 text-[10px] font-bold text-[#FF4444] uppercase tracking-wider">High Priority — Action Required</td></tr>
-                  {filteredIncidents.filter(i => (i.severity_label==='CRITICAL'||i.severity_label==='HIGH') && i.status !== 'RESOLVED').map(inc=>(
-                    <tr key={inc.id} onClick={()=>navigate(`/app/investigate?incident=${inc.id}`)}
+                  {filteredIncidents.filter(i => (i.severity_label==='CRITICAL'||i.severity_label==='HIGH') && !CLOSED.includes(i.status)).map(inc=>(
+                    <tr key={inc.id} onClick={()=>navigate(`/app/incident/${inc.id}`)} tabIndex={0} aria-label={`Open incident ${inc.id}`} onKeyDown={e=>{if(e.key==='Enter'){navigate(`/app/incident/${inc.id}`);}}}
                       className="border-b border-[rgba(255,68,68,0.1)] bg-[rgba(255,68,68,0.02)] hover:bg-[rgba(255,68,68,0.08)] cursor-pointer group transition-colors">
                       <td className="py-3 px-2 text-[var(--color-muted)] text-xs font-bold text-[#FF4444]">{inc.id}</td>
                       <td className="py-3 px-2"><span className={`px-2 py-0.5 text-[10px] rounded-sm ${sevStyle(inc.severity_label)}`}>{inc.severity_label}</span></td>
@@ -176,14 +178,14 @@ const CommandCenter = () => {
                       <td className="py-3 px-2 text-[var(--color-primary)]">{inc.attack_type}</td>
                       <td className="py-3 px-2">
                         {inc.playbook ? (
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}&playbook=${inc.playbook}`); }}
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}`); }}
                             className="text-[10px] text-[#05FFA1] flex items-center gap-1 hover:underline">
                             <Zap size={10}/> Available
                           </button>
                         ) : (
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}&mode=create`); }} 
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}`); }} 
                             className="text-[10px] text-[var(--color-muted)] hover:text-white underline">
-                            Create
+                            General triage
                           </button>
                         )}
                       </td>
@@ -194,8 +196,8 @@ const CommandCenter = () => {
                   
                   {/* Other Open */}
                   <tr className="bg-[rgba(0,240,255,0.05)] border-b border-[rgba(0,240,255,0.1)]"><td colSpan={7} className="py-2 px-2 text-[10px] font-bold text-[var(--color-primary)] uppercase tracking-wider">Active Investigations</td></tr>
-                  {filteredIncidents.filter(i => !(i.severity_label==='CRITICAL'||i.severity_label==='HIGH') && i.status !== 'RESOLVED').map(inc=>(
-                    <tr key={inc.id} onClick={()=>navigate(`/app/investigate?incident=${inc.id}`)}
+                  {filteredIncidents.filter(i => !(i.severity_label==='CRITICAL'||i.severity_label==='HIGH') && !CLOSED.includes(i.status)).map(inc=>(
+                    <tr key={inc.id} onClick={()=>navigate(`/app/incident/${inc.id}`)} tabIndex={0} aria-label={`Open incident ${inc.id}`} onKeyDown={e=>{if(e.key==='Enter'){navigate(`/app/incident/${inc.id}`);}}}
                       className="border-b border-[rgba(255,255,255,0.05)] hover:bg-[rgba(0,240,255,0.08)] cursor-pointer group transition-colors">
                       <td className="py-3 px-2 text-[var(--color-muted)] text-xs">{inc.id}</td>
                       <td className="py-3 px-2"><span className={`px-2 py-0.5 text-[10px] rounded-sm ${sevStyle(inc.severity_label)}`}>{inc.severity_label}</span></td>
@@ -203,14 +205,14 @@ const CommandCenter = () => {
                       <td className="py-3 px-2 text-[var(--color-primary)]">{inc.attack_type}</td>
                       <td className="py-3 px-2">
                         {inc.playbook ? (
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}&playbook=${inc.playbook}`); }}
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}`); }}
                             className="text-[10px] text-[#05FFA1] flex items-center gap-1 hover:underline">
                             <Zap size={10}/> Available
                           </button>
                         ) : (
-                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}&mode=create`); }} 
+                          <button onClick={(e) => { e.stopPropagation(); navigate(`/app/response?incident=${inc.id}`); }} 
                             className="text-[10px] text-[var(--color-muted)] hover:text-white underline">
-                            Create
+                            General triage
                           </button>
                         )}
                       </td>
@@ -221,9 +223,9 @@ const CommandCenter = () => {
                   
                   {/* Resolved */}
                   <tr className="bg-[rgba(5,255,161,0.05)] border-b border-[rgba(5,255,161,0.1)]"><td colSpan={7} className="py-2 px-2 text-[10px] font-bold text-[#05FFA1] uppercase tracking-wider">Resolved Incidents</td></tr>
-                  {filteredIncidents.filter(i => i.status === 'RESOLVED').map(inc=>(
-                    <tr key={inc.id} onClick={()=>navigate(`/app/investigate?incident=${inc.id}`)}
-                      className="border-b border-[rgba(5,255,161,0.05)] bg-[rgba(5,255,161,0.01)] hover:bg-[rgba(5,255,161,0.05)] cursor-pointer group transition-colors opacity-70">
+                  {filteredIncidents.filter(i => CLOSED.includes(i.status)).map(inc=>(
+                    <tr key={inc.id} onClick={()=>navigate(`/app/incident/${inc.id}`)} tabIndex={0} aria-label={`Open incident ${inc.id}`} onKeyDown={e=>{if(e.key==='Enter'){navigate(`/app/incident/${inc.id}`);}}}
+                      className="border-b border-[rgba(5,255,161,0.05)] bg-[rgba(5,255,161,0.01)] hover:bg-[rgba(5,255,161,0.05)] cursor-pointer group transition-colors">
                       <td className="py-3 px-2 text-[var(--color-muted)] text-xs">{inc.id}</td>
                       <td className="py-3 px-2"><span className="px-2 py-0.5 text-[10px] rounded-sm border border-[rgba(255,255,255,0.2)] text-[var(--color-muted)]">{inc.severity_label}</span></td>
                       <td className="py-3 px-2 text-white">{inc.source_ip}</td>
@@ -231,7 +233,7 @@ const CommandCenter = () => {
                       <td className="py-3 px-2"><span className="text-[10px] text-[#05FFA1] opacity-50">Done</span></td>
                       <td className="py-3 px-2">
                         <span className="text-[10px] px-2 py-0.5 border border-[#05FFA1] text-[#05FFA1] bg-[rgba(5,255,161,0.1)]">
-                          RESOLVED
+                          {inc.status}
                         </span>
                       </td>
                       <td className="py-3 px-2"><span className="flex items-center gap-1 text-xs text-[var(--color-muted)]"><Activity size={13}/> Details</span></td>
@@ -250,8 +252,8 @@ const CommandCenter = () => {
             <h3 className="font-display text-base text-[var(--color-primary)] mb-4 flex items-center gap-2"><Cpu size={18}/> Ingestion Health</h3>
             {[
               { label:'Events/sec',  val:stats?.events_per_second?.toFixed(1)??0,   pct:Math.min((stats?.events_per_second||0)/5000,1), color:'#05FFA1' },
-              { label:'Latency (ms)',val:stats?.avg_latency_ms?.toFixed(2)??0,      pct:Math.min((stats?.avg_latency_ms||0)/10,1),      color:'#00F0FF' },
-              { label:'Drop Rate %', val:`${stats?.drop_rate_pct?.toFixed(2)??0}%`, pct:stats?.drop_rate_pct||0,                        color:'#FF4444' },
+              { label:'Latency (ms)',val:stats?.avg_latency_ms?.toFixed(2)??'not measured',      pct:Math.min((stats?.avg_latency_ms||0)/10,1),      color:'#00F0FF' },
+              { label:'Drop Rate %', val:typeof stats?.drop_rate_pct==='number' ? `${stats.drop_rate_pct.toFixed(2)}%` : 'not measured', pct:stats?.drop_rate_pct||0,                        color:'#FF4444' },
             ].map(({label,val,pct,color})=>(
               <div key={label} className="mb-3">
                 <div className="flex justify-between text-xs font-mono text-[var(--color-muted)] mb-1"><span>{label}</span><span className="text-white">{val}</span></div>
@@ -269,7 +271,7 @@ const CommandCenter = () => {
             </h3>
             <div className="flex-1 overflow-y-auto custom-scrollbar space-y-1 min-h-0">
               {filteredFeed.length>0 ? filteredFeed.map((a,i)=>(
-                <div key={`${a.id||i}`} onClick={()=>navigate(`/app/investigate?entity=${a.source_ip||a.id}`)}
+                <div key={`${a.id||i}`} onClick={()=>navigate(a.incident_id ? `/app/incident/${a.incident_id}` : `/app/investigate?entity=${encodeURIComponent(a.source_ip||'')}`)} tabIndex={0} role="link" onKeyDown={e=>{if(e.key==='Enter'){navigate(a.incident_id ? `/app/incident/${a.incident_id}` : `/app/investigate?entity=${encodeURIComponent(a.source_ip||'')}`);}}}
                   className="text-xs font-mono py-1.5 px-2 border border-[rgba(255,255,255,0.04)] hover:bg-[rgba(0,240,255,0.06)] transition-colors cursor-pointer rounded group">
                   <div className="flex justify-between mb-0.5">
                     <span className="text-[var(--color-muted)] text-[10px]">{String(a.created_at||'').substring(11,19)||'NOW'}</span>
@@ -278,8 +280,8 @@ const CommandCenter = () => {
                   <div className="text-[var(--color-primary)] truncate">{a.threat_type||'Unknown Anomaly'}</div>
                   <div className="flex justify-between items-center mt-0.5">
                     <span className="text-gray-400">{a.source_ip||'N/A'}</span>
-                    <span onClick={e=>{e.stopPropagation();navigate(`/app/intel?ip=${a.source_ip}`);}}
-                      className="flex items-center gap-1 text-[var(--color-muted)] hover:text-[var(--color-primary)]"><Globe size={10}/><span className="text-[9px]">Intel</span></span>
+                    <button type="button" aria-label={`Threat intel for ${a.source_ip}`} onClick={e=>{e.stopPropagation();navigate(`/app/intel?ip=${a.source_ip}`);}}
+                      className="flex items-center gap-1 text-[var(--color-muted)] hover:text-[var(--color-primary)]"><Globe size={10}/><span className="text-[10px]">Intel</span></button>
                   </div>
                 </div>
               )) : (

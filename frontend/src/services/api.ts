@@ -1,6 +1,15 @@
 import axios from 'axios';
+import { pickHealth, type IngestionHealth } from './health';
 
 export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
+
+// Canned demo data is a development aid only. It is compiled in only for
+// `npm run dev` with VITE_DEMO_MOCKS=true, and then only for the `testuser`
+// account. Production builds never serve it: the condition below is a
+// build-time constant, so the mock branches are removed from the bundle.
+// For realistic demo data, use scripts/seed_demo.py against a real API.
+const DEMO_MOCKS_ENABLED = import.meta.env.DEV && import.meta.env.VITE_DEMO_MOCKS === 'true';
+
 
 // Earlier builds kept plaintext passwords here for an offline login. That
 // login is gone; clear what it left behind.
@@ -13,6 +22,21 @@ const api = axios.create({
     'Content-Type': 'application/json',
   },
 });
+
+// A 401 on an authenticated call means the session ended (expired, logged out
+// elsewhere, role changed or account disabled): drop the token and go to login.
+api.interceptors.response.use(
+  (res) => res,
+  (error) => {
+    const url: string = error?.config?.url || '';
+    if (error?.response?.status === 401 && !url.startsWith('/api/auth/login')
+        && localStorage.getItem('sentinel_token')) {
+      localStorage.removeItem('sentinel_token');
+      if (!window.location.pathname.startsWith('/login')) window.location.assign('/login');
+    }
+    return Promise.reject(error);
+  }
+);
 
 // Interceptor to add JWT token
 api.interceptors.request.use(
@@ -27,6 +51,14 @@ api.interceptors.request.use(
     return Promise.reject(error);
   }
 );
+
+// ── First-run setup (desktop app) ─────────────────────────────────────────────
+// Open only when the server was started with a setup token, from this
+// computer, and while no admin exists (lsadra/api/setup.py).
+export const getSetupStatus = (setup_token: string) =>
+  api.post<{ needs_admin: boolean }>('/api/setup/status', { setup_token });
+export const createFirstAdmin = (body: { setup_token: string; username: string; password: string }) =>
+  api.post('/api/setup/admin', body);
 
 // ── Live simulation counters ──────────────────────────────────────────────────
 let _liveEventCount = 1543290;
@@ -46,7 +78,7 @@ const EVENT_TYPES = ['Failed Login', 'Port Scan', 'Lateral Movement', 'Data Exfi
 const SEVERITIES = ['CRITICAL', 'HIGH', 'HIGH', 'MEDIUM', 'MEDIUM', 'MEDIUM', 'LOW', 'LOW'];
 
 export const generateEventStream = (count = 200, deviceFilter?: string[]): any[] => {
-  if (!isTestUser()) return [];
+  if (!DEMO_MOCKS_ENABLED || !isTestUser()) return [];
   const rows: any[] = [];
   for (let i = 0; i < count; i++) {
     const sev = SEVERITIES[Math.floor(Math.random() * SEVERITIES.length)];
@@ -285,7 +317,8 @@ setInterval(() => {
   _liveAnomalies += 1;
 }, 5000);
 
-const getMockData = (endpoint: string) => {
+const getMockData = (endpoint: string): any => {
+  if (!DEMO_MOCKS_ENABLED) return undefined;
   const filterIds = getActiveDeviceFilter() || [];
 
   const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
@@ -449,7 +482,7 @@ const getMockData = (endpoint: string) => {
 
     const content = `
 ================================================================================
-AI-SENTINEL SOC EXECUTIVE SUMMARY REPORT
+LSADRA SOC EXECUTIVE SUMMARY REPORT
 ================================================================================
 Generated At: ${new Date().toLocaleString()}
 Classification: CONFIDENTIAL / INTERNAL USE ONLY
@@ -488,11 +521,20 @@ END OF REPORT
 };
 
 export const isTestUser = () => {
+  if (!DEMO_MOCKS_ENABLED) return false;
   const user = localStorage.getItem('sentinel_username');
-  return user === 'testuser'; // STRICT: Only testuser gets mock data
+  return user === 'testuser';
 };
 // Existing Endpoints wrapped with mock logic
-export const login = async (credentials: { username: string; password: string }) => {
+export class LoginError extends Error {
+  code?: string;
+  constructor(message: string, code?: string, cause?: unknown) {
+    super(message, { cause });
+    this.code = code;
+  }
+}
+
+export const login = async (credentials: { username: string; password: string; totp_code?: string }) => {
   try {
     const res = await api.post('/api/auth/login', credentials);
     localStorage.setItem('sentinel_username', credentials.username);
@@ -501,24 +543,45 @@ export const login = async (credentials: { username: string; password: string })
   } catch (err) {
     // No offline fallback: only the server issues tokens.
     const res = axios.isAxiosError(err) ? err.response : undefined;
-    throw new Error(res?.data?.detail || (res ? 'Invalid credentials' : 'Backend unreachable'), { cause: err });
+    const detail = res?.data?.detail;
+    if (detail && typeof detail === 'object') {
+      // {code: 'totp_required' | 'totp_invalid' | 'totp_enrolment_required', message}
+      throw new LoginError(detail.message || 'Login failed', detail.code, err);
+    }
+    if (res?.status === 429) {
+      const wait = res.headers?.['retry-after'];
+      throw new LoginError(`Too many failed logins. Try again in ${wait || 'a few'} seconds.`, 'throttled', err);
+    }
+    throw new LoginError(detail || (res ? 'Invalid credentials' : 'Backend unreachable'), undefined, err);
   }
 };
 
-export const updateIncidentStatus = async (id: string | number, status: string) => {
-  const idStr = String(id);
-  const store = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-  store[idStr] = status;
-  localStorage.setItem(INCIDENT_STATUS_KEY, JSON.stringify(store));
+// Ends every session of this account on the server, then forgets the token.
+export const logout = async () => {
+  try { await api.post('/api/auth/logout'); } catch { /* already invalid */ }
+  localStorage.removeItem('sentinel_token');
+};
 
-  // Dispatch event for local reactivity
-  window.dispatchEvent(new Event('sentinel_state_change'));
+// TLS certificate fingerprint agents pin (null when the API is not serving TLS itself).
+export const getServerIdentity = async (): Promise<{ tls: boolean; cert_sha256: string | null }> => {
+  try { return (await api.get('/api/server/identity')).data; }
+  catch { return { tls: false, cert_sha256: null }; }
+};
 
-  try {
-    return await api.post(`/api/incidents/${id}/status`, { status });
-  } catch {
-    return { data: { ok: true, note: 'Saved locally' } };
+export const updateIncidentStatus = async (id: string | number, status: string, notes = '') => {
+  // Demo sessions keep canned incidents' status in the browser only.
+  if (isTestUser()) {
+    const store = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
+    store[String(id)] = status;
+    localStorage.setItem(INCIDENT_STATUS_KEY, JSON.stringify(store));
+    window.dispatchEvent(new Event('sentinel_state_change'));
+    return { data: { ok: true } };
   }
+  // Real sessions: the server is the only source of an incident's status. A
+  // failed update is an error, never a silent "saved locally" (G-11).
+  const res = await api.post(`/api/incidents/${id}/status`, { status, notes });
+  window.dispatchEvent(new Event('sentinel_state_change'));
+  return res;
 };
 
 export const register = async (credentials: any) => api.post('/api/auth/register', credentials);
@@ -529,44 +592,37 @@ export const getIncidents = async () => {
   // 1. Try real API first
   try {
     const res = await api.get('/api/incidents');
-    if (res.data?.incidents?.length > 0) {
-      // Merge local resolutions to ensure instant feedback
-      const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-      res.data.incidents = res.data.incidents.map((i: any) => ({
-        ...i,
-        status: statusStore[String(i.id)] || i.status
-      }));
-      return res;
-    }
+    if (res.data?.incidents?.length > 0) return res;  // server status only (G-11)
   } catch (err) {
     console.error("Failed to fetch real incidents:", err);
   }
 
   // 2. Fallback to mock data for demo
-  if (isTestUser()) return getMockData('/api/incidents') || { data: { incidents: [] } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/incidents') || { data: { incidents: [] } };
   return { data: { incidents: [] } };
 };
 
-export const assignIncident = async (id: number, assigned_to: string) => api.post(`/incidents/${id}/assign`, { assigned_to });
+export const assignIncident = async (id: number, user_id: string) => api.post(`/api/incidents/${id}/assign`, { user_id });
+
+// ── Investigation (real data only, no demo mocks) ───────────────────────────
+export const getIncidentDetail = async (id: string | number) => api.get(`/api/incidents/${encodeURIComponent(String(id))}`);
+export const getFeedback = async (limit = 200) => api.get('/api/feedback', { params: { limit } });
+export const submitFeedback = async (alert_id: number, label: 'true_positive' | 'false_positive', note: string) =>
+  api.post('/api/feedback', { alert_id, label, note });
 
 export const getIngestionStats = async () => {
+  let body: IngestionHealth | undefined;
   try {
-    const res = await api.get('/api/dashboard/health');
-    if (res.data?.events_per_second > 0) return res;
-  } catch { }
+    body = (await api.get('/api/dashboard/health')).data;
+  } catch { /* unreachable: pickHealth reports it */ }
 
-  if (isTestUser()) {
-    // Provide "pulsing" mock stats for demo
+  let mock: IngestionHealth | undefined;
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
+    // "Pulsing" demo stats, dev server only
     const pulse = Math.sin(Date.now() / 2000) * 2;
-    return {
-      data: {
-        events_per_second: 12.5 + pulse,
-        avg_latency_ms: 4.2 + (pulse * 0.1),
-        drop_rate_pct: 0.0
-      }
-    };
+    mock = { status: 'HEALTHY', events_per_second: 12.5 + pulse, avg_latency_ms: 4.2 + (pulse * 0.1), drop_rate_pct: 0.0 };
   }
-  return { data: { events_per_second: 0, avg_latency_ms: 0, drop_rate_pct: 0 } };
+  return { data: pickHealth(body, mock) };
 };
 
 export const getAnomalies = async () => {
@@ -578,7 +634,7 @@ export const getAnomalies = async () => {
   } catch { }
 
   // 2. Fallback to mock ONLY for testuser
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     return getMockData('/api/dashboard/anomalies');
   }
 
@@ -599,17 +655,8 @@ export const getKpis = async () => {
     if (res.data) kpis = { ...res.data };
   } catch (err) { }
 
-  // 3. FORCE correct closed_incidents count based on local status store
-  // This ensures the counter matches the "Resolved" section exactly.
-  try {
-    const statusStore = JSON.parse(localStorage.getItem(INCIDENT_STATUS_KEY) || '{}');
-    const closedCount = Object.values(statusStore).filter(s => s === 'RESOLVED' || s === 'FALSE_POSITIVE').length;
-    // We use the MAX of the local count and server count to avoid losing data
-    kpis.closed_incidents = Math.max(kpis.closed_incidents || 0, closedCount);
-  } catch { }
-
   // 4. Fallback to mock ONLY for testuser if real counts are zero
-  if (isTestUser() && kpis.total_events_24h === 0) {
+  if (DEMO_MOCKS_ENABLED && isTestUser() && kpis.total_events_24h === 0) {
     const mock = getMockData('/api/dashboard/kpis')?.data || {};
     return { data: { ...kpis, ...mock } };
   }
@@ -618,12 +665,12 @@ export const getKpis = async () => {
 };
 
 export const exportReport = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/export');
-  try { return await api.get('/api/dashboard/export', { responseType: 'blob' }); }
-  catch { return getMockData('/api/dashboard/export'); }
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/export');
+  // A failed export must surface as an error, never as a mock report.
+  return api.get('/api/dashboard/export', { responseType: 'blob' });
 };
 export const generateToken = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/generate-token') || api.post('/api/dashboard/generate-token');
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/generate-token') || api.post('/api/dashboard/generate-token');
   return api.post('/api/dashboard/generate-token');
 };
 export const getMetrics = async () => {
@@ -637,23 +684,23 @@ export const getMetrics = async () => {
   } catch { }
 
   // 2. Mock fallback for testuser
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     return getMockData('/api/dashboard/metrics');
   }
 
   return { data: [] };
 };
 export const getDevices = async () => {
-  if (isTestUser()) return getMockData('/api/dashboard/devices') || { data: [] };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return getMockData('/api/dashboard/devices') || { data: [] };
   try { return await api.get('/api/dashboard/devices'); } catch { return { data: [] }; }
 };
 export const deleteDevice = async (id: string) => {
   // Only use mock success if specifically logged in as 'testuser'
-  if (isTestUser()) return { data: { status: 'ok' } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return { data: { status: 'ok' } };
   return api.delete(`/api/dashboard/devices/${id}`);
 };
 export const updateDeviceStatus = async (id: string, active: boolean) => {
-  if (isTestUser()) return { data: { status: 'ok' } };
+  if (DEMO_MOCKS_ENABLED && isTestUser()) return { data: { status: 'ok' } };
   return api.post(`/api/dashboard/devices/${id}/status?active=${active}`);
 };
 export const retrainModel = async () => {
@@ -667,7 +714,7 @@ export const retrainModel = async () => {
   }
   catch (err) {
     // If TestUser is testing offline/broken backend, allow mock success
-    if (isTest) {
+    if (DEMO_MOCKS_ENABLED && isTest) {
       return new Promise(r => setTimeout(() => r({ data: { status: 'success', message: 'Model retraining started (Simulation)' } }), 1000));
     }
     return { data: { status: 'error', message: (err as any).message || 'Offline' } };
@@ -683,14 +730,14 @@ export const runDrift = async () => {
     throw new Error(res.data?.message || 'Drift detection returned non-ok status');
   }
   catch (err) {
-    if (isTest) {
+    if (DEMO_MOCKS_ENABLED && isTest) {
       return new Promise(r => setTimeout(() => r({ data: { status: 'success', message: 'Drift detection completed (Simulation)' } }), 1000));
     }
     return { data: { status: 'error', message: (err as any).message || 'Offline' } };
   }
 };
 export const getModelRegistry = async () => {
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     const res = await api.get('/api/dashboard/models').catch(() => null);
     if (res?.data && res.data.length > 0) return res;
     // Fallback to mock models if backend empty or offline for Test
@@ -719,7 +766,7 @@ export const updateUserPassword = async (user_id: string, password: string) => {
 
 export const getStats = async () => {
   const isAdmin = localStorage.getItem('sentinel_role') === 'ADMIN';
-  if (isTestUser()) {
+  if (DEMO_MOCKS_ENABLED && isTestUser()) {
     const res = await api.get('/api/dashboard/stats').catch(() => null);
     if (res?.data && Object.keys(res.data).length > 0) return res;
     // Mock stats fallback only for testuser
@@ -728,7 +775,14 @@ export const getStats = async () => {
   try { return await api.get('/api/dashboard/stats'); } catch { return { data: { normalized_events: 0, anomalies: 0, incidents: 0, devices: 0, model_registry: 0, feedback_labels: 0, users: 0, agents: 0 } }; }
 };
 
-export const getEntity = async (id: string) => {
-  if (isTestUser()) return getMockData(`/api/entity/${id}`) || api.get(`/api/entity/${id}`);
-  return api.get(`/api/entity/${id}`);
-};
+// Profile of an IP, user name, host or incident id. 404 means nothing on record.
+export const getEntity = async (q: string) => api.get('/api/entity', { params: { q } });
+
+// ── Threat intel (/api/intel, ADR 0004 two tiers) ────────────────────────────
+// Real sources only: the signed bundle, local runtime feeds, local geolocation,
+// and AbuseIPDB when the operator configured a key. No mock fallback.
+export const getIntelStatus = async () => api.get('/api/intel/status');
+export const lookupIntelIp = async (ip: string, remote = false) =>
+  api.get(`/api/intel/ip/${encodeURIComponent(ip)}`, { params: { remote } });
+export const searchKev = async (q = '', limit = 25) => api.get('/api/intel/kev', { params: { q, limit } });
+export const getFlaggedIps = async (limit = 20) => api.get('/api/intel/flagged-ips', { params: { limit } });

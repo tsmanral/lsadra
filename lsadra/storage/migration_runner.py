@@ -27,9 +27,7 @@ CREATE TABLE IF NOT EXISTS _schema_migrations (
 def _get_applied(conn: sqlite3.Connection) -> List[str]:
     """Return list of already-applied migration filenames."""
     try:
-        rows = conn.execute(
-            "SELECT filename FROM _schema_migrations ORDER BY id"
-        ).fetchall()
+        rows = conn.execute("SELECT filename FROM _schema_migrations ORDER BY id").fetchall()
         return [r[0] for r in rows]
     except sqlite3.OperationalError:
         return []

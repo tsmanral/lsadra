@@ -1,14 +1,27 @@
 # Bootstrap ruff config.
 #
-# The legacy codebase has ~963 default-ruleset findings and ~66 unformatted
-# files. Rather than a repo-wide reformat (which would collide with in-flight
-# PRs), we start with a correctness-only rule set that the code already passes
-# and tighten `select` incrementally. `ruff format` adoption is tracked as an
-# advisory CI step until a dedicated formatting PR lands.
+# The legacy codebase has ~963 default-ruleset findings, so we start with a
+# correctness-only rule set that the code already passes and tighten `select`
+# incrementally. The whole repo is `ruff format`-clean (#112) and CI enforces
+# it; the reformat commit is listed in .git-blame-ignore-revs.
 line-length = 100
 target-version = "py312"
 extend-exclude = ["docs/figures", "docs/figures2"]
 
 [lint]
 # Correctness rules only (syntax errors, undefined names, bad f-strings, etc.).
-select = ["E9", "F63", "F7", "F82", "F821"]
+select = ["E9", "F63", "F7", "F82", "F821", "TID251"]
+
+# Lite/Team boundary (ADR 0008): Lite code must never import Team-only code.
+# scripts/check_tier_boundary.py (run by tests/test_tier_boundary.py) is the
+# full check, including dynamic imports and the frontend; this gives the same
+# rule as an editor-time lint error.
+[lint.flake8-tidy-imports.banned-api]
+"lsadra_team".msg = "Team-only code; Lite must not depend on it (ADR 0008)."
+"lsadra.team".msg = "Team-only code; Lite must not depend on it (ADR 0008)."
+
+[lint.per-file-ignores]
+# Security (S) rules are not in `select` yet: CI runs them as a ratchet
+# (scripts/ruff_security_ratchet.py). Asserts are how pytest tests work.
+"tests/**" = ["S101"]
+"benchmarks/**" = ["S101"]

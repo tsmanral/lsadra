@@ -29,6 +29,7 @@ def client():
     """Create a FastAPI test client."""
     from fastapi.testclient import TestClient
     from server import app
+
     return TestClient(app)
 
 
@@ -58,9 +59,7 @@ class TestAuthPassthrough:
         # Non-bcrypt stored hash => constant-time hmac comparison path.
         create_device("test-device-001", "u1", "test-host", "linux", "test-secret-abc123")
 
-        with patch(
-            "lsadra.ingestion.api_ingestion.store_batch_and_touch"
-        ) as mock_ins:
+        with patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as mock_ins:
             response = client.post(
                 "/api/events/batch",
                 json=_VALID_BATCH,
@@ -88,9 +87,7 @@ class TestAuthPassthrough:
         create_user("u2", "tester2", "hash", "ANALYST")
         create_device("test-device-002", "u2", "test-host", "linux", "")
 
-        with patch(
-            "lsadra.ingestion.api_ingestion.store_batch_and_touch"
-        ) as mock_ins:
+        with patch("lsadra.ingestion.api_ingestion.store_batch_and_touch") as mock_ins:
             response = client.post(
                 "/api/events/batch",
                 json=_VALID_BATCH,

@@ -175,13 +175,15 @@ const Admin = () => {
         name: 'Investigate Entity Pivot',
         category: 'Investigation',
         fn: async () => {
-          const r = await getEntity('inc_101') as any;
-          if (!r?.data?.entity) throw new Error('inc_101 not found in MOCK_ENTITIES');
-          const nodes = r.data.relationships?.length || 0;
-          return { data: { entity: r.data.entity, type: r.data.type, relationships: nodes, playbook: r.data.playbook } };
+          const incs = await getIncidents() as any;
+          const first = incs?.data?.incidents?.[0];
+          if (!first) return { data: { skipped: 'no incidents yet' } };
+          const r = await getEntity(`inc_${first.id}`) as any;
+          if (r?.data?.type !== 'Incident') throw new Error(`incident ${first.id} did not resolve`);
+          return { data: { entity: r.data.entity, incident_id: r.data.incident_id } };
         },
-        warnDetail: 'Entity inc_101 not found — Investigate pivots will loop or show no data.',
-        warnFix: 'Check MOCK_ENTITIES in api.ts. Ensure inc_101, inc_102, inc_103, jsmith, WKS-112-X etc. are all defined.',
+        warnDetail: 'The newest incident could not be resolved through GET /api/entity.',
+        warnFix: '1. Backend must expose GET /api/entity?q=...\n2. Check lsadra/api/investigation.py',
       },
     ];
 

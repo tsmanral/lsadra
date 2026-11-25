@@ -36,7 +36,9 @@ class StatisticalBaselineModel:
     def __init__(self, sigma: float = STATISTICAL_BASELINE_SIGMA):
         self.sigma = sigma
         # Keyed by (user_id, device_id) → dict of feature → (mean, std, n)
-        self._profiles: Dict[Tuple[str, str], Dict[str, Tuple[float, float, int]]] = defaultdict(dict)
+        self._profiles: Dict[Tuple[str, str], Dict[str, Tuple[float, float, int]]] = defaultdict(
+            dict
+        )
 
     # ── training ──────────────────────────────────────────────────────────
 
@@ -87,10 +89,12 @@ class StatisticalBaselineModel:
                     z_scores.append(z)
 
             z_max = max(z_scores) if z_scores else 0.0
-            results.append({
-                "z_max": z_max,
-                "is_baseline_anomaly": z_max > self.sigma,
-            })
+            results.append(
+                {
+                    "z_max": z_max,
+                    "is_baseline_anomaly": z_max > self.sigma,
+                }
+            )
 
         return results
 
@@ -109,9 +113,53 @@ class StatisticalBaselineModel:
                 mean, std, n = profile[feat]
                 n_new = n + 1
                 new_mean = mean + (val - mean) / n_new
-                new_std = np.sqrt(((n - 1) * std ** 2 + (val - mean) * (val - new_mean)) / max(n_new - 1, 1)) + 1e-9
+                new_std = (
+                    np.sqrt(
+                        ((n - 1) * std**2 + (val - mean) * (val - new_mean)) / max(n_new - 1, 1)
+                    )
+                    + 1e-9
+                )
                 profile[feat] = (new_mean, new_std, n_new)
             else:
                 profile[feat] = (val, 1e-9, 1)
 
         self._profiles[key] = profile
+
+    # ── persistence (plain JSON, G-19) ────────────────────────────────────
+
+    def to_dict(self) -> Dict[str, Any]:
+        """Plain-JSON form of the per-entity baselines (no pickling)."""
+        return {
+            "sigma": float(self.sigma),
+            "features": list(FEATURE_COLS),
+            "entities": [
+                {
+                    "user_id": uid,
+                    "device_id": did,
+                    "profile": {
+                        feat: [float(m), float(s), int(n)] for feat, (m, s, n) in profile.items()
+                    },
+                }
+                for (uid, did), profile in sorted(self._profiles.items())
+            ],
+        }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "StatisticalBaselineModel":
+        """Rebuild baselines saved by :meth:`to_dict`; unknown features are ignored."""
+        model = cls(sigma=float(data.get("sigma", STATISTICAL_BASELINE_SIGMA)))
+        known = set(FEATURE_COLS)
+        for ent in data.get("entities", []):
+            profile: Dict[str, Tuple[float, float, int]] = {}
+            for feat, vals in (ent.get("profile") or {}).items():
+                if feat in known and isinstance(vals, (list, tuple)) and len(vals) == 3:
+                    profile[feat] = (float(vals[0]), max(float(vals[1]), 1e-9), int(vals[2]))
+            model._profiles[(str(ent.get("user_id", "")), str(ent.get("device_id", "")))] = profile
+        return model
+
+    def coverage(self) -> Dict[str, Any]:
+        """How many entities and devices currently have a baseline."""
+        return {
+            "entities": len(self._profiles),
+            "devices": sorted({did for (_, did) in self._profiles}),
+        }

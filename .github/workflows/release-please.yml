@@ -1,0 +1,58 @@
+name: release-please
+
+# Keeps one release pull request open on main. The PR bumps the version in
+# lsadra/__init__.py (the single source of the version), README.md and
+# .release-please-manifest.json, and adds the CHANGELOG.md entry.
+#
+# Merging that PR IS cutting the release: release-please then creates the
+# v* tag and a DRAFT GitHub release, and hands the tag to release.yml, which
+# runs the full CI suite on it, builds, signs and attests the image, and only
+# then publishes the release. Merge it only on the project lead's word.
+#
+# This runs with the default GITHUB_TOKEN. Events made with that token start
+# no other workflows, so:
+#   * the tag is handed to release.yml with an explicit workflow_dispatch
+#     (the one event the default token may start), and
+#   * the release PR's required checks start with the first commit a person
+#     pushes to it (normally docs/releases/vX.Y.Z.md, the hand-written notes).
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions: {}
+
+concurrency:
+  group: release-please
+  cancel-in-progress: false
+
+jobs:
+  release-please:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write       # release branch, tag, draft release
+      pull-requests: write  # open and update the release PR
+      issues: write         # PR labels (autorelease: pending / tagged)
+    outputs:
+      release_created: ${{ steps.release.outputs.release_created }}
+      tag_name: ${{ steps.release.outputs.tag_name }}
+    steps:
+      - id: release
+        uses: googleapis/release-please-action@45996ed1f6d02564a971a2fa1b5860e934307cf7 # v5.0.0
+        with:
+          config-file: release-please-config.json
+          manifest-file: .release-please-manifest.json
+
+  publish:
+    name: Start release.yml for the new tag
+    needs: release-please
+    if: needs.release-please.outputs.release_created == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      actions: write  # workflow_dispatch of release.yml
+    steps:
+      - name: Dispatch release.yml on the tag
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ needs.release-please.outputs.tag_name }}
+        run: gh workflow run release.yml --repo "$GITHUB_REPOSITORY" --ref "$TAG"

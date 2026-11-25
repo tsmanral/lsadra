@@ -1,0 +1,4 @@
+# Build tool for the self-contained lsadra-server the desktop installer ships
+# (desktop/sidecar/). Installed on top of base.txt in CI, never at run time.
+-c base.txt
+pyinstaller>=6.22.0

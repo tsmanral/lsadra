@@ -5,7 +5,7 @@ Defines the unified event schema contract all V4 parsers must satisfy.
 Existing V3 parsers (LinuxSSHParser, WindowsLogonParser) are not replaced —
 they continue to work via the IngestionManager adapter.
 
-[GLASSWING ALIGNMENT — multi-source unified schema]
+[Capability: multi-source unified schema]
 [V4 ENHANCEMENT — gap: multi-source ingestion]
 """
 
@@ -17,16 +17,16 @@ from typing import Any, Dict, Optional
 # Unified V4 event schema (all parsers must produce this shape)
 # ---------------------------------------------------------------------------
 REQUIRED_SCHEMA_FIELDS: tuple = (
-    "timestamp",   # ISO 8601 string
-    "source_type", # "ssh_log"|"syslog"|"windows_event"|"network_flow"|"endpoint"
-    "source_ip",   # str (may be None for some endpoint events)
-    "dest_ip",     # str | None
-    "username",    # str | None
+    "timestamp",  # ISO 8601 string
+    "source_type",  # "ssh_log"|"syslog"|"windows_event"|"network_flow"|"endpoint"
+    "source_ip",  # str (may be None for some endpoint events)
+    "dest_ip",  # str | None
+    "username",  # str | None
     "event_type",  # normalised action label
-    "success",     # bool
-    "raw",         # original raw line
-    "device_id",   # originating device
-    "extra",       # dict of parser-specific fields
+    "success",  # bool
+    "raw",  # original raw line
+    "device_id",  # originating device
+    "extra",  # dict of parser-specific fields
 )
 
 
@@ -38,7 +38,7 @@ class BaseParser(ABC):
     IngestionManager to treat SSH, syslog, Windows, network, and endpoint
     events identically downstream.
 
-    [GLASSWING ALIGNMENT — multi-source unified schema]
+    [Capability: multi-source unified schema]
     [DESIGN CHOICE] ABC enforces contract at class-definition time; validation
     at runtime guards against parser bugs without crashing the ingest pipeline.
     """

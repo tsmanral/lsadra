@@ -10,7 +10,7 @@ in thin adapter classes and loaded first to preserve V3 behaviour.
 
 Integrates with the FastAPI ingest endpoint and APScheduler health jobs.
 
-[GLASSWING ALIGNMENT — central ingestion orchestrator]
+[Capability: central ingestion orchestrator]
 [V4 ENHANCEMENT — gap: multi-source ingestion]
 """
 
@@ -18,6 +18,7 @@ import logging
 from pathlib import Path
 from typing import Any, Dict, Generator, Iterator, List, Optional
 
+from lsadra.detection.event_types import canonical_event_type, is_success
 from lsadra.ingestion.base_parser import BaseParser
 from lsadra.ingestion.syslog_parser import SyslogParser
 from lsadra.ingestion.windows_event_parser import WindowsEventParser
@@ -45,6 +46,7 @@ class _SSHParserAdapter(BaseParser):
     def __init__(self) -> None:
         """Initialise the underlying V3 parser."""
         from lsadra.ingestion.parsers_linux import LinuxSSHParser
+
         self._v3 = LinuxSSHParser()
 
     @property
@@ -54,8 +56,10 @@ class _SSHParserAdapter(BaseParser):
     def can_parse(self, raw_line: str) -> bool:
         """Return True if line contains SSH auth patterns."""
         return "sshd[" in raw_line and (
-            "Accepted " in raw_line or "Failed " in raw_line
-            or "session" in raw_line or "sudo" in raw_line.lower()
+            "Accepted " in raw_line
+            or "Failed " in raw_line
+            or "session" in raw_line
+            or "sudo" in raw_line.lower()
         )
 
     def parse(self, raw_line: str, device_id: str) -> Optional[Dict[str, Any]]:
@@ -64,26 +68,26 @@ class _SSHParserAdapter(BaseParser):
         if v3 is None:
             return None
         return {
-            "timestamp":   v3.get("timestamp", ""),
+            "timestamp": v3.get("timestamp", ""),
             "source_type": self.source_type,
-            "source_ip":   v3.get("source_ip"),
-            "dest_ip":     None,
-            "username":    v3.get("effective_username"),
-            "event_type":  v3.get("event_type", "unknown"),
-            "success":     "accepted" in str(v3.get("event_type", "")).lower(),
-            "raw":         v3.get("raw_message", raw_line)[:2048],
-            "device_id":   device_id,
-            "host":        v3.get("host", ""),  # syslog hostname, not the device ID
-            "extra":       v3.get("attributes", {}),
+            "source_ip": v3.get("source_ip"),
+            "dest_ip": None,
+            "username": v3.get("effective_username"),
+            "event_type": v3.get("event_type", "other"),
+            "success": is_success(canonical_event_type(v3.get("event_type"))),
+            "raw": v3.get("raw_message", raw_line)[:2048],
+            "device_id": device_id,
+            "host": v3.get("host", ""),  # syslog hostname, not the device ID
+            "extra": v3.get("attributes", {}),
         }
 
 
 # Source-hint → parser class mapping for O(1) routed lookups
 _HINT_MAP: Dict[str, str] = {
-    "ssh":      "_SSHParserAdapter",
-    "syslog":   "SyslogParser",
-    "windows":  "WindowsEventParser",
-    "network":  "NetworkFlowParser",
+    "ssh": "_SSHParserAdapter",
+    "syslog": "SyslogParser",
+    "windows": "WindowsEventParser",
+    "network": "NetworkFlowParser",
     "endpoint": "EndpointParser",
 }
 
@@ -100,7 +104,7 @@ class IngestionManager:
 
     Statistics are tracked per source_type for the health dashboard.
 
-    [GLASSWING ALIGNMENT — central ingestion orchestrator]
+    [Capability: central ingestion orchestrator]
     [V4 ENHANCEMENT — gap: multi-source ingestion]
     """
 
@@ -111,7 +115,7 @@ class IngestionManager:
         V3 SSH adapter is loaded first to preserve existing V3 behaviour.
         """
         self.parsers: List[BaseParser] = [
-            _SSHParserAdapter(),     # V3 compatibility — always first
+            _SSHParserAdapter(),  # V3 compatibility — always first
             SyslogParser(),
             WindowsEventParser(),
             NetworkFlowParser(),
@@ -119,8 +123,7 @@ class IngestionManager:
         ]
         # Per-source stats: {source_type: {"events": int, "errors": int, "last": str|None}}
         self._stats: Dict[str, Dict[str, Any]] = {
-            p.source_type: {"events": 0, "errors": 0, "last_event": None}
-            for p in self.parsers
+            p.source_type: {"events": 0, "errors": 0, "last_event": None} for p in self.parsers
         }
 
     # ------------------------------------------------------------------
@@ -136,7 +139,7 @@ class IngestionManager:
         Auto-detects format by trying each parser in chain order.
         If *hint* is provided it narrows the search to the matching parser.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             raw_line:  A single raw log line from any supported source.
@@ -159,17 +162,24 @@ class IngestionManager:
                 if event is not None:
                     if parser.validate_output(event):
                         self._record_success(parser.source_type)
+                        # One closed vocabulary for storage and detection
+                        # (lsadra/detection/event_types.py, audit G-15).
+                        event["event_type"] = canonical_event_type(
+                            event.get("event_type"), event.get("success")
+                        )
                         return event
                     else:
                         logger.debug(
                             "Parser %s produced invalid schema for line: %.120s",
-                            type(parser).__name__, raw_line,
+                            type(parser).__name__,
+                            raw_line,
                         )
             except Exception:
                 self._record_error(parser.source_type)
                 logger.exception(
                     "Parser %s raised exception on line: %.120s",
-                    type(parser).__name__, raw_line,
+                    type(parser).__name__,
+                    raw_line,
                 )
         return None
 
@@ -179,7 +189,7 @@ class IngestionManager:
         """
         Read and parse an entire log file.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             filepath:  Path to the log file on disk.
@@ -207,7 +217,7 @@ class IngestionManager:
         """
         Yield unified events from a file-like stream, one line at a time.
 
-        [GLASSWING ALIGNMENT — central ingestion orchestrator]
+        [Capability: central ingestion orchestrator]
 
         Args:
             stream:    Any iterable producing raw log lines.
@@ -242,22 +252,23 @@ class IngestionManager:
         if hint is None:
             return self.parsers
         hint_lower = hint.lower()
-        filtered = [p for p in self.parsers if p.source_type.startswith(hint_lower)
-                    or (hint_lower == "ssh" and isinstance(p, _SSHParserAdapter))]
+        filtered = [
+            p
+            for p in self.parsers
+            if p.source_type.startswith(hint_lower)
+            or (hint_lower == "ssh" and isinstance(p, _SSHParserAdapter))
+        ]
         return filtered if filtered else self.parsers
 
     def _record_success(self, source_type: str) -> None:
         """Increment event counter and update last_event timestamp."""
         from datetime import datetime
-        bucket = self._stats.setdefault(
-            source_type, {"events": 0, "errors": 0, "last_event": None}
-        )
+
+        bucket = self._stats.setdefault(source_type, {"events": 0, "errors": 0, "last_event": None})
         bucket["events"] += 1
         bucket["last_event"] = datetime.utcnow().isoformat()
 
     def _record_error(self, source_type: str) -> None:
         """Increment parse error counter for a source type."""
-        bucket = self._stats.setdefault(
-            source_type, {"events": 0, "errors": 0, "last_event": None}
-        )
+        bucket = self._stats.setdefault(source_type, {"events": 0, "errors": 0, "last_event": None})
         bucket["errors"] += 1

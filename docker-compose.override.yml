@@ -13,18 +13,6 @@ services:
       - LSADRA_REQUIRE_TLS=false
       - PYTHONDONTWRITEBYTECODE=1
 
-  dashboard:
-    command: >
-      streamlit run lsadra/ui/dashboard.py
-      --server.port=8501
-      --server.address=0.0.0.0
-      --server.headless=true
-      --server.runOnSave=true
-      --browser.gatherUsageStats=false
-    volumes:
-      - .:/app
-      - sentinel-data:/app/data
-
   agent-sim:
     volumes:
       - .:/app

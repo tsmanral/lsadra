@@ -24,7 +24,7 @@ def _require_tls(env_overrides):
     """Import lsadra.config in a clean subprocess; return str(config.REQUIRE_TLS)."""
     env = {k: v for k, v in os.environ.items() if k not in _GUARDED}
     # Provide a secret so the #4 JWT guard passes and config imports cleanly.
-    env["LSADRA_JWT_SECRET"] = "test-stable-secret-not-real"
+    env["LSADRA_JWT_SECRET"] = "test-stable-secret-not-real-0123456789abcdef"
     env.update(env_overrides)
     r = subprocess.run(
         [sys.executable, "-c", "import lsadra.config as c; print(c.REQUIRE_TLS)"],
@@ -54,6 +54,4 @@ def test_explicit_env_overrides_prod_default():
 
 def test_explicit_env_overrides_dev_default():
     """An explicit LSADRA_REQUIRE_TLS=true is honored in dev mode."""
-    assert _require_tls(
-        {"LSADRA_DEV_MODE": "true", "LSADRA_REQUIRE_TLS": "true"}
-    ) == "True"
+    assert _require_tls({"LSADRA_DEV_MODE": "true", "LSADRA_REQUIRE_TLS": "true"}) == "True"

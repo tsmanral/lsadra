@@ -1,21 +1,59 @@
 # MkDocs Material config. Publication is gated on the name decision
-# (ADR 0002 / gate D1).  Local preview:  pip install mkdocs-material && mkdocs serve
+# (ADR 0002 / gate D1).  Local preview:  pip install -r requirements/docs.txt && mkdocs serve
+# CI builds this site with `mkdocs build --strict` (.github/workflows/docs.yml).
 site_name: LSADRA
 site_description: Local Security Anomaly Detection & Risk Assessment
+repo_url: https://github.com/tsmanral/lsadra
 theme:
   name: material
 docs_dir: docs
+
+# Strict mode turns every warning below into a failed build.
+validation:
+  omitted_files: warn
+  absolute_links: warn
+  unrecognized_links: warn
+  anchors: warn
+
+markdown_extensions:
+  - admonition
+  - tables
+  - toc:
+      permalink: true
+  - pymdownx.superfences:
+      custom_fences:
+        - name: mermaid
+          class: mermaid
+          format: !!python/name:pymdownx.superfences.fence_code_format
+
 nav:
   - Home: README.md
   - Architecture:
       - Overview: architecture/README.md
+      - C4 diagrams: architecture/c4.md
       - ADR index: architecture/adr/README.md
       - "0001 · Polyglot split": architecture/adr/0001-rust-collector-split.md
       - "0002 · Product name": architecture/adr/0002-product-name.md
       - "0003 · Apple-less strategy": architecture/adr/0003-apple-less-strategy.md
       - "0004 · Intel two-tier": architecture/adr/0004-intel-two-tier-licensing.md
+      - "0005 · Apple testing strategy": architecture/adr/0005-apple-testing-strategy.md
       - "0006 · Event schema v1 freeze": architecture/adr/0006-event-schema-v1-freeze.md
-  - Threat models: threat-models/README.md
+      - "0007 · Detection stack": architecture/adr/0007-detection-stack.md
+      - "0008 · Lite and Team line": architecture/adr/0008-lite-team-line.md
+      - "V3 to V4 evolution (historical)": V3_VS_V4_EVOLUTION.md
+  - Threat models:
+      - Overview: threat-models/README.md
+      - Product (STRIDE): threat-models/product-stride.md
+      - Agent keys: threat-models/agent-keys.md
   - Contracts: contracts/README.md
-  - Security: security/README.md
+  - Security:
+      - Overview: security/README.md
+      - Data inventory: security/data-inventory.md
+      - Incident runbook: security/incident-runbook.md
+      - SSDF and CRA: security/ssdf-cra.md
+      - Release security review: security/release-security-review.md
+  - Detection scorecard: detection/scorecard.md
+  - Releases:
+      - How releases work: releases/README.md
+      - v6.0.0: releases/v6.0.0.md
   - Contributing: contributing/README.md

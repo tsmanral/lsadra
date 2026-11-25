@@ -1,0 +1,84 @@
+name: intel-bundle
+
+# Rebuilds the bundled intel tier (ADR 0004): CISA KEV + MITRE ATT&CK into
+# lsadra/intel/data/intel-YYYYMMDD.sqlite, signs the manifest with the release
+# key, and opens a draft pull request. It does nothing when upstream data is
+# unchanged (the build compares upstream hashes with the current manifest).
+#
+# Secrets:
+#   LSADRA_INTEL_SIGNING_KEY  base64 raw Ed25519 private key (python -m lsadra.intel
+#                             keygen). Its public key must be in
+#                             lsadra/intel/trusted_keys.json or verification fails.
+#   INTEL_BOT_TOKEN           optional. Pull requests opened with the default
+#                             GITHUB_TOKEN do not trigger CI; a fine-grained token
+#                             (contents + pull requests: write) makes the required
+#                             checks run on the refresh PR.
+on:
+  schedule:
+    - cron: "17 6 * * 1" # Mondays 06:17 UTC
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: intel-bundle
+  cancel-in-progress: false
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+      pull-requests: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          python-version: "3.12"
+      - name: Install build dependencies
+        # Hash-locked like every other workflow (requirements/README.md).
+        run: pip install --require-hashes -r requirements/base.txt
+
+      - name: Build bundle
+        id: build
+        run: |
+          set +e
+          python -m lsadra.intel build --out lsadra/intel/data --if-changed
+          rc=$?
+          set -e
+          if [ "$rc" = "3" ]; then echo "changed=false" >> "$GITHUB_OUTPUT"; exit 0; fi
+          [ "$rc" = "0" ] || exit "$rc"
+          echo "changed=true" >> "$GITHUB_OUTPUT"
+
+      - name: Sign and verify
+        if: steps.build.outputs.changed == 'true'
+        env:
+          LSADRA_INTEL_SIGNING_KEY: ${{ secrets.LSADRA_INTEL_SIGNING_KEY }}
+        run: |
+          if [ -z "$LSADRA_INTEL_SIGNING_KEY" ]; then
+            echo "::error::LSADRA_INTEL_SIGNING_KEY secret is not set; cannot sign the bundle."
+            exit 1
+          fi
+          python -m lsadra.intel sign lsadra/intel/data
+          python -m lsadra.intel verify lsadra/intel/data
+
+      - name: Open pull request
+        if: steps.build.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ secrets.INTEL_BOT_TOKEN || secrets.GITHUB_TOKEN }}
+        run: |
+          day=$(date -u +%Y%m%d)
+          branch="intel/bundle-$day"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add -A lsadra/intel/data
+          git commit -s -m "chore(intel): refresh bundled intel $day"
+          # Credentials are not persisted by checkout; push with the token here only.
+          git push "https://x-access-token:${GH_TOKEN}@github.com/${GITHUB_REPOSITORY}.git" "$branch"
+          gh pr create --draft --base main --head "$branch" \
+            --title "chore(intel): refresh bundled intel $day" \
+            --body "Automated refresh of the bundled intel tier (ADR 0004). Built from upstream CISA KEV and MITRE ATT&CK, manifest signed with the release key and verified in the workflow. Review lsadra/intel/data/manifest.json for source versions and record counts."

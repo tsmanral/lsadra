@@ -1,6 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { getDevices, saveActiveDeviceFilter, deleteDevice, updateDeviceStatus } from '../services/api';
+import { getDevices, saveActiveDeviceFilter, deleteDevice, updateDeviceStatus, isTestUser } from '../services/api';
 import { Monitor, Server, Plus, CheckSquare, Square, Save, RotateCcw, Info, Power, PowerOff, Trash2 } from 'lucide-react';
 
 const OS_GROUPS: Record<string, { label: string; icon: React.ReactNode; color: string }> = {
@@ -27,7 +27,7 @@ const SEED: any[] = [
 
 const DeviceBehavior = () => {
   const navigate = useNavigate();
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
   const [devices, setDevices]   = useState<any[]>([]); // Start empty, fill from API or SEED
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [activeGroup, setActiveGroup] = useState<string>('All');
@@ -45,8 +45,11 @@ const DeviceBehavior = () => {
       let currentDevices: any[] = [];
       if (Array.isArray(r?.data) && r.data.length > 0) {
         currentDevices = r.data.map((d: any) => ({
-          device_id: d.id || d.device_id, source_type: d.source_type || 'Unknown',
-          ip_address: d.ip_address || '—', is_active: d.is_active, last_seen: d.last_seen, os_type: d.os_type || '—',
+          // API rows are `devices` table rows: id, hostname, os_type, status, last_seen_at.
+          device_id: d.id || d.device_id, source_type: d.source_type || d.os_type || 'Unknown',
+          ip_address: d.ip_address || d.hostname || '—',
+          is_active: d.is_active ?? (d.status ? d.status !== 'OFFLINE' : false),
+          last_seen: d.last_seen ?? d.last_seen_at ?? null, os_type: d.os_type || '—',
         }));
       } else if (isTest) {
         currentDevices = SEED;
@@ -226,11 +229,14 @@ const DeviceBehavior = () => {
           const g = osGroup(d.os_type);
           const cfg = OS_GROUPS[g] || OS_GROUPS.Other;
           const isSel = selected.has(d.device_id);
-          const relSince = Math.round((Date.now() - new Date(d.last_seen).getTime()) / 1000);
-          const lastSeenStr = relSince < 60 ? `${relSince}s ago` : relSince < 3600 ? `${Math.round(relSince/60)}m ago` : `${Math.round(relSince/3600)}h ago`;
+          const seenMs = d.last_seen ? new Date(/[zZ]|[+-]\d\d:?\d\d$/.test(d.last_seen) ? d.last_seen : `${String(d.last_seen).replace(' ', 'T')}Z`).getTime() : NaN;
+          const relSince = Math.max(0, Math.round((Date.now() - seenMs) / 1000));
+          const lastSeenStr = Number.isNaN(seenMs) ? 'never' : relSince < 60 ? `${relSince}s ago` : relSince < 3600 ? `${Math.round(relSince/60)}m ago` : relSince < 172800 ? `${Math.round(relSince/3600)}h ago` : `${Math.round(relSince/86400)}d ago`;
 
           return (
             <div key={d.device_id} onClick={() => toggle(d.device_id)}
+              role="checkbox" aria-checked={isSel} tabIndex={0} aria-label={`Device ${d.device_id}`}
+              onKeyDown={e => { if (e.key === ' ' || e.key === 'Enter') { e.preventDefault(); toggle(d.device_id); } }}
               className={`col-span-4 hud-panel p-4 cursor-pointer transition-all border ${isSel ? 'border-[var(--color-primary)] bg-[rgba(0,240,255,0.06)]' : 'border-transparent hover:border-[rgba(0,240,255,0.2)]'}`}>
               <div className="flex justify-between items-start mb-3">
                 <div className="flex items-center gap-2">
@@ -247,7 +253,7 @@ const DeviceBehavior = () => {
                 </span>
               </div>
               <div className="grid grid-cols-2 gap-y-1 text-[10px] font-mono">
-                <span className="text-[var(--color-muted)]">IP</span><span className="text-white">{d.ip_address}</span>
+                <span className="text-[var(--color-muted)]">Host / IP</span><span className="text-white">{d.ip_address}</span>
                 <span className="text-[var(--color-muted)]">Type</span><span className="text-white truncate">{d.source_type}</span>
                 <span className="text-[var(--color-muted)]">Last Seen</span><span className="text-white">{lastSeenStr}</span>
                 <span className="text-[var(--color-muted)]">Group</span><span style={{ color: cfg.color }}>{g}</span>

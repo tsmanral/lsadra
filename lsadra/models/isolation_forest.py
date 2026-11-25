@@ -16,9 +16,7 @@ class IsolationForestModel(BaseAnomalyDetector):
 
     def __init__(self, contamination: float = ENSEMBLE_CONTAMINATION):
         super().__init__("Isolation_Forest")
-        self.model = IsolationForest(
-            contamination=contamination, random_state=42, n_jobs=-1
-        )
+        self.model = IsolationForest(contamination=contamination, random_state=42, n_jobs=-1)
 
     def train(self, df: pd.DataFrame) -> None:
         self.model.fit(df[self.features])

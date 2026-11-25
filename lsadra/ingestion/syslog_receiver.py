@@ -54,9 +54,7 @@ class SyslogReceiver:
 
     def start(self) -> None:
         """Start listening (blocking)."""
-        self._server = socketserver.ThreadingTCPServer(
-            (self.host, self.port), _SyslogHandler
-        )
+        self._server = socketserver.ThreadingTCPServer((self.host, self.port), _SyslogHandler)
         logger.info("Syslog receiver listening on %s:%d", self.host, self.port)
         try:
             self._server.serve_forever()

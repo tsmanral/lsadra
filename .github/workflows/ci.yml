@@ -4,6 +4,8 @@ on:
   pull_request:
   push:
     branches: [main]
+  # release.yml runs the whole suite on a tag before it publishes anything.
+  workflow_call:
 
 permissions:
   contents: read
@@ -17,14 +19,19 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - run: pip install ruff
+      - name: Install pinned lint tools (hash-checked)
+        run: pip install --require-hashes -r requirements/ci-tools.txt
       - name: Ruff lint (bootstrap ruleset — see ruff.toml)
         run: ruff check .
-      - name: Ruff format check (advisory)
-        run: ruff format --check . || echo "::warning::formatting deferred to a dedicated PR (see ruff.toml)"
+      - name: Ruff security rules ratchet (no new S findings)
+        run: python scripts/ruff_security_ratchet.py
+      - name: Ruff format check
+        run: ruff format --check .
 
   test:
     strategy:
@@ -39,17 +46,16 @@ jobs:
       PYTHONUTF8: "1"
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97 # v7.0.0
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
         with:
           python-version: "3.12"
-      - name: Install dependencies
-        # NOTE (first-run validation): requirements.txt pins torch via the CPU
-        # wheel index. If the plain install fails, the extra-index fallback runs.
+      - name: Install dependencies (hash-checked locks)
+        shell: bash
         run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt \
-            || pip install --extra-index-url https://download.pytorch.org/whl/cpu -r requirements.txt
-          pip install pytest
+          pip install --require-hashes -r requirements.txt
+          pip check
       - name: Smoke gate
         run: python tests/test_v4_smoke.py
       - name: Security regression gate
@@ -73,6 +79,36 @@ jobs:
         # script above and exits at import, so pytest must not collect it).
         run: python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q
 
+  test-newer-python:
+    # README promises Python 3.12 or newer; this keeps 3.13 and 3.14 honest.
+    # Separate job name so the required `test (<os>)` checks stay unchanged;
+    # not a required check.
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.13", "3.14"]
+    runs-on: ubuntu-latest
+    env:
+      LSADRA_DEV_MODE: "true"
+      PYTHONUTF8: "1"
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-python@6d4fd22b20465ccc0f7354476588e8df7c9ca0e0 # v7.1.0
+        with:
+          python-version: ${{ matrix.python-version }}
+      - name: Install dependencies (hash-checked locks)
+        run: |
+          pip install --require-hashes -r requirements.txt
+          pip check
+      - name: Smoke gate
+        run: python tests/test_v4_smoke.py
+      - name: Security regression gate
+        run: python -m pytest tests/security/ -q
+      - name: Full backend suite
+        run: python -m pytest tests/ --ignore=tests/test_v4_smoke.py -q
+
   frontend:
     runs-on: ubuntu-latest
     defaults:
@@ -80,6 +116,8 @@ jobs:
         working-directory: frontend
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
         with:
           node-version: 24
@@ -90,19 +128,21 @@ jobs:
         run: npx tsc -b --noEmit
       - name: Build
         run: npm run build
+      - name: Unit tests
+        run: npm test
       - name: ESLint (report)
         run: npx eslint . -f json -o eslint.json || true
-      - name: ESLint baseline gate (fail only if errors exceed 164)
+      - name: ESLint baseline gate (fail only if errors exceed 157)
         # Lint debt is being paid down in dedicated PRs; this gate only blocks
-        # regressions above the recorded baseline (164 errors / 5 warnings).
+        # regressions above the recorded baseline (157 errors).
         run: |
           node -e '
             const r = require("./eslint.json");
             const errors = r.reduce((n, f) => n + f.errorCount, 0);
             const warnings = r.reduce((n, f) => n + f.warningCount, 0);
-            console.log(`eslint: ${errors} errors, ${warnings} warnings (baseline: 164 errors)`);
-            if (errors > 164) {
-              console.log(`::error::eslint errors ${errors} exceed baseline 164`);
+            console.log(`eslint: ${errors} errors, ${warnings} warnings (baseline: 157 errors)`);
+            if (errors > 157) {
+              console.log(`::error::eslint errors ${errors} exceed baseline 157`);
               process.exit(1);
             }
           '

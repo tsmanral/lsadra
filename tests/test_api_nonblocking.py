@@ -24,8 +24,11 @@ from lsadra.detection.detection_worker import DetectionQueue, detection_queue
 from tests.fixtures import setup_test_db
 
 API_KEY = "demo-key-not-a-secret"
-BATCH = {"events": [{"schema_version": "1", "timestamp": "2026-03-15T14:30:00Z",
-                     "event_type": "auth_failure"}]}
+BATCH = {
+    "events": [
+        {"schema_version": "1", "timestamp": "2026-03-15T14:30:00Z", "event_type": "auth_failure"}
+    ]
+}
 RAW = {"lines": [{"raw_line": "Mar 15 14:30:00 demo-host sshd[1]: test"}]}
 SLOW_S = 0.3
 HEALTH_BUDGET_MS = 50.0
@@ -51,7 +54,10 @@ def _device() -> dict:
 
 def _bearer(role: str) -> dict:
     from lsadra.auth import create_access_token
+    from lsadra.storage.database import create_user
 
+    # G-9: a token must belong to a stored account; its stored role is the one used.
+    create_user("u-demo", "demo.user", "hash", role)
     return {"Authorization": "Bearer " + create_access_token("u-demo", "demo.user", role)}
 
 
@@ -68,6 +74,7 @@ def _slowed(real, started: threading.Event):
         started.set()
         time.sleep(SLOW_S)  # stands in for a long SQLite write / lock wait
         return real(*args, **kwargs)
+
     return slow
 
 
@@ -94,44 +101,71 @@ async def _health_latency_while(request_coro, started: threading.Event):
 def _case(name):
     """(patch target, real callable, request coroutine factory) per handler."""
     import lsadra.ingestion.api_ingestion as ingestion
-    import lsadra.onboarding.device_registration as registration
-    import lsadra.ui.api_dashboard as dashboard
+    import lsadra.api.dashboard as dashboard
     import server
 
     if name == "events/batch":
         headers = _device()
-        return ("lsadra.ingestion.api_ingestion.store_batch_and_touch", ingestion.store_batch_and_touch,
-                lambda c: c.post("/api/events/batch", json=BATCH, headers=headers))
+        return (
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch",
+            ingestion.store_batch_and_touch,
+            lambda c: c.post("/api/events/batch", json=BATCH, headers=headers),
+        )
     if name == "events/raw":
         headers = _device()
-        return ("lsadra.ingestion.api_ingestion.store_batch_and_touch", ingestion.store_batch_and_touch,
-                lambda c: c.post("/api/events/raw", json=RAW, headers=headers))
+        return (
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch",
+            ingestion.store_batch_and_touch,
+            lambda c: c.post("/api/events/raw", json=RAW, headers=headers),
+        )
     if name == "heartbeat":
-        device_id = _device()["X-Device-Id"]
-        return ("server.record_heartbeat", server.record_heartbeat,
-                lambda c: c.post("/heartbeat", json={"device_id": device_id}))
+        headers = _device()
+        return (
+            "server.record_heartbeat",
+            server.record_heartbeat,
+            lambda c: c.post("/heartbeat", json={}, headers=headers),
+        )
     if name == "auth/login":
-        return ("server.get_user_by_username", server.get_user_by_username,
-                lambda c: c.post("/api/auth/login", json={"username": "nobody", "password": "x"}))
+        return (
+            "server.get_user_by_username",
+            server.get_user_by_username,
+            lambda c: c.post("/api/auth/login", json={"username": "nobody", "password": "x"}),
+        )
     if name == "incidents":
         headers = _bearer("ANALYST")
-        return ("server.get_all_incidents", server.get_all_incidents,
-                lambda c: c.get("/api/incidents", headers=headers))
+        return (
+            "server.get_all_incidents",
+            server.get_all_incidents,
+            lambda c: c.get("/api/incidents", headers=headers),
+        )
     if name == "dashboard/kpis":
         # ADMIN: the non-admin KPI query fails on main too (ambiguous column), unrelated here.
         headers = _bearer("ADMIN")
-        return ("lsadra.ui.api_dashboard.get_dashboard_kpis", dashboard.get_dashboard_kpis,
-                lambda c: c.get("/api/dashboard/kpis", headers=headers))
+        return (
+            "lsadra.api.dashboard.get_dashboard_kpis",
+            dashboard.get_dashboard_kpis,
+            lambda c: c.get("/api/dashboard/kpis", headers=headers),
+        )
     if name == "devices/config":
-        device_id = _device()["X-Device-Id"]
-        return ("lsadra.onboarding.device_registration.get_device", registration.get_device,
-                lambda c: c.get(f"/api/devices/config/{device_id}"))
+        # The route authenticates the device first; that lookup is the storage call.
+        headers = _device()
+        device_id = headers["X-Device-Id"]
+        return (
+            "lsadra.ingestion.api_ingestion.get_device",
+            ingestion.get_device,
+            lambda c: c.get(f"/api/devices/config/{device_id}", headers=headers),
+        )
     raise KeyError(name)
 
 
 EXPECTED_STATUS = {
-    "events/batch": 200, "events/raw": 200, "heartbeat": 200, "auth/login": 401,
-    "incidents": 200, "dashboard/kpis": 200, "devices/config": 200,
+    "events/batch": 200,
+    "events/raw": 200,
+    "heartbeat": 200,
+    "auth/login": 401,
+    "incidents": 200,
+    "dashboard/kpis": 200,
+    "devices/config": 200,
 }
 
 
@@ -185,9 +219,12 @@ def test_detection_admission_precedes_the_off_loop_write(path, body):
             response = await client.post(path, json=body, headers=headers)
         return loop_thread, response
 
-    with patch.object(q, "reserve", reserve), patch.object(q, "commit", commit), \
-         patch("lsadra.ingestion.api_ingestion.detection_queue", q), \
-         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch", store):
+    with (
+        patch.object(q, "reserve", reserve),
+        patch.object(q, "commit", commit),
+        patch("lsadra.ingestion.api_ingestion.detection_queue", q),
+        patch("lsadra.ingestion.api_ingestion.store_batch_and_touch", store),
+    ):
         loop_thread, response = asyncio.run(scenario())
 
     assert response.status_code == 200, response.text
@@ -212,12 +249,17 @@ def test_failed_off_loop_write_releases_on_the_loop():
     async def scenario():
         async with _client() as client:
             return threading.current_thread().name, await client.post(
-                "/api/events/batch", json=BATCH, headers=headers)
+                "/api/events/batch", json=BATCH, headers=headers
+            )
 
-    with patch.object(q, "release", release), \
-         patch("lsadra.ingestion.api_ingestion.detection_queue", q), \
-         patch("lsadra.ingestion.api_ingestion.store_batch_and_touch",
-               side_effect=RuntimeError("database is locked")):
+    with (
+        patch.object(q, "release", release),
+        patch("lsadra.ingestion.api_ingestion.detection_queue", q),
+        patch(
+            "lsadra.ingestion.api_ingestion.store_batch_and_touch",
+            side_effect=RuntimeError("database is locked"),
+        ),
+    ):
         with pytest.raises(RuntimeError):  # ASGITransport re-raises the app error
             asyncio.run(scenario())
 
@@ -248,7 +290,8 @@ def test_concurrent_registrations_cannot_double_spend_one_token():
         # 4 ≤ the per-IP registration limit (5/min); a TEST-NET address of its own.
         async with _client("198.51.100.77") as client:
             return await asyncio.gather(
-                *(client.post("/api/devices/register", json=body) for _ in range(4)))
+                *(client.post("/api/devices/register", json=body) for _ in range(4))
+            )
 
     with patch("lsadra.storage.database.datetime", _SlowClock):
         responses = asyncio.run(scenario())
@@ -260,11 +303,22 @@ def test_concurrent_registrations_cannot_double_spend_one_token():
 def test_concurrent_signups_for_one_username_are_one_200_and_400s_never_500():
     async def scenario():
         async with _client() as client:
-            return await asyncio.gather(*(
-                client.post("/api/auth/register", json={"username": "race.demo", "password": "pw-demo"})
-                for _ in range(4)))
+            return await asyncio.gather(
+                *(
+                    client.post(
+                        "/api/auth/register",
+                        json={
+                            "username": "race.demo",
+                            "password": "-".join(["race", "amber", "glacier", "31"]),
+                        },
+                    )
+                    for _ in range(4)
+                )
+            )
 
     responses = asyncio.run(scenario())
     codes = sorted(r.status_code for r in responses)
     assert codes == [200, 400, 400, 400], [r.text for r in responses]
-    assert all(r.json()["detail"] == "Username already taken." for r in responses if r.status_code == 400)
+    assert all(
+        r.json()["detail"] == "Username already taken." for r in responses if r.status_code == 400
+    )

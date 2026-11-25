@@ -1,0 +1,101 @@
+name: release-dry-run
+
+# Rehearses a release on any PR that touches the release machinery, and on
+# demand, without publishing anything: no tag, no release, no image push.
+#   * versions agree (lsadra/__init__.py, manifest, README) and the notes render;
+#   * release-please previews the release PR it would open (version + changelog);
+#   * the image builds with the same SBOM and provenance settings as release.yml.
+# release.yml's own structure (gated on full CI, signed, attested) is pinned by
+# tests/security/test_supply_chain.py and tests/test_release_setup.py.
+on:
+  pull_request:
+    paths:
+      - ".github/workflows/release.yml"
+      - ".github/workflows/release-please.yml"
+      - ".github/workflows/release-dry-run.yml"
+      - "release-please-config.json"
+      - ".release-please-manifest.json"
+      - "scripts/release_notes.py"
+      - "docs/releases/**"
+      - "lsadra/__init__.py"
+      - "Dockerfile"
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-dry-run-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  notes:
+    name: Versions agree and notes render
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - name: Version sources agree
+        run: python3 scripts/release_notes.py --check
+      - name: Render the notes for the next release
+        env:
+          OWNER: ${{ github.repository_owner }}
+        run: |
+          next="$(python3 scripts/release_notes.py --next-version)"
+          python3 scripts/release_notes.py --tag "v${next}" --owner "$OWNER" \
+            --digest "sha256:0000000000000000000000000000000000000000000000000000000000000000" \
+            --out notes.md
+          {
+            echo "## Release notes preview: v${next}"
+            echo
+            cat notes.md
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  release-please:
+    name: Preview the release PR
+    # The preview reads the branch through the API, so it needs a same-repo branch.
+    if: github.event_name == 'workflow_dispatch' || github.event.pull_request.head.repo.full_name == github.repository
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      pull-requests: read
+    steps:
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: "24"
+      - name: release-please release-pr --dry-run
+        env:
+          GH_TOKEN: ${{ github.token }}
+          BRANCH: ${{ github.head_ref || github.ref_name }}
+        run: |
+          npx --yes release-please@17.6.0 release-pr --dry-run \
+            --token "$GH_TOKEN" \
+            --repo-url "$GITHUB_REPOSITORY" \
+            --target-branch "$BRANCH" \
+            --config-file release-please-config.json \
+            --manifest-file .release-please-manifest.json 2>&1 | tee preview.txt
+          {
+            echo "## release-please preview (dry run, nothing written)"
+            echo
+            echo '```'
+            tail -n 200 preview.txt
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+  image:
+    name: Build the release image (no push)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+      - name: Build with SBOM and SLSA provenance, as release.yml does
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          push: false
+          sbom: true
+          provenance: mode=max
+          tags: ghcr.io/${{ github.repository_owner }}/lsadra:dry-run

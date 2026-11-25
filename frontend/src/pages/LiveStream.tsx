@@ -1,16 +1,19 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { Filter, Play, Pause, AlertOctagon } from 'lucide-react';
-import { getAnomalies, getEvents } from '../services/api';
-import { subscribeAlerts, alertAsAnomaly } from '../services/alertStream';
+import { Play, Pause } from 'lucide-react';
+import { getAnomalies, getIngestionStats, isTestUser } from '../services/api';
+import { subscribeAlerts, alertAsAnomaly, type AlertStreamStatus } from '../services/alertStream';
+import Markdown from '../components/Markdown';
 
 import { useNavigate } from 'react-router-dom';
 
 const LiveStream = () => {
   const [isPaused, setIsPaused] = useState(false);
   const [events, setEvents] = useState<any[]>([]);
+  const [eps, setEps] = useState<number | null>(null);
+  const [streamStatus, setStreamStatus] = useState<AlertStreamStatus>('connecting');
   const navigate = useNavigate();
 
-  const isTest = localStorage.getItem('sentinel_username') === 'testuser';
+  const isTest = isTestUser();
 
   // Dynamic Event Generator for Demo
   const generateRandomEvent = () => {
@@ -60,7 +63,18 @@ const LiveStream = () => {
       if (pausedRef.current) return;
       setEvents(prev => [alertAsAnomaly(alert), ...prev].slice(0, 50));
     },
+    onStatus: setStreamStatus,
   }), []);
+
+  // Ingestion rate measured by the server over the last minute.
+  useEffect(() => {
+    const poll = () => getIngestionStats()
+      .then(r => setEps(typeof r?.data?.events_per_second === 'number' ? r.data.events_per_second : null))
+      .catch(() => setEps(null));
+    poll();
+    const t = setInterval(poll, 10000);
+    return () => clearInterval(t);
+  }, []);
 
   return (
     <div className="flex flex-col h-screen -m-6 bg-[#03060a] relative overflow-hidden">
@@ -74,14 +88,14 @@ const LiveStream = () => {
             <h2 className="text-4xl font-display font-bold text-white tracking-[0.2em] uppercase">Live SOC Terminal</h2>
           </div>
           <p className="text-[var(--color-muted)] font-mono text-xs mt-2 uppercase tracking-widest opacity-70">
-            Node: GLOBAL_INGESTION_HUB // Stream: REALTIME_BEHAVIORAL_FEED // Status: <span className="text-[var(--color-primary)]">ACTIVE_MONITORING</span>
+            Newest alerts first · Stream: <span className="text-[var(--color-primary)]">{streamStatus === 'live' ? 'live' : streamStatus === 'connecting' ? 'connecting…' : 'offline, retrying'}</span>
           </p>
         </div>
         
         <div className="flex space-x-6 items-center">
           <div className="flex flex-col items-end mr-6 border-r border-[rgba(0,240,255,0.2)] pr-6">
-            <span className="text-[10px] text-[var(--color-muted)] font-mono mb-1">TOTAL INGESTION RATE</span>
-            <span className="text-2xl font-display text-[var(--color-primary)]">1,402.8 <span className="text-xs">EPS</span></span>
+            <span className="text-xs text-[var(--color-muted)] font-mono mb-1">INGESTION RATE (LAST MINUTE)</span>
+            <span className="text-2xl font-display text-[var(--color-primary)]">{eps == null ? '—' : eps.toLocaleString(undefined, { maximumFractionDigits: 1 })} <span className="text-xs">EPS</span></span>
           </div>
 
           <div className="flex space-x-3">
@@ -110,9 +124,8 @@ const LiveStream = () => {
 
         <div className="flex-1 overflow-y-auto custom-scrollbar bg-[rgba(0,0,0,0.4)] border border-[rgba(0,240,255,0.1)]">
           {events.length === 0 ? (
-            <div className="h-full flex flex-col items-center justify-center opacity-30">
-              <div className="w-12 h-12 border-2 border-[var(--color-primary)] border-t-transparent rounded-full animate-spin mb-4"></div>
-              <p className="font-mono text-sm">AWAITING_INGESTION_SYMBOLS...</p>
+            <div className="h-full flex flex-col items-center justify-center text-[var(--color-muted)]">
+              <p className="font-mono text-sm">No alerts yet. New alerts appear here as soon as detection raises them.</p>
             </div>
           ) : (
             events.map((evt, idx) => (
@@ -121,7 +134,7 @@ const LiveStream = () => {
                 className={`flex items-center px-4 py-3 border-b border-[rgba(0,240,255,0.05)] hover:bg-[rgba(0,240,255,0.1)] transition-all group animate-in fade-in slide-in-from-right-4 duration-500`}
                 style={{ animationDelay: `${idx * 50}ms` }}
               >
-                <div className="w-24 font-mono text-[11px] text-gray-500">
+                <div className="w-24 font-mono text-xs text-[var(--color-muted)]">
                   {new Date(evt.created_at || Date.now()).toLocaleTimeString('en-GB', { hour12: false })}
                 </div>
                 
@@ -141,22 +154,24 @@ const LiveStream = () => {
                   </span>
                 </div>
 
-                <div className="w-40 font-mono text-xs text-white opacity-80 group-hover:opacity-100 group-hover:text-[var(--color-primary)] cursor-pointer">
-                  {evt.source_ip || '127.0.0.1'}
+                <div className="w-40 font-mono text-xs text-white">
+                  {evt.source_ip || '—'}
                 </div>
 
-                <div className="w-40 font-mono text-xs text-gray-400">
-                  {evt.device_id || 'LOCAL_HOST'}
+                <div className="w-40 font-mono text-xs text-[var(--color-text)] truncate">
+                  {evt.device_id || '—'}
                 </div>
 
-                <div className="flex-1 font-mono text-xs text-gray-500 group-hover:text-gray-300 transition-colors">
-                  {evt.narrative || 'Analyzing raw telemetry packets for behavioral drift...'}
+                <div className="flex-1 font-mono text-xs text-[var(--color-text)] line-clamp-3">
+                  {evt.narrative ? <Markdown text={evt.narrative} /> : <span className="text-[var(--color-muted)]">No narrative</span>}
                 </div>
 
                 <div className="w-32 text-right">
                   <button 
-                    onClick={() => navigate(`/app/investigate/${evt.id}`)}
-                    className="opacity-0 group-hover:opacity-100 transition-opacity text-[10px] font-display text-[var(--color-primary)] border border-[var(--color-primary)] px-2 py-1 hover:bg-[var(--color-primary)] hover:text-black"
+                    onClick={() => navigate(evt.incident_id ? `/app/incident/${evt.incident_id}` : `/app/investigate?entity=${encodeURIComponent(evt.source_ip || '')}`)}
+                    disabled={!evt.incident_id && !evt.source_ip}
+                    aria-label={`Investigate alert ${evt.id}`}
+                    className="opacity-70 group-hover:opacity-100 focus:opacity-100 transition-opacity text-xs font-display text-[var(--color-primary)] border border-[var(--color-primary)] px-2 py-1 hover:bg-[var(--color-primary)] hover:text-black disabled:opacity-30"
                   >
                     INVESTIGATE
                   </button>
@@ -170,12 +185,8 @@ const LiveStream = () => {
       {/* Footer Info Bar */}
       <footer className="p-3 px-6 bg-[rgba(0,240,255,0.05)] border-t border-[rgba(0,240,255,0.2)] flex justify-between items-center z-20">
         <div className="flex space-x-6 text-[10px] font-mono text-[var(--color-muted)]">
-          <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div> DB_CONNECTION: OPTIMAL</span>
-          <span className="flex items-center"><div className="w-2 h-2 rounded-full bg-green-500 mr-2"></div> ML_ENGINE: LOADED</span>
-          <span>UPTIME: 142h 12m 04s</span>
-        </div>
-        <div className="text-[10px] font-mono text-[var(--color-primary)] tracking-widest">
-          AI_SENTINEL_V4 // GLOBAL_THREAT_INTEL_READY
+          <span className="flex items-center"><span aria-hidden="true" className={`w-2 h-2 rounded-full mr-2 ${streamStatus === 'live' ? 'bg-green-500' : 'bg-amber-400'}`}></span> ALERT STREAM: {streamStatus.toUpperCase()}</span>
+          <span>SHOWING {events.length} OF THE LATEST 50</span>
         </div>
       </footer>
     </div>
