@@ -121,25 +121,25 @@ class TestExtractBehavioralFeatures:
                     "timestamp": "2026-11-16T10:00:00Z",
                     "source_ip": "192.0.2.10",
                     "effective_username": "alice.demo",
-                    "event_type": "ssh_failed",
+                    "event_type": "ssh_failed_password",
                 },
                 {
                     "timestamp": "2026-11-16T10:05:00Z",
                     "source_ip": "192.0.2.10",
                     "effective_username": "bob.demo",
-                    "event_type": "ssh_failed",
+                    "event_type": "ssh_failed_password",
                 },
                 {
                     "timestamp": "2026-11-16T10:10:00Z",
                     "source_ip": "192.0.2.10",
                     "effective_username": "alice.demo",
-                    "event_type": "ssh_accepted",
+                    "event_type": "auth_success",
                 },
                 {
                     "timestamp": "2026-11-16T10:12:00Z",
                     "source_ip": "198.51.100.20",
                     "effective_username": "carol.demo",
-                    "event_type": "ssh_accepted",
+                    "event_type": "auth_success",
                 },
             ]
         )
@@ -180,7 +180,7 @@ class TestExtractBehavioralFeatures:
                     "timestamp": "2026-11-15T00:00:00Z",
                     "source_ip": "203.0.113.5",
                     "effective_username": "dan.demo",
-                    "event_type": "auth_failure",
+                    "event_type": "ssh_failed_password",
                 }
             ]
         )
@@ -197,9 +197,7 @@ class TestExtractBehavioralFeatures:
         assert np.isclose(row["failure_ratio_15m"], 1.0, rtol=1e-6)
 
     def test_empty_dataframe_with_expected_columns(self):
-        df = pd.DataFrame(
-            columns=["timestamp", "source_ip", "effective_username", "event_type"]
-        )
+        df = pd.DataFrame(columns=["timestamp", "source_ip", "effective_username", "event_type"])
 
         out = extract_behavioral_features(df)
 
