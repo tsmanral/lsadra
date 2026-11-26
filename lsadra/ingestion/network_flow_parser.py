@@ -80,7 +80,7 @@ _CONNLOG_RE = re.compile(
 )
 
 # iptables/pfSense DENY: "... SRC=1.2.3.4 DST=5.6.7.8 ... DPT=22 ..."
-# Firewall lines ("... SRC=<ip> ... DST=<ip> ... DPT=<port> [... SPT=<port>]")
+# Firewall lines ("... SRC=<ip> ... DST=<ip> ... [SPT=<port>] DPT=<port> [... SPT=<port>]")
 # are matched field by field (_match_firewall) rather than with one pattern:
 # a single regex with several unbounded ".*" gaps backtracks super-linearly on
 # long, attacker-shaped lines.
@@ -115,6 +115,10 @@ def _match_firewall(line: str) -> Optional[Dict[str, Optional[str]]]:
     if not dst:
         return None
     spt = _last_field(line, _FW_SPT_RE, "SPT=", dpt.end(), len(line))
+    if not spt:
+        # iptables writes "SPT=<port> DPT=<port>", so the source port usually
+        # sits between DST= and DPT= rather than after DPT=.
+        spt = _last_field(line, _FW_SPT_RE, "SPT=", dst.end(), dpt.start())
     return {
         "src_ip": src.group(1),
         "dst_ip": dst.group(1),
