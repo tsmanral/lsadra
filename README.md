@@ -151,7 +151,7 @@ venv\Scripts\python -m lsadra.admin_cli promote --username demo.admin
 
 Sign out and back in for the new role to apply. After that, admins create accounts and change roles from the **Admin** page, or with `POST /api/dashboard/users` (`{"username", "password", "role"}`, password 12+ characters, role `ADMIN`, `ANALYST` or `VIEWER`). For scripts and containers, `create-admin --password-stdin` reads the password from standard input instead of prompting.
 
-> The dashboard calls the API at `http://localhost:8000`, which is set in [`frontend/src/services/api.ts`](frontend/src/services/api.ts). If you run the API elsewhere, change it there and add the dashboard's origin to `LSADRA_CORS_ORIGINS`.
+> The dashboard calls the API at `http://localhost:8000` by default. If you run the API elsewhere, start or build the dashboard with `VITE_API_BASE_URL` set (for example `VITE_API_BASE_URL=http://127.0.0.1:9000 npm run dev`); the live alert stream follows it. Add the dashboard's origin to `LSADRA_CORS_ORIGINS` as well.
 
 ### 6. Check everything works
 
@@ -265,7 +265,7 @@ docker compose -f docker-compose.yml up -d --build
 docker compose -f docker-compose.yml exec api python -m lsadra.admin_cli create-admin --username alice
 ```
 
-Outside dev mode the server refuses to start with a JWT secret shorter than 32 bytes or a documented placeholder, and self-service sign-up is off, so create the first admin as above and add other accounts from the **Admin** page. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker; if you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match.
+Outside dev mode the server refuses to start with a JWT secret shorter than 32 bytes or a documented placeholder, and self-service sign-up is off, so create the first admin as above and add other accounts from the **Admin** page. The dashboard calls the API at `http://localhost:8000` from your browser, so open it on the machine running Docker, or set `VITE_API_BASE_URL` when building (`VITE_API_BASE_URL=https://api.example.test docker compose -f docker-compose.yml up --build`). If you change the dashboard's port or address, set `LSADRA_CORS_ORIGINS` to match.
 
 Name `docker-compose.yml` explicitly as above. A plain `docker compose up` also loads [`docker-compose.override.yml`](docker-compose.override.yml), the development override: it mounts the source tree, turns on hot reload and forces TLS off.
 
