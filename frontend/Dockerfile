@@ -6,6 +6,9 @@ WORKDIR /src
 COPY package.json package-lock.json ./
 RUN npm ci --no-audit --no-fund
 COPY . .
+# The API address is compiled into the bundle; empty means http://localhost:8000.
+ARG VITE_API_BASE_URL=""
+ENV VITE_API_BASE_URL=$VITE_API_BASE_URL
 RUN npm run build
 
 # Unprivileged nginx: runs as a non-root user and listens on 8080.

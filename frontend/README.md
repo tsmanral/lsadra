@@ -15,6 +15,16 @@ npm ci          # install the exact versions in package-lock.json
 npm run dev     # http://localhost:5173
 ```
 
+The dashboard calls the API at `http://localhost:8000`. To use another address, set
+`VITE_API_BASE_URL` for `npm run dev` or `npm run build` (it is compiled into the bundle), and
+allow this origin in the API's `LSADRA_CORS_ORIGINS`:
+
+```bash
+VITE_API_BASE_URL=http://127.0.0.1:9000 npm run dev
+```
+
+The `/ws/alerts` stream follows the same address (`http` becomes `ws`, `https` becomes `wss`).
+
 Log in with an account you registered, or with the `demo.admin` user that
 `scripts/seed_demo.py` creates.
 
@@ -25,7 +35,7 @@ Log in with an account you registered, or with the `demo.admin` user that
 | `src/pages/` | One file per dashboard page |
 | `src/layouts/DashboardLayout.tsx` | Sidebar, header and the page frame |
 | `src/components/` | Shared components |
-| `src/services/api.ts` | Every REST call, and `API_BASE_URL` (the API address) |
+| `src/services/api.ts` | Every REST call, and `API_BASE_URL` (the API address, from `VITE_API_BASE_URL`) |
 | `src/services/alertStream.ts` | The authenticated `/ws/alerts` stream with REST backfill |
 
 Keep API calls in `src/services/`, not inside components. Authorization is enforced by the API;

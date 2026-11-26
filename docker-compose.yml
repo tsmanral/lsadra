@@ -46,7 +46,11 @@ services:
   # machine; serving it to other hosts needs a configurable API address.
   # Published on the host's loopback only (G-7).
   web:
-    build: ./frontend
+    build:
+      context: ./frontend
+      args:
+        # Where the browser reaches the API; empty means http://localhost:8000.
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-}
     container_name: lsadra-web
     ports:
       - "127.0.0.1:${WEB_PORT:-8080}:8080"

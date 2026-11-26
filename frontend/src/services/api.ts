@@ -1,7 +1,10 @@
 import axios from 'axios';
 import { pickHealth, type IngestionHealth } from './health';
 
-export const API_BASE_URL = 'http://localhost:8000'; // Update this based on where your FastAPI runs
+// The API address, fixed at build time. Set VITE_API_BASE_URL (for example
+// `VITE_API_BASE_URL=http://127.0.0.1:9000 npm run dev`) to use another host or
+// port; /ws/alerts follows it (http -> ws, https -> wss). A trailing slash is dropped.
+export const API_BASE_URL = (import.meta.env.VITE_API_BASE_URL || 'http://localhost:8000').replace(/\/+$/, '');
 
 // Canned demo data is a development aid only. It is compiled in only for
 // `npm run dev` with VITE_DEMO_MOCKS=true, and then only for the `testuser`
