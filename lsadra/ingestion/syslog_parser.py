@@ -154,7 +154,7 @@ class SyslogParser(BaseParser):
             return None
 
         ts, host, process, pid, message = parsed
-        event_type, success, extra = self._classify_message(process, message)
+        event_type, success, extra = self._classify_message(process, message, pid)
 
         extra.update(
             {
@@ -208,41 +208,45 @@ class SyslogParser(BaseParser):
 
         return None
 
-    def _classify_message(self, process: str, message: str) -> tuple:
+    def _classify_message(self, process: str, message: str, pid: Optional[str] = None) -> tuple:
         """Classify syslog message into event_type, success, extra dict."""
         extra: Dict[str, Any] = {}
+        # The header regexes split "proc[pid]: msg" into process, pid and
+        # message, but the matchers below key on that prefix (for example
+        # "CRON[", "su[", "systemd[", "kernel:"), so rebuild it for them.
+        tagged = f"{process}[{pid}]: {message}" if pid else f"{process}: {message}"
 
-        sudo_cmd = _match_sudo(message)
+        sudo_cmd = _match_sudo(tagged)
         if sudo_cmd is not None:
             extra["command"] = sudo_cmd.strip()
             extra["username"] = self._extract_sudo_user(message)
             return "privilege_escalation", True, extra
 
-        cron_cmd = _match_cron(message)
+        cron_cmd = _match_cron(tagged)
         if cron_cmd is not None:
             extra["cron_user"] = cron_cmd
             extra["command"] = cron_cmd
             return "cron_modified", True, extra
 
-        svc = _SERVICE_RE.search(message)
+        svc = _SERVICE_RE.search(tagged)
         if svc:
             action = svc.group(2).lower()
             extra["service_name"] = svc.group(3).strip()
             success = action in ("started", "starting")
             return "service_change", success, extra
 
-        kern = _KERNEL_RE.search(message)
+        kern = _KERNEL_RE.search(tagged)
         if kern:
             extra["kernel_event"] = message[:200]
             return "kernel_module_load", True, extra
 
-        netif = _NETIF_RE.search(message)
+        netif = _NETIF_RE.search(tagged)
         if netif:
             extra["interface"] = netif.group(1)
             extra["state"] = netif.group(2)
             return "network_interface_change", True, extra
 
-        failed_su_user = _match_failed_su(message)
+        failed_su_user = _match_failed_su(tagged)
         if failed_su_user is not None:
             extra["username"] = failed_su_user
             return "login_attempt", False, extra
