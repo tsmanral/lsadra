@@ -1,80 +1,113 @@
-import React, { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { getModelRegistry, getDrift, retrainModel, runDrift, getStats, isTestUser } from '../services/api';
-import { Brain, Activity, RefreshCw, BarChart2, Shield, Wrench, Clock, Database, ChevronDown, ChevronRight } from 'lucide-react';
+import {
+  dataOf,
+  errorDetail,
+  type ActionResult,
+  type DriftByModel,
+  type DriftPoint,
+  type ModelRecord,
+  type PipelineStats,
+} from '../services/responseTypes';
+import { Brain, Activity, RefreshCw, BarChart2, Wrench, Clock, ChevronDown, ChevronRight } from 'lucide-react';
 import { BarChart, Bar, XAxis, YAxis, Tooltip as RechartsTooltip, ResponsiveContainer, ReferenceLine, Cell } from 'recharts';
 
+// Demo-only fallbacks for test users. Built when the page module loads, not
+// during render, so the timestamps stay stable across re-renders.
+const DEMO_TRAINED_AT = new Date(Date.now() - 86400000 * 2).toISOString();
+const DEMO_MEASURED_AT = new Date().toISOString();
+
+const MOCK_MODELS: ModelRecord[] = [
+  { model_name: 'ensemble',    model_type: 'Isolation Forest + LOF + OCSVM', event_count: 1543290, trained_at: DEMO_TRAINED_AT, version: 'v2.4.1', is_stale: false },
+  { model_name: 'autoencoder', model_type: 'PyTorch Neural Autoencoder',     event_count: 1543290, trained_at: DEMO_TRAINED_AT, version: 'v1.8.0', is_stale: false },
+];
+
+const MOCK_DRIFT: DriftByModel = {
+  ensemble: [
+    { feature_name: 'bytes_sent', psi_value: 0.04, is_drifted: false, measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'login_hour', psi_value: 0.13, is_drifted: true,  measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'failed_logins', psi_value: 0.22, is_drifted: true,  measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'unique_ips',    psi_value: 0.07, is_drifted: false, measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'proc_count',    psi_value: 0.03, is_drifted: false, measured_at: DEMO_MEASURED_AT },
+  ],
+  autoencoder: [
+    { feature_name: 'recon_error',   psi_value: 0.09, is_drifted: false, measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'latent_var',    psi_value: 0.18, is_drifted: true,  measured_at: DEMO_MEASURED_AT },
+    { feature_name: 'bytes_recv',    psi_value: 0.05, is_drifted: false, measured_at: DEMO_MEASURED_AT },
+  ],
+};
+
+const MOCK_STATS: PipelineStats = { normalized_events: 1543290, anomalies: 342, incidents: 12, devices: 45, model_registry: 2 };
+
+const allExpanded = (mods: ModelRecord[]): Record<string, boolean> =>
+  Object.fromEntries(mods.map((m) => [m.model_name, true]));
+
+interface Snapshot {
+  models: ModelRecord[];
+  drift: DriftByModel;
+  stats: PipelineStats;
+}
+
+/** Fetch models, drift and stats; test users fall back to demo data. */
+const loadData = async (isTest: boolean): Promise<Snapshot | null> => {
+  try {
+    const [modRes, driftRes, statRes] = await Promise.all([
+      getModelRegistry(), getDrift(), getStats()
+    ]);
+    const modData = dataOf<ModelRecord[]>(modRes);
+    const driftData = dataOf<DriftByModel>(driftRes);
+    const statData = dataOf<PipelineStats>(statRes);
+    return {
+      models: Array.isArray(modData) && modData.length > 0 ? modData : (isTest ? MOCK_MODELS : []),
+      drift: driftData && (driftData.ensemble?.length || driftData.autoencoder?.length) ? driftData : (isTest ? MOCK_DRIFT : {}),
+      stats: statData && Object.keys(statData).length > 0 ? statData : (isTest ? MOCK_STATS : {}),
+    };
+  } catch {
+    return isTest ? { models: MOCK_MODELS, drift: MOCK_DRIFT, stats: MOCK_STATS } : null;
+  }
+};
+
 const ModelAnalytics = () => {
-  const [models, setModels] = useState<any[]>([]);
-  const [drift, setDrift] = useState<any>({});
-  const [stats, setStats] = useState<any>({});
+  const [models, setModels] = useState<ModelRecord[]>([]);
+  const [drift, setDrift] = useState<DriftByModel>({});
+  const [stats, setStats] = useState<PipelineStats>({});
   const [loadingRetrain, setLoadingRetrain] = useState(false);
   const [loadingDrift, setLoadingDrift] = useState(false);
   const [expandedModels, setExpandedModels] = useState<Record<string, boolean>>({});
 
-  useEffect(() => {
-    fetchData();
-  }, []);
-
   const isTest = isTestUser();
 
-  const MOCK_MODELS = [
-    { model_name: 'ensemble',    model_type: 'Isolation Forest + LOF + OCSVM', event_count: 1543290, trained_at: new Date(Date.now()-86400000*2).toISOString(), version: 'v2.4.1', is_stale: false },
-    { model_name: 'autoencoder', model_type: 'PyTorch Neural Autoencoder',     event_count: 1543290, trained_at: new Date(Date.now()-86400000*2).toISOString(), version: 'v1.8.0', is_stale: false },
-  ];
+  const applySnapshot = useCallback((snap: Snapshot | null) => {
+    if (!snap) return;
+    setModels(snap.models); setDrift(snap.drift); setStats(snap.stats);
+    setExpandedModels(allExpanded(snap.models));
+  }, []);
 
-  const MOCK_DRIFT = {
-    ensemble: [
-      { feature_name: 'bytes_sent', psi_value: 0.04, is_drifted: false, measured_at: new Date().toISOString() },
-      { feature_name: 'login_hour', psi_value: 0.13, is_drifted: true,  measured_at: new Date().toISOString() },
-      { feature_name: 'failed_logins', psi_value: 0.22, is_drifted: true,  measured_at: new Date().toISOString() },
-      { feature_name: 'unique_ips',    psi_value: 0.07, is_drifted: false, measured_at: new Date().toISOString() },
-      { feature_name: 'proc_count',    psi_value: 0.03, is_drifted: false, measured_at: new Date().toISOString() },
-    ],
-    autoencoder: [
-      { feature_name: 'recon_error',   psi_value: 0.09, is_drifted: false, measured_at: new Date().toISOString() },
-      { feature_name: 'latent_var',    psi_value: 0.18, is_drifted: true,  measured_at: new Date().toISOString() },
-      { feature_name: 'bytes_recv',    psi_value: 0.05, is_drifted: false, measured_at: new Date().toISOString() },
-    ],
-  };
+  const fetchData = () => loadData(isTest).then(applySnapshot);
 
-  const MOCK_STATS = { normalized_events: 1543290, anomalies: 342, incidents: 12, devices: 45, model_registry: 2 };
-
-  const fetchData = async () => {
-    try {
-      const [modRes, driftRes, statRes] = await Promise.all([
-        getModelRegistry(), getDrift(), getStats()
-      ]);
-      const mods = Array.isArray((modRes as any)?.data) && (modRes as any).data.length > 0 ? (modRes as any).data : (isTest ? MOCK_MODELS : []);
-      const driftD = ((driftRes as any)?.data?.ensemble?.length || (driftRes as any)?.data?.autoencoder?.length) ? (driftRes as any).data : (isTest ? MOCK_DRIFT : {});
-      const statsD = Object.keys((statRes as any)?.data || {}).length > 0 ? (statRes as any).data : (isTest ? MOCK_STATS : {});
-      setModels(mods); setDrift(driftD); setStats(statsD);
-      const exp: Record<string, boolean> = {};
-      mods.forEach((m: any) => { exp[m.model_name] = true; });
-      setExpandedModels(exp);
-    } catch {
-      if (isTest) { setModels(MOCK_MODELS); setDrift(MOCK_DRIFT); setStats(MOCK_STATS); const e: any={}; MOCK_MODELS.forEach(m=>e[m.model_name]=true); setExpandedModels(e); }
-    }
-  };
+  useEffect(() => {
+    loadData(isTest).then(applySnapshot);
+  }, [isTest, applySnapshot]);
 
   const handleRetrain = async () => {
     setLoadingRetrain(true);
     try {
-      const res = await retrainModel() as any;
-      if (res?.data?.status === 'ok' || res?.data?.status === 'success') {
-        alert(`✓ ${res.data.message || `Models retrained on ${res.data.events?.toLocaleString()} events!`}`);
+      const res = dataOf<ActionResult>(await retrainModel());
+      if (res?.status === 'ok' || res?.status === 'success') {
+        alert(`✓ ${res.message || `Models retrained on ${res.events?.toLocaleString()} events!`}`);
         fetchData();
-      } else { alert(`Retrain failed: ${res?.data?.detail || res?.data?.message || 'Unknown error'}`); }
-    } catch (err: any) { alert('Retrain failed: ' + (err?.response?.data?.detail || err?.message)); }
+      } else { alert(`Retrain failed: ${res?.detail || res?.message || 'Unknown error'}`); }
+    } catch (err) { alert('Retrain failed: ' + errorDetail(err)); }
     finally { setLoadingRetrain(false); }
   };
 
   const handleRunDrift = async () => {
     setLoadingDrift(true);
     try {
-      const res = await runDrift() as any;
-      alert(`✓ ${res?.data?.message || 'Drift detection complete!'}`);
+      const res = dataOf<ActionResult>(await runDrift());
+      alert(`✓ ${res?.message || 'Drift detection complete!'}`);
       fetchData();
-    } catch (err: any) { alert('Drift detection failed: ' + (err?.response?.data?.detail || err?.message)); }
+    } catch (err) { alert('Drift detection failed: ' + errorDetail(err)); }
     finally { setLoadingDrift(false); }
   };
 
@@ -82,12 +115,12 @@ const ModelAnalytics = () => {
     setExpandedModels(prev => ({ ...prev, [name]: !prev[name] }));
   };
 
-  const renderDriftChart = (modelName: string, data: any[]) => {
+  const renderDriftChart = (modelName: string, data: DriftPoint[] | undefined) => {
     if (!data || data.length === 0) return <div className="text-[var(--color-muted)] text-sm font-mono mt-4">No drift data available for {modelName}</div>;
     
     // Sort and get latest per feature
     const sorted = [...data].sort((a, b) => new Date(b.measured_at).getTime() - new Date(a.measured_at).getTime());
-    const latestMap = new Map();
+    const latestMap = new Map<string, DriftPoint>();
     sorted.forEach(item => {
       if (!latestMap.has(item.feature_name)) {
         latestMap.set(item.feature_name, item);
@@ -146,7 +179,7 @@ const ModelAnalytics = () => {
           </div>
         ) : (
           <div className="space-y-4">
-            {models.map((m: any, i: number) => {
+            {models.map((m, i) => {
               const isExpanded = expandedModels[m.model_name];
               const isStale = m.is_stale;
               return (
