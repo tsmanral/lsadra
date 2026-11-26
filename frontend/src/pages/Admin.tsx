@@ -1,13 +1,48 @@
-import React, { useEffect, useState } from 'react';
+import React, { useCallback, useEffect, useState } from 'react';
 import { Server, Activity, Shield, Users, Database, FlaskConical, Key, CheckCircle, XCircle, AlertTriangle } from 'lucide-react';
 import { getUsers, updateUserRole, updateUserPassword, getStats, register, getHealth, getIncidents, getAnomalies, getKpis, getModelRegistry, retrainModel, getEntity } from '../services/api';
+import { apiDetail, dataOf, type ActionResult, type ModelRecord } from '../services/responseTypes';
 
-const MOCK_STATS = { normalized_events: 5340234, anomalies: 854, incidents: 42, devices: 45, model_registry: 2, feedback_labels: 5, users: 4, agents: 4 };
+interface UserRow {
+  id: string;
+  username: string;
+  role: string;
+  created_at: string;
+}
+
+interface NewUser {
+  username: string;
+  password: string;
+  role: string;
+}
+
+interface TestResult {
+  name: string;
+  category: string;
+  status: 'PASS' | 'WARN' | 'FAIL';
+  detail: string;
+  warnDetail?: string;
+  warnFix?: string;
+  expanded: boolean;
+}
+
+interface DiagnosticTest {
+  name: string;
+  category: string;
+  fn: () => Promise<unknown>;
+  warnDetail?: string;
+  warnImpact?: string;
+  warnFix?: string;
+}
+
+type StatsMap = Record<string, unknown>;
+
+const MOCK_STATS: StatsMap = { normalized_events: 5340234, anomalies: 854, incidents: 42, devices: 45, model_registry: 2, feedback_labels: 5, users: 4, agents: 4 };
 
 const Admin = () => {
   const [activeTab, setActiveTab]   = useState('users');
-  const [users, setUsers]           = useState<any[]>([]);
-  const [stats, setStats]           = useState<any>({});
+  const [users, setUsers]           = useState<UserRow[]>([]);
+  const [stats, setStats]           = useState<StatsMap>({});
   const [editRow, setEditRow]       = useState<string | null>(null);
   const [editRole, setEditRole]     = useState('ANALYST');
   const [editPass, setEditPass]     = useState('');
@@ -15,31 +50,31 @@ const Admin = () => {
   const [saveMsg, setSaveMsg]       = useState('');
 
   // Create user
-  const [newUser, setNewUser] = useState({ username:'', password:'', role:'ANALYST' });
+  const [newUser, setNewUser] = useState<NewUser>({ username:'', password:'', role:'ANALYST' });
   const [createMsg, setCreateMsg] = useState('');
 
   // Testing
-  const [testResults, setTestResults] = useState<any[]>([]);
+  const [testResults, setTestResults] = useState<TestResult[]>([]);
   const [testing, setTesting]         = useState(false);
 
-  useEffect(() => { fetchUsers(); fetchStats(); }, []);
+  const fetchUsers = useCallback(() => {
+    getUsers()
+      .then(r => { const rows = dataOf<UserRow[]>(r); if (rows) setUsers(rows); })
+      .catch(() => { /* keep the current list; getUsers already falls back to [] */ });
+  }, []);
 
-  const fetchUsers = async () => {
-    try {
-      const r = await getUsers();
-      if ((r as any)?.data) setUsers((r as any).data);
-    } catch {}
-  };
+  const fetchStats = useCallback(() => {
+    getStats()
+      .then(r => {
+        const data = dataOf<StatsMap>(r);
+        setStats(data && Object.keys(data).length > 0 ? data : MOCK_STATS);
+      })
+      .catch(() => setStats(MOCK_STATS));
+  }, []);
 
-  const fetchStats = async () => {
-    try {
-      const r = await getStats();
-      const statsD = Object.keys((r as any)?.data || {}).length > 0 ? (r as any).data : MOCK_STATS;
-      setStats(statsD);
-    } catch { setStats(MOCK_STATS); }
-  };
+  useEffect(() => { fetchUsers(); fetchStats(); }, [fetchUsers, fetchStats]);
 
-  const startEdit = (u: any) => {
+  const startEdit = (u: UserRow) => {
     setEditRow(u.id); setEditRole(u.role); setEditPass(''); setSaveMsg('');
   };
 
@@ -74,7 +109,7 @@ const Admin = () => {
       window.alert(`User "${newUser.username}" created successfully.`);
       setNewUser({ username:'', password:'', role:'ANALYST' });
       fetchUsers();
-    } catch (e: any) { setCreateMsg(`✗ ${e?.response?.data?.detail || 'Failed'}`); }
+    } catch (e) { setCreateMsg(`✗ ${apiDetail(e) || 'Failed'}`); }
     setTimeout(() => setCreateMsg(''), 4000);
   };
 
@@ -83,7 +118,7 @@ const Admin = () => {
     const role = localStorage.getItem('sentinel_role') || 'UNKNOWN';
     const user = localStorage.getItem('sentinel_username') || 'UNKNOWN';
 
-    const tests = [
+    const tests: DiagnosticTest[] = [
       {
         name: 'Backend Reachability',
         category: 'Infrastructure',
@@ -106,10 +141,9 @@ const Admin = () => {
         name: 'Mock Data Layer — Incidents',
         category: 'Data Layer',
         fn: async () => {
-          const r = await getIncidents() as any;
-          const count = r?.data?.incidents?.length || 0;
-          if (count === 0) throw new Error('No incidents in mock data');
-          return { data: { incidents: count, first_id: r.data.incidents[0]?.id } };
+          const incidents = dataOf<{ incidents?: { id?: string | number }[] }>(await getIncidents())?.incidents ?? [];
+          if (incidents.length === 0) throw new Error('No incidents in mock data');
+          return { data: { incidents: incidents.length, first_id: incidents[0]?.id } };
         },
         warnDetail: 'No incidents returned from API or mock layer.',
         warnFix: '1. Login as testuser to activate mock data\n2. Check api.ts getMockData(\'/api/incidents\')\n3. Verify MOCK_ENTITIES is exported correctly',
@@ -118,10 +152,10 @@ const Admin = () => {
         name: 'Mock Data Layer — Anomalies',
         category: 'Data Layer',
         fn: async () => {
-          const r = await getAnomalies() as any;
-          const count = Array.isArray(r?.data) ? r.data.length : 0;
-          if (count === 0) throw new Error('No anomalies returned');
-          return { data: { anomalies: count, sample: r.data[0]?.threat_type } };
+          const data = dataOf<{ threat_type?: string }[]>(await getAnomalies());
+          const anomalies = Array.isArray(data) ? data : [];
+          if (anomalies.length === 0) throw new Error('No anomalies returned');
+          return { data: { anomalies: anomalies.length, sample: anomalies[0]?.threat_type } };
         },
         warnDetail: 'No anomalies returned — live feed and threat tiles will show empty.',
         warnFix: '1. Ensure testuser is logged in (activates mock)\n2. Check getAnomalies() in api.ts\n3. Backend anomaly endpoint may need /api/dashboard/anomalies',
@@ -130,9 +164,9 @@ const Admin = () => {
         name: 'Mock Data Layer — KPIs',
         category: 'Data Layer',
         fn: async () => {
-          const r = await getKpis() as any;
-          if (typeof r?.data?.total_events_24h !== 'number') throw new Error('KPI data missing total_events_24h');
-          return { data: { events: r.data.total_events_24h?.toLocaleString(), anomalies: r.data.total_anomalies_24h } };
+          const kpis = dataOf<{ total_events_24h?: number; total_anomalies_24h?: number }>(await getKpis());
+          if (typeof kpis?.total_events_24h !== 'number') throw new Error('KPI data missing total_events_24h');
+          return { data: { events: kpis.total_events_24h.toLocaleString(), anomalies: kpis.total_anomalies_24h } };
         },
         warnDetail: 'KPI tile data missing — Command Center and Analytics top cards will show 0.',
         warnFix: 'Check getKpis() mock path in api.ts. Ensure getMockData calls tickLive() for /api/dashboard/kpis.',
@@ -152,10 +186,10 @@ const Admin = () => {
         name: 'Model Registry Endpoint',
         category: 'ML Pipeline',
         fn: async () => {
-          const r = await getModelRegistry() as any;
-          const models = Array.isArray(r?.data) ? r.data : [];
+          const data = dataOf<ModelRecord[]>(await getModelRegistry());
+          const models = Array.isArray(data) ? data : [];
           if (models.length === 0) throw new Error('No models in registry');
-          return { data: { models: models.length, names: models.map((m: any) => m.model_name).join(', ') } };
+          return { data: { models: models.length, names: models.map(m => m.model_name).join(', ') } };
         },
         warnDetail: 'Model registry returned empty — Model Analytics page will show nothing.',
         warnFix: '1. Check getModelRegistry() in api.ts\n2. Backend: GET /api/dashboard/models must return [{model_name, model_type, event_count, trained_at}]\n3. Run retrain to create initial models',
@@ -164,9 +198,9 @@ const Admin = () => {
         name: 'Retrain Mock (Event Count)',
         category: 'ML Pipeline',
         fn: async () => {
-          const r = await retrainModel() as any;
-          if (r?.data?.status !== 'ok') throw new Error('Retrain returned non-ok status');
-          return { data: { events: r.data.events?.toLocaleString(), message: r.data.message?.slice(0, 60) } };
+          const res = dataOf<ActionResult>(await retrainModel());
+          if (res?.status !== 'ok') throw new Error('Retrain returned non-ok status');
+          return { data: { events: res.events?.toLocaleString(), message: res.message?.slice(0, 60) } };
         },
         warnDetail: 'Retrain endpoint returned an error or unreachable.',
         warnFix: '1. Backend must expose POST /api/dashboard/retrain\n2. In demo mode, isTestUser() or ADMIN role triggers mock\n3. Check retrainModel() in api.ts',
@@ -175,31 +209,30 @@ const Admin = () => {
         name: 'Investigate Entity Pivot',
         category: 'Investigation',
         fn: async () => {
-          const incs = await getIncidents() as any;
-          const first = incs?.data?.incidents?.[0];
+          const first = dataOf<{ incidents?: { id?: string | number }[] }>(await getIncidents())?.incidents?.[0];
           if (!first) return { data: { skipped: 'no incidents yet' } };
-          const r = await getEntity(`inc_${first.id}`) as any;
-          if (r?.data?.type !== 'Incident') throw new Error(`incident ${first.id} did not resolve`);
-          return { data: { entity: r.data.entity, incident_id: r.data.incident_id } };
+          const entity = dataOf<{ type?: string; entity?: unknown; incident_id?: unknown }>(await getEntity(`inc_${first.id}`));
+          if (entity?.type !== 'Incident') throw new Error(`incident ${first.id} did not resolve`);
+          return { data: { entity: entity.entity, incident_id: entity.incident_id } };
         },
         warnDetail: 'The newest incident could not be resolved through GET /api/entity.',
         warnFix: '1. Backend must expose GET /api/entity?q=...\n2. Check lsadra/api/investigation.py',
       },
     ];
 
-    const results: any[] = [];
+    const results: TestResult[] = [];
     for (const t of tests) {
       try {
         const r = await t.fn();
         results.push({
           name: t.name, category: t.category, status: 'PASS',
-          detail: JSON.stringify((r as any)?.data).slice(0, 100),
+          detail: JSON.stringify(dataOf(r)).slice(0, 100),
           expanded: false,
         });
-      } catch (e: any) {
+      } catch (e) {
         results.push({
           name: t.name, category: t.category, status: 'WARN',
-          detail: e.message || 'Error',
+          detail: (e instanceof Error ? e.message : String(e)) || 'Error',
           warnDetail: t.warnDetail || '',
           warnFix: t.warnFix || '',
           expanded: false,
@@ -322,7 +355,7 @@ const Admin = () => {
                 ].map(({ label, key, type }) => (
                   <div key={key}>
                     <label className="text-[10px] font-mono text-[var(--color-muted)] uppercase block mb-1">{label}</label>
-                    <input type={type} value={(newUser as any)[key]} onChange={e => setNewUser(u => ({ ...u, [key]: e.target.value }))}
+                    <input type={type} value={newUser[key as keyof NewUser]} onChange={e => setNewUser(u => ({ ...u, [key]: e.target.value }))}
                       className="w-full bg-[rgba(255,255,255,0.04)] border border-[rgba(0,240,255,0.2)] text-white text-xs font-mono px-3 py-2 focus:outline-none focus:border-[var(--color-primary)]"/>
                   </div>
                 ))}
